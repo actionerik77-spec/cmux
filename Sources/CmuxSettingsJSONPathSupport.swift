@@ -522,6 +522,7 @@ extension CmuxSettingsFileStore {
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
         "fileExplorer.doubleClickAction",
+        "shortcuts.prefix",
         "shortcuts.bindings",
     ]
 }
