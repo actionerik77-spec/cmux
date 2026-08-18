@@ -9,6 +9,7 @@ import Foundation
 /// from `TerminalNotificationQueue.swift` for the file-length budget.
 
 extension TerminalController {
+    @discardableResult
     func deliverNotificationSynchronously(
         tabId: UUID,
         surfaceId: UUID?,
@@ -17,7 +18,7 @@ extension TerminalController {
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
         retargetsToLiveSurfaceOwner: Bool = true
-    ) {
+    ) -> UUID? {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
             // Trusted local delivery follows the surface's CURRENT workspace.
@@ -26,7 +27,7 @@ extension TerminalController {
             guard let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
                 claimedTabId: tabId,
                 surfaceId: surfaceId
-            ) else { return }
+            ) else { return nil }
             target = liveTarget
         } else {
             // `notification.create_for_target` is relay-reachable and already
@@ -51,7 +52,7 @@ extension TerminalController {
             "notification.sync.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(tabId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
         )
 #endif
-        TerminalNotificationStore.shared.addNotification(
+        return TerminalNotificationStore.shared.addNotification(
             tabId: target.tabId,
             surfaceId: target.surfaceId,
             title: title,
