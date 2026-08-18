@@ -25,6 +25,10 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
     public let iconSymbol: String?
     /// Caller-owned identity used by idempotent group creation, if any.
     public let externalID: String?
+    /// Standard retry spelling for ``externalID``.
+    public var idempotencyKey: String? {
+        externalID
+    }
     /// Raw anchor provenance (`generated`, `user`, or `unknown`).
     public let anchorWorkspaceProvenance: String
     /// Whether the current anchor is explicitly cmux-generated.

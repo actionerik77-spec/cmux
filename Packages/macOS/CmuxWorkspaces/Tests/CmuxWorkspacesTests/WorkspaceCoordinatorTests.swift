@@ -847,6 +847,7 @@ struct WorkspaceCoordinatorTests {
         #expect(second == first)
         #expect(model.workspaceGroups.count == 1)
         #expect(model.tabs.count == tabCountAfterFirstCreate)
+        #expect(model.workspaceGroups.first?.idempotencyKey == "repo:cmux")
     }
 
     @Test

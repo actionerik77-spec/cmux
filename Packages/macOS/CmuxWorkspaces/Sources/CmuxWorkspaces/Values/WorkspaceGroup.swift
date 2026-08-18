@@ -36,6 +36,10 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     public var iconSymbol: String?
     /// Stable caller-owned identity used by idempotent group creation.
     public var externalID: String?
+    /// Standard retry spelling for ``externalID``.
+    public var idempotencyKey: String? {
+        externalID
+    }
     /// Provenance of the current anchor, used to gate explicit cleanup of an
     /// anchor-only generated workspace.
     public var anchorWorkspaceProvenance: WorkspaceGroupAnchorProvenance
