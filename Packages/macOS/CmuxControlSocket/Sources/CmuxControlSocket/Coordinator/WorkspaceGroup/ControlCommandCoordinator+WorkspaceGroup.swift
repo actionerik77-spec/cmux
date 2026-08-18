@@ -58,7 +58,7 @@ extension ControlCommandCoordinator {
     /// Builds one group's payload row (the legacy `v2WorkspaceGroupPayload`),
     /// minting the `workspace_group` / `workspace` refs from the snapshot ids.
     private func workspaceGroupPayload(_ group: ControlWorkspaceGroupSnapshot) -> JSONValue {
-        .object([
+        var payload: [String: JSONValue] = [
             "id": .string(group.id.uuidString),
             "ref": ref(.workspaceGroup, group.id),
             "name": .string(group.name),
@@ -71,7 +71,16 @@ extension ControlCommandCoordinator {
             "member_workspace_ids": .array(group.memberWorkspaceIDs.map { .string($0.uuidString) }),
             "member_workspace_refs": .array(group.memberWorkspaceIDs.map { ref(.workspace, $0) }),
             "member_count": .int(Int64(group.memberWorkspaceIDs.count)),
-        ])
+            "anchor_workspace_provenance": .string(group.anchorWorkspaceProvenance),
+            "anchor_workspace_is_generated": .bool(group.isGeneratedAnchor),
+        ]
+        if let externalID = group.externalID {
+            payload["external_id"] = .string(externalID)
+            // Keep the standard retry spelling visible in list responses so a
+            // client can persist either accepted request form.
+            payload["idempotency_key"] = .string(externalID)
+        }
+        return .object(payload)
     }
 
     // MARK: - List
@@ -98,6 +107,9 @@ extension ControlCommandCoordinator {
     func workspaceGroupCreate(_ params: [String: JSONValue]) -> ControlCallResult {
         let name = rawString(params, "name") ?? ""
         let cwd = rawString(params, "cwd")
+        let externalIDResult = workspaceGroupExternalID(params)
+        if let error = externalIDResult.error { return error }
+        let externalID = externalIDResult.value
 
         // child_workspace_ids accepts raw UUID strings AND v2 handle refs
         // (workspace:1, ws:1, etc.). An absent/null value means an explicit
@@ -139,7 +151,8 @@ extension ControlCommandCoordinator {
             routing: routingSelectors(params),
             name: name,
             cwd: cwd,
-            childWorkspaceIDs: parsedChildIDs
+            childWorkspaceIDs: parsedChildIDs,
+            externalID: externalID
         ) ?? .tabManagerUnavailable
 
         switch resolution {
@@ -160,7 +173,15 @@ extension ControlCommandCoordinator {
         case .notCreated:
             return .err(code: "not_created", message: "Group was not created", data: nil)
         case .created(let group):
-            return .ok(.object(["group": workspaceGroupPayload(group)]))
+            return .ok(.object([
+                "group": workspaceGroupPayload(group),
+                "created": .bool(true),
+            ]))
+        case .existing(let group):
+            return .ok(.object([
+                "group": workspaceGroupPayload(group),
+                "created": .bool(false),
+            ]))
         }
     }
 
@@ -443,5 +464,43 @@ extension ControlCommandCoordinator {
     private func isNull(_ value: JSONValue) -> Bool {
         if case .null = value { return true }
         return false
+    }
+
+    /// Parses the two accepted spellings for a caller-owned group identity.
+    /// `external_id` is the durable model name; `idempotency_key` is the
+    /// standard retry-oriented alias. Supplying both is allowed only when they
+    /// agree exactly after trimming.
+    private func workspaceGroupExternalID(
+        _ params: [String: JSONValue]
+    ) -> (value: String?, error: ControlCallResult?) {
+        var values: [(String, String)] = []
+        for key in ["external_id", "idempotency_key"] {
+            guard let value = params[key], !isNull(value) else { continue }
+            guard case .string(let raw) = value else {
+                return (nil, .err(
+                    code: "invalid_params",
+                    message: workspaceGroupStrings().idempotencyKeyMustBeString,
+                    data: .object(["field": .string(key)])
+                ))
+            }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return (nil, .err(
+                    code: "invalid_params",
+                    message: workspaceGroupStrings().idempotencyKeyMustNotBeEmpty,
+                    data: .object(["field": .string(key)])
+                ))
+            }
+            values.append((key, trimmed))
+        }
+        let uniqueValues = Set(values.map(\.1))
+        guard uniqueValues.count <= 1 else {
+            return (nil, .err(
+                code: "invalid_params",
+                message: workspaceGroupStrings().idempotencyKeysMustMatch,
+                data: nil
+            ))
+        }
+        return (values.first?.1, nil)
     }
 }

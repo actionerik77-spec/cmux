@@ -23,6 +23,14 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
     public let customColor: String?
     /// The group's custom icon symbol, if any.
     public let iconSymbol: String?
+    /// Caller-owned identity used by idempotent group creation, if any.
+    public let externalID: String?
+    /// Raw anchor provenance (`generated`, `user`, or `unknown`).
+    public let anchorWorkspaceProvenance: String
+    /// Whether the current anchor is explicitly cmux-generated.
+    public var isGeneratedAnchor: Bool {
+        anchorWorkspaceProvenance == "generated"
+    }
     /// The group's member workspace identifiers, in tab order.
     public let memberWorkspaceIDs: [UUID]
 
@@ -36,6 +44,8 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
     ///   - anchorWorkspaceID: The anchor workspace's identifier.
     ///   - customColor: The custom color override, if any.
     ///   - iconSymbol: The custom icon symbol, if any.
+    ///   - externalID: Caller-owned identity, if any.
+    ///   - anchorWorkspaceProvenance: Raw anchor provenance.
     ///   - memberWorkspaceIDs: The member workspace identifiers, in tab order.
     public init(
         id: UUID,
@@ -45,7 +55,9 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
         anchorWorkspaceID: UUID,
         customColor: String?,
         iconSymbol: String?,
-        memberWorkspaceIDs: [UUID]
+        memberWorkspaceIDs: [UUID],
+        externalID: String? = nil,
+        anchorWorkspaceProvenance: String = "unknown"
     ) {
         self.id = id
         self.name = name
@@ -54,6 +66,8 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
         self.anchorWorkspaceID = anchorWorkspaceID
         self.customColor = customColor
         self.iconSymbol = iconSymbol
+        self.externalID = externalID
+        self.anchorWorkspaceProvenance = anchorWorkspaceProvenance
         self.memberWorkspaceIDs = memberWorkspaceIDs
     }
 }

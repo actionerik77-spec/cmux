@@ -220,6 +220,7 @@ extension WorkspacesModel {
             guard let groupIndex = workspaceGroups.firstIndex(where: { $0.id == gid }) else { continue }
             if let nextAnchor = tabs.first(where: { $0.groupId == gid }) {
                 workspaceGroups[groupIndex].anchorWorkspaceId = nextAnchor.id
+                workspaceGroups[groupIndex].anchorWorkspaceProvenance = .user
                 promotedAnchorIds.append(nextAnchor.id)
             } else {
                 removedGroupIds.append(gid)

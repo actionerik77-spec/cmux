@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 extension TerminalController {
     /// Mobile-gated workspace-group creation that mirrors mobile workspace.create.
@@ -6,6 +7,8 @@ extension TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
+        let identity = mobileWorkspaceGroupExternalID(params: params)
+        if let error = identity.error { return error }
         let title = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = title?.isEmpty == false ? title ?? "" : ""
 
@@ -13,6 +16,7 @@ extension TerminalController {
         v2MainSync {
             guard tabManager.createWorkspaceGroup(
                 name: name,
+                externalID: identity.value,
                 selectAnchor: false,
                 collapseSidebarSelection: false
             ) != nil else {
@@ -71,7 +75,46 @@ extension TerminalController {
                 }
                 tabManager.renameWorkspaceGroup(groupId: groupID, name: title)
             case .ungroup:
-                tabManager.ungroupWorkspaceGroup(groupId: groupID)
+                let removeGeneratedAnchor: Bool
+                if !v2HasNonNullParam(params, "remove_generated_anchor") {
+                    removeGeneratedAnchor = false
+                } else if let value = params["remove_generated_anchor"] as? Bool {
+                    removeGeneratedAnchor = value
+                } else {
+                    mutationError = .err(
+                        code: "invalid_params",
+                        message: controlWorkspaceGroupStrings().removeGeneratedAnchorMustBeBoolean,
+                        data: nil
+                    )
+                    return
+                }
+                switch tabManager.ungroupWorkspaceGroup(
+                    groupId: groupID,
+                    removeGeneratedAnchor: removeGeneratedAnchor
+                ) {
+                case .groupNotFound:
+                    mutationError = .err(code: "not_found", message: "Group not found", data: nil)
+                case .dissolved, .removedGeneratedAnchor:
+                    break
+                case .generatedAnchorRequiresAnchorOnly:
+                    mutationError = .err(
+                        code: "invalid_state",
+                        message: controlWorkspaceGroupStrings().generatedAnchorRequiresAnchorOnly,
+                        data: nil
+                    )
+                case .generatedAnchorNotOwned:
+                    mutationError = .err(
+                        code: "invalid_state",
+                        message: controlWorkspaceGroupStrings().generatedAnchorNotOwned,
+                        data: nil
+                    )
+                case .generatedAnchorRemovalFailed:
+                    mutationError = .err(
+                        code: "not_removed",
+                        message: controlWorkspaceGroupStrings().generatedAnchorRemovalFailed,
+                        data: nil
+                    )
+                }
             case .delete:
                 let memberCount = tabManager.tabs.filter { $0.groupId == groupID }.count
                 guard memberCount > 0 else {
@@ -140,6 +183,67 @@ extension TerminalController {
             return nil
         }
         return trimmed
+    }
+
+    /// Parses the shared caller-owned identity accepted by mobile and control
+    /// workspace-group creation. The control-socket path supplies localized
+    /// errors; this mobile path is only reached after authenticated RPC gating.
+    private func mobileWorkspaceGroupExternalID(
+        params: [String: Any]
+    ) -> (value: String?, error: V2CallResult?) {
+        let external = v2RawString(params, "external_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let idempotency = v2RawString(params, "idempotency_key")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if v2HasNonNullParam(params, "external_id"), external == nil {
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustBeString",
+                    defaultValue: "external_id and idempotency_key must be strings"
+                ),
+                data: nil
+            ))
+        }
+        if v2HasNonNullParam(params, "idempotency_key"), idempotency == nil {
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustBeString",
+                    defaultValue: "external_id and idempotency_key must be strings"
+                ),
+                data: nil
+            ))
+        }
+        if v2HasNonNullParam(params, "external_id"), external?.isEmpty != false {
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustNotBeEmpty",
+                    defaultValue: "The group identity must not be empty"
+                ),
+                data: nil
+            ))
+        }
+        if v2HasNonNullParam(params, "idempotency_key"), idempotency?.isEmpty != false {
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustNotBeEmpty",
+                    defaultValue: "The group identity must not be empty"
+                ),
+                data: nil
+            ))
+        }
+        if let external, let idempotency, external != idempotency {
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "workspaceGroup.error.idempotencyKeysMustMatch",
+                    defaultValue: "external_id and idempotency_key must match"
+                ),
+                data: nil
+            ))
+        }
+        return (external ?? idempotency, nil)
     }
 }
 

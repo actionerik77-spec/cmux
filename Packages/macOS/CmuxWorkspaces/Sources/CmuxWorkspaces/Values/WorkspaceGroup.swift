@@ -11,6 +11,8 @@ public import Foundation
 /// sidebar row). Closing the anchor promotes the group's first remaining
 /// member in `tabs` order to be the new anchor and keeps the group; the group
 /// is removed only when the anchor was its last workspace.
+/// An optional external id gives automation a stable, caller-owned identity
+/// for create-if-absent operations; it is scoped to the owning window.
 public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     /// The group's stable identity.
     public let id: UUID
@@ -32,6 +34,15 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     public var customColor: String?
     /// SF symbol name for the header icon. When nil, defaults to `folder.fill`.
     public var iconSymbol: String?
+    /// Stable caller-owned identity used by idempotent group creation.
+    public var externalID: String?
+    /// Provenance of the current anchor, used to gate explicit cleanup of an
+    /// anchor-only generated workspace.
+    public var anchorWorkspaceProvenance: WorkspaceGroupAnchorProvenance
+    /// Whether the current anchor is still the cmux-created anchor.
+    public var isGeneratedAnchor: Bool {
+        anchorWorkspaceProvenance == .generated
+    }
 
     /// Creates a group (memberwise; mirrors the legacy app-side shape).
     public init(
@@ -41,7 +52,9 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
         isPinned: Bool,
         anchorWorkspaceId: UUID,
         customColor: String?,
-        iconSymbol: String?
+        iconSymbol: String?,
+        externalID: String? = nil,
+        anchorWorkspaceProvenance: WorkspaceGroupAnchorProvenance = .unknown
     ) {
         self.id = id
         self.name = name
@@ -50,5 +63,7 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
         self.anchorWorkspaceId = anchorWorkspaceId
         self.customColor = customColor
         self.iconSymbol = iconSymbol
+        self.externalID = externalID
+        self.anchorWorkspaceProvenance = anchorWorkspaceProvenance
     }
 }

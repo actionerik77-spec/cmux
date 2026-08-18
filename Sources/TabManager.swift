@@ -1927,14 +1927,16 @@ class TabManager: ObservableObject {
         childWorkspaceIds: [UUID] = [],
         anchorWorkingDirectory: String? = nil,
         selectAnchor: Bool = true,
-        collapseSidebarSelection: Bool = true
+        collapseSidebarSelection: Bool = true,
+        externalID: String? = nil
     ) -> UUID? {
         workspaceGrouping.createWorkspaceGroup(
             name: name,
             childWorkspaceIds: childWorkspaceIds,
             anchorWorkingDirectory: anchorWorkingDirectory,
             selectAnchor: selectAnchor,
-            collapseSidebarSelection: collapseSidebarSelection
+            collapseSidebarSelection: collapseSidebarSelection,
+            externalID: externalID
         )
     }
 
@@ -1983,8 +1985,15 @@ class TabManager: ObservableObject {
         workspaceGrouping.removeWorkspaceFromGroup(workspaceId: workspaceId)
     }
 
-    func ungroupWorkspaceGroup(groupId: UUID) {
-        workspaceGrouping.ungroupWorkspaceGroup(groupId: groupId)
+    @discardableResult
+    func ungroupWorkspaceGroup(
+        groupId: UUID,
+        removeGeneratedAnchor: Bool = false
+    ) -> WorkspaceGroupUngroupResult {
+        workspaceGrouping.ungroupWorkspaceGroup(
+            groupId: groupId,
+            removeGeneratedAnchor: removeGeneratedAnchor
+        )
     }
 
     @discardableResult
@@ -5886,6 +5895,8 @@ extension TabManager {
             hasher.combine(group.anchorWorkspaceId)
             hasher.combine(group.customColor ?? "")
             hasher.combine(group.iconSymbol ?? "")
+            hasher.combine(group.externalID ?? "")
+            hasher.combine(group.anchorWorkspaceProvenance.rawValue)
         }
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
@@ -6193,7 +6204,9 @@ extension TabManager {
                         anchorMemberIndex: anchorIndex,
                         isPinned: group.isPinned,
                         customColor: group.customColor,
-                        iconSymbol: group.iconSymbol
+                        iconSymbol: group.iconSymbol,
+                        externalID: group.externalID,
+                        anchorWorkspaceProvenance: group.anchorWorkspaceProvenance.rawValue
                     )
                 }
             return snapshots.isEmpty ? nil : snapshots
@@ -6420,7 +6433,11 @@ extension TabManager {
                     isPinned: groupSnapshot.isPinned ?? false,
                     anchorWorkspaceId: anchorId,
                     customColor: groupSnapshot.customColor,
-                    iconSymbol: groupSnapshot.iconSymbol
+                    iconSymbol: groupSnapshot.iconSymbol,
+                    externalID: groupSnapshot.externalID,
+                    anchorWorkspaceProvenance: WorkspaceGroupAnchorProvenance(
+                        rawValue: groupSnapshot.anchorWorkspaceProvenance ?? ""
+                    ) ?? .unknown
                 )
             }
         }()
