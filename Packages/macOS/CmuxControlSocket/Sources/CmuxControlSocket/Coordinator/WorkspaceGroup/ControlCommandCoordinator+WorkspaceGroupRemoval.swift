@@ -43,7 +43,6 @@ extension ControlCommandCoordinator {
                 "operation": .string("dissolved"),
                 "kept_workspace_count": .int(0),
                 "removed_anchor_workspace_id": .string(workspaceID.uuidString),
-                "removed_anchor_workspace_ref": ref(.workspace, workspaceID),
             ]))
         case .generatedAnchorRequiresAnchorOnly(let memberCount):
             return .err(
