@@ -214,7 +214,7 @@ extension AppDelegate {
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
             sourcePanelId: store.focusedPanelId,
-            focus: true
+            focus: false
         ) else {
             return false
         }

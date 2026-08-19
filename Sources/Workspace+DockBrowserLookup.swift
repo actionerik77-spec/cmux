@@ -61,16 +61,20 @@ extension Workspace {
 
     func openDockBrowserLinkInNewTab(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
         guard let dock = _dockSplit, let paneId = dock.paneId(forPanelId: panel.id) else { return false }
-        return dock.newSurface(
+        guard let panelId = dock.newSurface(
             kind: .browser,
             inPane: paneId,
             url: seed.url,
             initialRequest: seed.initialRequest,
-            focus: true,
+            focus: false,
             preferredProfileID: panel.profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
             websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
-        ) != nil
+        ) else {
+            return false
+        }
+        dock.focusPanelFromDockInteraction(panelId, window: nil)
+        return true
     }
 
     static func openDockBrowserLinkInNewTabIfNeeded(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
@@ -79,16 +83,20 @@ extension Workspace {
            let dock = app.dock(resolving: target),
            dock.browserPanel(for: panel.id) === panel,
            let paneId = dock.paneId(forPanelId: panel.id) {
-            return dock.newSurface(
+            guard let panelId = dock.newSurface(
                 kind: .browser,
                 inPane: paneId,
                 url: seed.url,
                 initialRequest: seed.initialRequest,
-                focus: true,
+                focus: false,
                 preferredProfileID: panel.profileID,
                 bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
                 websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
-            ) != nil
+            ) else {
+                return false
+            }
+            dock.focusPanelFromDockInteraction(panelId, window: nil)
+            return true
         }
         guard let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager,
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else { return false }
@@ -250,18 +258,22 @@ extension DockSplitStore {
                     ) else {
                     return false
                 }
-                return self.newSurface(
+                guard let panelId = self.newSurface(
                     kind: .browser,
                     inPane: targetPane,
                     initialRequest: request,
-                    focus: true,
+                    focus: false,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
-                ) != nil
+                ) else {
+                    return false
+                }
+                self.focusPanelFromDockInteraction(panelId, window: nil)
+                return true
             },
             openHorizontalSplit: { request, websiteDataStore in
-                self.newSplit(
+                guard let panelId = self.newSplit(
                     kind: .browser,
                     orientation: .horizontal,
                     insertFirst: false,
@@ -270,19 +282,27 @@ extension DockSplitStore {
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore,
-                    focus: true
-                ) != nil
+                    focus: false
+                ) else {
+                    return false
+                }
+                self.focusPanelFromDockInteraction(panelId, window: nil)
+                return true
             },
             openInSourcePane: { request, websiteDataStore in
-                self.newSurface(
+                guard let panelId = self.newSurface(
                     kind: .browser,
                     inPane: sourcePane,
                     initialRequest: request,
-                    focus: true,
+                    focus: false,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
-                ) != nil
+                ) else {
+                    return false
+                }
+                self.focusPanelFromDockInteraction(panelId, window: nil)
+                return true
             },
             isBrowserAvailable: { self.isBrowserAvailable() }
         )
@@ -310,19 +330,23 @@ extension DockSplitStore {
                     ) else {
                     return false
                 }
-                return self.newSurface(
+                guard let panelId = self.newSurface(
                     kind: .browser,
                     inPane: targetPane,
                     url: url,
-                    focus: true,
+                    focus: false,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
-                ) != nil
+                ) else {
+                    return false
+                }
+                self.focusPanelFromDockInteraction(panelId, window: nil)
+                return true
             },
             openHorizontalSplit: { url, websiteDataStore in
                 guard sourcePane != nil else { return false }
-                return self.newSplit(
+                guard let panelId = self.newSplit(
                     kind: .browser,
                     orientation: .horizontal,
                     insertFirst: false,
@@ -331,20 +355,28 @@ extension DockSplitStore {
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore,
-                    focus: true
-                ) != nil
+                    focus: false
+                ) else {
+                    return false
+                }
+                self.focusPanelFromDockInteraction(panelId, window: nil)
+                return true
             },
             openInSourcePane: { url, websiteDataStore in
                 guard let sourcePane else { return false }
-                return self.newSurface(
+                guard let panelId = self.newSurface(
                     kind: .browser,
                     inPane: sourcePane,
                     url: url,
-                    focus: true,
+                    focus: false,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
-                ) != nil
+                ) else {
+                    return false
+                }
+                self.focusPanelFromDockInteraction(panelId, window: nil)
+                return true
             },
             isBrowserAvailable: { self.isBrowserAvailable() }
         )
