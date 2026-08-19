@@ -45,7 +45,15 @@ enum WorkspaceListConnectionChrome: Equatable {
             self = .macStatusRow
         } else if connectionStatus == .reconnecting || (hasStore && isRecoveringConnection) {
             self = .statusLine(.reconnecting)
-        } else if connectionStatus == .unavailable || (hasStore && connectionRecoveryFailed) {
+        } else if connectionStatus == .unavailable
+            || (hasStore && connectionRecoveryFailed && connectionStatus != .connected) {
+            // `connectionStatus` is the AGGREGATE list status while
+            // `connectionRecoveryFailed` describes only the foreground
+            // pairing, which nothing clears while healthy secondary Macs
+            // serve every visible row. The narrower-scope flag must not
+            // contradict a `.connected` list with a "Not Connected" caption;
+            // the per-workspace surfaces still present the unreachable Mac
+            // itself as not connected.
             self = .statusLine(.notConnected)
         } else {
             self = .none
