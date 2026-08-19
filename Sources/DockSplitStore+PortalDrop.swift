@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
@@ -93,17 +94,24 @@ extension DockSplitStore {
         guard let launch = entry.resumeLaunch else { return false }
         switch destination {
         case .insert(let paneId, _):
-            return newSurface(
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+            guard let panelId = newSurface(
                 kind: .terminal,
                 inPane: paneId,
                 workingDirectory: launch.workingDirectory,
                 initialInput: launch.initialInput,
                 startupRestoreAgent: launch.startupRestoreAgent,
-                focus: true
-            ) != nil
+                focus: false
+            ) else { return false }
+            focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
         case .split(let paneId, let orientation, let insertFirst):
             let sourcePanelId = selectedPanelForPaneDrop(in: paneId)?.panelId
-            return newSplit(
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+            guard let panelId = newSplit(
                 kind: .terminal,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -111,8 +119,13 @@ extension DockSplitStore {
                 workingDirectory: launch.workingDirectory,
                 initialInput: launch.initialInput,
                 startupRestoreAgent: launch.startupRestoreAgent,
-                focus: true
-            ) != nil
+                focus: false
+            ) else { return false }
+            focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
         }
     }
 
@@ -187,7 +200,10 @@ extension DockSplitStore {
             }
         }
         if focus, let finalPanel = openedPanels.last {
-            focusPanelFromDockInteraction(finalPanel.id, window: nil)
+            focusPanelFromDockInteraction(
+                finalPanel.id,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
         } else {
             restoreDockPaneSelection(previousFocus)
         }
@@ -213,7 +229,10 @@ extension DockSplitStore {
             return nil
         }
         if focus {
-            focusPanel(panel.id)
+            focusPanelFromDockInteraction(
+                panel.id,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
         } else {
             restoreDockPaneSelection(previousFocus)
         }
