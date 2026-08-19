@@ -173,6 +173,7 @@ extension DockSplitStore {
             tab = nil
         }
         guard let tab else { return true }
+        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
         bonsplitController.selectTab(tab.id)
         applyFocusedShortcutSelection()
         return true
@@ -335,9 +336,9 @@ extension DockSplitStore {
             _ = toggleDockPaneZoom(inPane: zoomedPaneId)
         }
 
+        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
         let didMove: Bool
         if let destinationPaneId {
-            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
             let destinationTabs =
                 bonsplitController.tabs(inPane: destinationPaneId)
             let insertionIndex: Int
