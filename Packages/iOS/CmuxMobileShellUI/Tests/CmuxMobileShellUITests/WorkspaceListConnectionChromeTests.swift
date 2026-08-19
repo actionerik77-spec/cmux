@@ -58,11 +58,18 @@ import Testing
         ) == .statusLine(.reconnecting))
     }
 
-    @Test func storeRecoveryFailureWithConnectedStatusShowsStatusLine() {
+    /// Deliberate policy correction: `connectionStatus` here is the AGGREGATE
+    /// list status, while `connectionRecoveryFailed` describes only the
+    /// foreground pairing. When healthy secondary Macs keep the visible list
+    /// `.connected`, a failed foreground recovery must not paint a "Not
+    /// Connected" caption that contradicts a visibly syncing list — the
+    /// per-workspace surfaces still present the genuinely unreachable Mac as
+    /// not connected.
+    @Test func storeRecoveryFailureWithConnectedStatusShowsNoChrome() {
         #expect(chrome(
             connectionRecoveryFailed: true,
             connectionStatus: .connected
-        ) == .statusLine(.notConnected))
+        ) == .none)
     }
 
     @Test func initialConnectionLoadingShowsMacStatusRow() {
@@ -167,7 +174,11 @@ import Testing
         #expect(chrome(connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionRequiresReauth: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(isRecoveringConnection: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
-        #expect(!chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
+        // A failed foreground recovery over a connected aggregate list renders
+        // no chrome (see storeRecoveryFailureWithConnectedStatusShowsNoChrome),
+        // so the healthy-connection update hint may show; the hint names its
+        // Mac explicitly, so it cannot be misread as the dead pairing.
+        #expect(chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .unavailable).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .reconnecting).showsMacUpdateHintIndicator)
         #expect(!chrome(
