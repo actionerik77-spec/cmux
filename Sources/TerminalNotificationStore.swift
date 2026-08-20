@@ -1102,7 +1102,8 @@ final class TerminalNotificationStore: ObservableObject {
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
         resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
         preRegisteredPolicyRequestId: UUID? = nil,
-        notificationID: UUID? = nil
+        notificationID: UUID? = nil,
+        agent: TerminalNotificationPolicyAgentContext? = nil
     ) -> UUID? {
 #if DEBUG
         cmuxDebugLog(
@@ -1147,7 +1148,8 @@ final class TerminalNotificationStore: ObservableObject {
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             correlationKey: cooldownKey,
-            resolvedHooks: resolvedHooks
+            resolvedHooks: resolvedHooks,
+            agent: agent
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
             inFlightPolicyRequests.discardPending(
@@ -1321,7 +1323,8 @@ final class TerminalNotificationStore: ObservableObject {
         replyShape: TerminalNotificationReplyShape = .none,
         retargetsToLiveSurfaceOwner: Bool,
         correlationKey: String?,
-        resolvedHooks: [CmuxResolvedNotificationHook]?
+        resolvedHooks: [CmuxResolvedNotificationHook]?,
+        agent: TerminalNotificationPolicyAgentContext? = nil
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
@@ -1363,7 +1366,8 @@ final class TerminalNotificationStore: ObservableObject {
                 replyShape: replyShape,
                 cwd: cwd,
                 isAppFocused: isAppFocused,
-                isFocusedPanel: isFocusedPanel
+                isFocusedPanel: isFocusedPanel,
+                agent: agent
             ),
             scrollPosition: scrollPosition,
             hooks: resolvedHooks ?? cmuxConfigStore?.notificationHooks(
@@ -1396,7 +1400,8 @@ final class TerminalNotificationStore: ObservableObject {
                 replyShape: request.replyShape,
                 cwd: request.cwd,
                 isAppFocused: request.isAppFocused,
-                isFocusedPanel: request.isFocusedPanel
+                isFocusedPanel: request.isFocusedPanel,
+                agent: request.agent
             ),
             effects: envelope.effects,
             now: now,
