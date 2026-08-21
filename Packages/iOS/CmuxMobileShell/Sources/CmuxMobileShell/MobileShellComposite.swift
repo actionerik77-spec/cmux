@@ -1915,7 +1915,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         presencePushRecoveryThrottle.reset()
         pendingInactiveRecoveryTrigger = nil
         connectionRecoveryOwner.cancel()
-        cancelDeadTerminalEventStreamRedial()
+        // A new session boundary (sign-out, new pairing attempt): reset the
+        // barren-stream streak, not just the pending redial, so the next
+        // session does not inherit the previous one's backoff (issue #10482).
+        resetDeadTerminalEventStreamBackoff()
         applyConnectionRecoveryOwnerState()
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
@@ -10309,7 +10312,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // recovery parked while the scene was inactive.
         pendingInactiveRecoveryTrigger = nil
         connectionRecoveryOwner.cancel()
-        cancelDeadTerminalEventStreamRedial()
+        // A new session boundary (sign-out, new pairing attempt): reset the
+        // barren-stream streak, not just the pending redial, so the next
+        // session does not inherit the previous one's backoff (issue #10482).
+        resetDeadTerminalEventStreamBackoff()
         applyConnectionRecoveryOwnerState()
         invalidateStoredMacReconnectAttempt()
         connectionGeneration = UUID()
