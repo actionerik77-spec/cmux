@@ -807,6 +807,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
 		C0DE31390000000000000111 /* CMUXOpenHTMLFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */; };
 		E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000F2 /* CmuxPanes */; };
+		F0C0A1000000000000000003 /* CmuxPhonePush in Frameworks */ = {isa = PBXBuildFile; productRef = F0C0A1000000000000000002 /* CmuxPhonePush */; };
+		F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */ = {isa = PBXBuildFile; productRef = F0C0A1000000000000000002 /* CmuxPhonePush */; };
 		A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */ = {isa = PBXBuildFile; productRef = A5C0DE0000000000000000A2 /* CMUXProjectModel */; };
 		CC0DE10000000000000000A3 /* CmuxRemoteDaemon in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE10000000000000000A2 /* CmuxRemoteDaemon */; };
 		CC0DE30000000000000000A3 /* CmuxRemoteSession in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE30000000000000000A2 /* CmuxRemoteSession */; };
@@ -1232,6 +1234,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7C6F5000000000000000000 /* GhosttyTitleChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C6F5000000000000000001 /* GhosttyTitleChange.swift */; };
 		D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */; };
 		468110000000000000000009 /* GhosttyTitleUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46811000000000000000000A /* GhosttyTitleUpdate.swift */; };
+		A10507000000000000000005 /* GhosttyTitleUpdateDeadline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10507000000000000000006 /* GhosttyTitleUpdateDeadline.swift */; };
 		468110000000000000000003 /* GhosttyTitleUpdateDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000004 /* GhosttyTitleUpdateDispatcher.swift */; };
 		46811000000000000000000B /* GhosttyTitleUpdateIngress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46811000000000000000000C /* GhosttyTitleUpdateIngress.swift */; };
 		A10190000000000000000001 /* GhosttyTitleUpdateIngressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10190000000000000000002 /* GhosttyTitleUpdateIngressTests.swift */; };
@@ -1593,10 +1596,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1F0A0030000000000000005 /* PhonePushForwardAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000006 /* PhonePushForwardAdmission.swift */; };
 		D1F0A0030000000000000007 /* PhonePushHTTPResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000008 /* PhonePushHTTPResult.swift */; };
 		D1F0A00100000000000000A3 /* PhonePushPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000A4 /* PhonePushPayload.swift */; };
-		D1F0A00100000000000000A5 /* PhonePushPayloadKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000A6 /* PhonePushPayloadKind.swift */; };
 		D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */; };
 		D1F0A0030000000000000009 /* PhonePushQueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A003000000000000000A /* PhonePushQueueStore.swift */; };
-		D1F0A003000000000000000B /* PhonePushRequestEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A003000000000000000C /* PhonePushRequestEnvelope.swift */; };
 		D1F0A003000000000000000D /* PhonePushRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A003000000000000000E /* PhonePushRetryPolicy.swift */; };
 		D1F0A003000000000000000F /* PhonePushSerialDeliveryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */; };
 		D1F0A00400000000000000C1 /* PhonePushSerialDeliveryQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */; };
@@ -2346,6 +2347,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1FF00010000000000000002 /* TerminalController+MobileWorkspaceChanges.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */; };
 		C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
+		A19F4C0D0000000000000002 /* TerminalController+RemoteRelayAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */; };
 		812600000000000000000009 /* TerminalController+RemoteTerminalTransportErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */; };
 		A31B24551C6E01E86D76B07E /* TerminalController+RemoteTmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */; };
 		7738C0077738C0077738C007 /* TerminalController+RemoteTmuxControlMutations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0077738D0077738D007 /* TerminalController+RemoteTmuxControlMutations.swift */; };
@@ -2552,6 +2554,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */; };
 		F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */; };
 		C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */; };
+		A10507000000000000000001 /* TitleUpdateAmplificationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10507000000000000000002 /* TitleUpdateAmplificationRegressionTests.swift */; };
 		9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */; };
 		E30760030000000000000002 /* TmuxOverlayExperimentSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */; };
 		E30760040000000000000002 /* TmuxOverlayExperimentTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */; };
@@ -2624,6 +2627,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		604500100000000000000001 /* WindowTitleTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000002 /* WindowTitleTemplate.swift */; };
 		604500200000000000000001 /* WindowTitleTemplateContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500200000000000000002 /* WindowTitleTemplateContext.swift */; };
 		604500100000000000000003 /* WindowTitleTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000004 /* WindowTitleTemplateTests.swift */; };
+		A10507000000000000000003 /* WindowTitleWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10507000000000000000004 /* WindowTitleWriter.swift */; };
 		E30760080000000000000002 /* WindowTmuxWorkspacePaneOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760080000000000000001 /* WindowTmuxWorkspacePaneOverlayController.swift */; };
 		A5001209 /* WindowToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001219 /* WindowToolbarController.swift */; };
 		905200000000000000000003 /* WKWebView+BrowserUserAgentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905200000000000000000004 /* WKWebView+BrowserUserAgentPolicy.swift */; };
@@ -4036,6 +4040,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7C6F5000000000000000001 /* GhosttyTitleChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleChange.swift; sourceTree = "<group>"; };
 		D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleChangeSubscription.swift; sourceTree = "<group>"; };
 		46811000000000000000000A /* GhosttyTitleUpdate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdate.swift; sourceTree = "<group>"; };
+		A10507000000000000000006 /* GhosttyTitleUpdateDeadline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateDeadline.swift; sourceTree = "<group>"; };
 		468110000000000000000004 /* GhosttyTitleUpdateDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateDispatcher.swift; sourceTree = "<group>"; };
 		46811000000000000000000C /* GhosttyTitleUpdateIngress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateIngress.swift; sourceTree = "<group>"; };
 		A10190000000000000000002 /* GhosttyTitleUpdateIngressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateIngressTests.swift; sourceTree = "<group>"; };
@@ -4393,10 +4398,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1F0A0030000000000000006 /* PhonePushForwardAdmission.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushForwardAdmission.swift; sourceTree = "<group>"; };
 		D1F0A0030000000000000008 /* PhonePushHTTPResult.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushHTTPResult.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000A4 /* PhonePushPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushPayload.swift; sourceTree = "<group>"; };
-		D1F0A00100000000000000A6 /* PhonePushPayloadKind.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushPayloadKind.swift; sourceTree = "<group>"; };
 		D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushPresenceGateTests.swift; sourceTree = "<group>"; };
 		D1F0A003000000000000000A /* PhonePushQueueStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushQueueStore.swift; sourceTree = "<group>"; };
-		D1F0A003000000000000000C /* PhonePushRequestEnvelope.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushRequestEnvelope.swift; sourceTree = "<group>"; };
 		D1F0A003000000000000000E /* PhonePushRetryPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushRetryPolicy.swift; sourceTree = "<group>"; };
 		D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushSerialDeliveryQueue.swift; sourceTree = "<group>"; };
 		D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushSerialDeliveryQueueTests.swift; sourceTree = "<group>"; };
@@ -5132,6 +5135,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceChanges.swift"; sourceTree = "<group>"; };
 		C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceList.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteRelayAuthorization.swift"; sourceTree = "<group>"; };
 		81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTerminalTransportErrors.swift"; sourceTree = "<group>"; };
 		95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmux.swift"; sourceTree = "<group>"; };
 		7738D0077738D0077738D007 /* TerminalController+RemoteTmuxControlMutations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmuxControlMutations.swift"; sourceTree = "<group>"; };
@@ -5338,6 +5342,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlModifier.swift; sourceTree = "<group>"; };
 		F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlTests.swift; sourceTree = "<group>"; };
 		C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarLayoutDebugWindow.swift; sourceTree = "<group>"; };
+		A10507000000000000000002 /* TitleUpdateAmplificationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitleUpdateAmplificationRegressionTests.swift; sourceTree = "<group>"; };
 		9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatLaunchContextError.swift; sourceTree = "<group>"; };
 		E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentSettings.swift; sourceTree = "<group>"; };
 		E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentTarget.swift; sourceTree = "<group>"; };
@@ -5410,6 +5415,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		604500100000000000000002 /* WindowTitleTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowTitleTemplate.swift; sourceTree = "<group>"; };
 		604500200000000000000002 /* WindowTitleTemplateContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowTitleTemplateContext.swift; sourceTree = "<group>"; };
 		604500100000000000000004 /* WindowTitleTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitleTemplateTests.swift; sourceTree = "<group>"; };
+		A10507000000000000000004 /* WindowTitleWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitleWriter.swift; sourceTree = "<group>"; };
 		E30760080000000000000001 /* WindowTmuxWorkspacePaneOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTmuxWorkspacePaneOverlayController.swift; sourceTree = "<group>"; };
 		A5001219 /* WindowToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToolbarController.swift; sourceTree = "<group>"; };
 		905200000000000000000004 /* WKWebView+BrowserUserAgentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+BrowserUserAgentPolicy.swift"; sourceTree = "<group>"; };
@@ -5627,6 +5633,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				1A0B0C0D0E0F101112132003 /* CmuxMobileTransport in Frameworks */,
 				E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */,
 				E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */,
+				F0C0A1000000000000000003 /* CmuxPhonePush in Frameworks */,
 				A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */,
 				CC0DE10000000000000000A3 /* CmuxRemoteDaemon in Frameworks */,
 				CC0DE30000000000000000A3 /* CmuxRemoteSession in Frameworks */,
@@ -5712,6 +5719,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
 				C1A072000000000000000003 /* CmuxMobileRPC in Frameworks */,
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
+				F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
@@ -5966,9 +5974,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1F0A0030000000000000006 /* PhonePushForwardAdmission.swift */,
 				D1F0A0030000000000000008 /* PhonePushHTTPResult.swift */,
 				D1F0A00100000000000000A4 /* PhonePushPayload.swift */,
-				D1F0A00100000000000000A6 /* PhonePushPayloadKind.swift */,
 				D1F0A003000000000000000A /* PhonePushQueueStore.swift */,
-				D1F0A003000000000000000C /* PhonePushRequestEnvelope.swift */,
 				D1F0A003000000000000000E /* PhonePushRetryPolicy.swift */,
 				D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */,
 				D1F0A0030000000000000012 /* PhonePushServerSummary.swift */,
@@ -6031,6 +6037,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7C6F5000000000000000001 /* GhosttyTitleChange.swift */,
 				46811000000000000000000A /* GhosttyTitleUpdate.swift */,
 				468110000000000000000004 /* GhosttyTitleUpdateDispatcher.swift */,
+				A10507000000000000000006 /* GhosttyTitleUpdateDeadline.swift */,
 				46811000000000000000000C /* GhosttyTitleUpdateIngress.swift */,
 				46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */,
 				46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */,
@@ -6436,6 +6443,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5FB1310 /* JSONCObjectEditor+Set.swift */,
 				A50012F4 /* KeyboardLayout.swift */,
 				C06552010000000000000004 /* NotificationBurstCoalescer.swift */,
+				A10507000000000000000004 /* WindowTitleWriter.swift */,
 				C06552010000000000000002 /* PanelTitleUpdateCoalescingSettings.swift */,
 				A5001013 /* TabManager.swift */,
 				7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */,
@@ -6543,6 +6551,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D86840000000000000000014 /* Workspace+DockSessionRestore.swift */,
 				E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */,
 				EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */,
+				A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */,
 				EE30D5000000000000000003 /* WorkspaceRemoteRelayCommandRewriter.swift */,
 				EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */,
 				EE30D6000000000000000003 /* WorkspaceRemoteSessionBuildInfo.swift */,
@@ -8273,6 +8282,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */,
 				C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */,
 				C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */,
+				A10507000000000000000002 /* TitleUpdateAmplificationRegressionTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
 				9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */,
 				C9D9924AC89D7C3408DBC56A /* WorkspaceRecoveryTests.swift */,
@@ -8601,6 +8611,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E3B7A30000000000000000B2 /* CmuxSidebar */,
 				E3B7A30000000000000000C2 /* CmuxBrowser */,
 				E3B7A30000000000000000D2 /* CmuxNotifications */,
+				F0C0A1000000000000000002 /* CmuxPhonePush */,
 				E3B7A30000000000000000F2 /* CmuxPanes */,
 				E3B7A3000000000000000102 /* CmuxWorkspaces */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
@@ -8719,6 +8730,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7032A060000000000000002 /* CmuxBrowser */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
+				F0C0A1000000000000000002 /* CmuxPhonePush */,
 				5E55200000000000000000B2 /* CmuxWindowing */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
 				A5001262 /* Bonsplit */,
@@ -8794,6 +8806,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E3B7A30000000000000000B1 /* XCLocalSwiftPackageReference "CmuxSidebar" */,
 				E3B7A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowser" */,
 				E3B7A30000000000000000D1 /* XCLocalSwiftPackageReference "CmuxNotifications" */,
+				F0C0A1000000000000000001 /* XCLocalSwiftPackageReference "CmuxPhonePush" */,
 				E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */,
 				E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */,
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
@@ -9703,6 +9716,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7C6F5000000000000000000 /* GhosttyTitleChange.swift in Sources */,
 				D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */,
 				468110000000000000000009 /* GhosttyTitleUpdate.swift in Sources */,
+				A10507000000000000000005 /* GhosttyTitleUpdateDeadline.swift in Sources */,
 				468110000000000000000003 /* GhosttyTitleUpdateDispatcher.swift in Sources */,
 				46811000000000000000000B /* GhosttyTitleUpdateIngress.swift in Sources */,
 				468140000000000000000009 /* GhosttyTitleUpdateSurfaceKey.swift in Sources */,
@@ -9956,9 +9970,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1F0A0030000000000000005 /* PhonePushForwardAdmission.swift in Sources */,
 				D1F0A0030000000000000007 /* PhonePushHTTPResult.swift in Sources */,
 				D1F0A00100000000000000A3 /* PhonePushPayload.swift in Sources */,
-				D1F0A00100000000000000A5 /* PhonePushPayloadKind.swift in Sources */,
 				D1F0A0030000000000000009 /* PhonePushQueueStore.swift in Sources */,
-				D1F0A003000000000000000B /* PhonePushRequestEnvelope.swift in Sources */,
 				D1F0A003000000000000000D /* PhonePushRetryPolicy.swift in Sources */,
 				D1F0A003000000000000000F /* PhonePushSerialDeliveryQueue.swift in Sources */,
 				D1F0A0030000000000000011 /* PhonePushServerSummary.swift in Sources */,
@@ -10468,6 +10480,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1FF00010000000000000002 /* TerminalController+MobileWorkspaceChanges.swift in Sources */,
 				C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */,
 				D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */,
+				A19F4C0D0000000000000002 /* TerminalController+RemoteRelayAuthorization.swift in Sources */,
 				812600000000000000000009 /* TerminalController+RemoteTerminalTransportErrors.swift in Sources */,
 				A31B24551C6E01E86D76B07E /* TerminalController+RemoteTmux.swift in Sources */,
 				7738C0077738C0077738C007 /* TerminalController+RemoteTmuxControlMutations.swift in Sources */,
@@ -10682,6 +10695,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				606600020000000000000001 /* WindowTerminalHostViewHitTesting.swift in Sources */,
 				604500100000000000000001 /* WindowTitleTemplate.swift in Sources */,
 				604500200000000000000001 /* WindowTitleTemplateContext.swift in Sources */,
+				A10507000000000000000003 /* WindowTitleWriter.swift in Sources */,
 				E30760080000000000000002 /* WindowTmuxWorkspacePaneOverlayController.swift in Sources */,
 				A5001209 /* WindowToolbarController.swift in Sources */,
 				905200000000000000000003 /* WKWebView+BrowserUserAgentPolicy.swift in Sources */,
@@ -11677,6 +11691,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B3C0000000000000001 /* TextBoxSubmitActionSettingsFileTests.swift in Sources */,
 				C0DE7B360000000000000001 /* TextBoxSubmitActionTests.swift in Sources */,
 				F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */,
+				A10507000000000000000001 /* TitleUpdateAmplificationRegressionTests.swift in Sources */,
 				E30760060000000000000002 /* TmuxWorkspacePaneOverlayModelTests.swift in Sources */,
 				D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */,
 				468100000000000000000003 /* TypingHotPathRegressionTests.swift in Sources */,
@@ -12265,6 +12280,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxNotifications;
 		};
+		F0C0A1000000000000000001 /* XCLocalSwiftPackageReference "CmuxPhonePush" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxPhonePush;
+		};
 		E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxPanes;
@@ -12503,6 +12522,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCSwiftPackageProductDependency;
 			package = E3B7A30000000000000000D1 /* XCLocalSwiftPackageReference "CmuxNotifications" */;
 			productName = CmuxNotifications;
+		};
+		F0C0A1000000000000000002 /* CmuxPhonePush */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F0C0A1000000000000000001 /* XCLocalSwiftPackageReference "CmuxPhonePush" */;
+			productName = CmuxPhonePush;
 		};
 		E3B7A30000000000000000F2 /* CmuxPanes */ = {
 			isa = XCSwiftPackageProductDependency;

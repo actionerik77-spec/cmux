@@ -423,7 +423,8 @@ class TerminalController {
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
-        self.panelArtifactAuthorizationStore = panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
+        self.panelArtifactAuthorizationStore =
+            panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
         let socketMarkerFileManager = FileManager.default
         let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
@@ -2063,13 +2064,19 @@ class TerminalController {
             // connection thread for socket traffic). The parsed request is
             // handed to the worker lane or into the main hop; nothing
             // re-parses on the main thread.
-            let request: ControlRequest
+            let parsedRequest: ControlRequest
             switch Self.v2Parser.request(fromLine: trimmed) {
             case .failure(let parseError):
                 return Self.v2Encoder.response(for: parseError)
             case .success(let parsed):
-                request = parsed
+                parsedRequest = parsed
             }
+
+            let relayAuthorization = authorizeRemoteRelayRequest(parsedRequest)
+            if let errorResponse = relayAuthorization.errorResponse {
+                return errorResponse
+            }
+            let request = relayAuthorization.request
 
             let policy = Self.executionPolicy(forV2Method: request.method)
             if Thread.isMainThread, policy == .socketWorker(mainThreadCallable: false) {
@@ -14510,6 +14517,18 @@ class TerminalController {
                 method: method,
                 params: request.params,
                 connectionID: executionContext?.connectionID
+            )
+        case let method where method.hasPrefix("mobile.todo."):
+            result = v2MobileTodoDispatch(method: method, params: request.params)
+        case "mobile.status.set", "mobile.status.cycle":
+            result = v2MobileTodoDispatch(method: request.method, params: request.params)
+        case "mobile.surface.focus":
+            result = v2MobileSurfaceFocus(params: request.params)
+        case let method where method.hasPrefix("mobile.panel.artifact."):
+            result = await v2MobilePanelArtifactDispatch(
+                method: method,
+                params: request.params,
+                executionContext: executionContext
             )
         case "workspace.close":
             result = v2MobileWorkspaceClose(params: request.params)
