@@ -1,4 +1,5 @@
 import Darwin
+import CoreGraphics
 import Foundation
 import Security
 
@@ -35,7 +36,8 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     /// like `authExec` above, so no private symbol is linked and a macOS that
     /// drops it degrades to a reported failure, not a crash. The private API has
     /// no documented return contract; established clients declare it `void`, so
-    /// cmux deliberately does not interpret a return register as status.
+    /// cmux verifies the resulting public session state instead of interpreting
+    /// an undocumented return register as status.
     private static let lockScreenImmediate: LockScreenFn? = {
         guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/login", RTLD_LAZY),
               let symbol = dlsym(handle, "SACLockScreenImmediate") else { return nil }
@@ -89,7 +91,19 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             return false
         }
         lockScreenImmediate()
-        return true
+        // The private function has a void ABI: resolving it and returning from
+        // the call only proves that a request was sent. Read the public session
+        // dictionary and fail closed when loginwindow has not published the
+        // locked state yet, so the Sleepy overlay never clears its warning on a
+        // request that may have been rejected or ignored.
+        return Self.isScreenLocked()
+    }
+
+    private static func isScreenLocked() -> Bool {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
+            return false
+        }
+        return (session["CGSSessionScreenIsLocked"] as? Bool) ?? false
     }
 
     @discardableResult

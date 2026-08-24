@@ -1,6 +1,15 @@
 import XCTest
 import Darwin
 
+private final class InteractiveProgramLaunchCapture {
+    var launchPath: String?
+    var arguments: [String] = []
+}
+
+private enum InteractiveProgramLaunchIntercept: Error {
+    case captured
+}
+
 extension CLINotifyProcessIntegrationRegressionTests {
     func testVMNewDefaultCreatesPinnedSSHDWorkspaceOverFreestyleSSH() throws {
         let cliPath = try bundledCLIPath()
@@ -614,6 +623,107 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(decodedRemoteBootstrap.contains("if [ \"$cmux_cloud_tty_scope\" = default ]; then"), decodedRemoteBootstrap)
         XCTAssertTrue(decodedRemoteBootstrap.contains("cmux_tmux_status=$?"), decodedRemoteBootstrap)
         XCTAssertTrue(decodedRemoteBootstrap.contains("exec zsh -l"), decodedRemoteBootstrap)
+    }
+
+    func testDefaultFreestyleSSHAttachBuildsPinnedCommandThroughLauncher() throws {
+        let socketPath = makeSocketPath("vm-attach-launcher")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-persistent-freestyle"
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
+        let capture = InteractiveProgramLaunchCapture()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            if let askpassPath = capture.arguments.first {
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: askpassPath).deletingLastPathComponent())
+            }
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.ssh_info":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "transport": "ssh",
+                        "host": "vm-ssh.freestyle.sh",
+                        "port": 22,
+                        "username": "\(vmID)+cmux",
+                        "credential": [
+                            "kind": "password",
+                            "value": "lease-token",
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        let cli = CMUXCLI(
+            args: [
+                "cmux",
+                "--socket", socketPath,
+                "vm", "ssh-attach",
+                "--id", vmID,
+                "--default-freestyle-sshd",
+            ],
+            processEnvironment: [
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+                // Skip the optional remote bootstrap so this test only exercises
+                // attach-info retrieval and the generated interactive command.
+                "CMUX_CLOUD_RECONNECT_ATTEMPT": "1",
+            ],
+            interactiveProgramLauncher: { launchPath, arguments in
+                capture.launchPath = launchPath
+                capture.arguments = arguments
+                throw InteractiveProgramLaunchIntercept.captured
+            }
+        )
+
+        XCTAssertThrowsError(try cli.run()) { error in
+            XCTAssertTrue(error is InteractiveProgramLaunchIntercept, String(describing: error))
+        }
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertEqual(capture.launchPath, "/bin/sh")
+        let sshIndex = try XCTUnwrap(capture.arguments.firstIndex(of: "/usr/bin/ssh"))
+        let sshArguments = Array(capture.arguments.dropFirst(sshIndex + 1))
+        XCTAssertTrue(sshArguments.contains("-o"))
+        XCTAssertTrue(sshArguments.contains("IdentityFile=/dev/null"))
+        XCTAssertTrue(sshArguments.contains("NumberOfPasswordPrompts=1"))
+        XCTAssertTrue(sshArguments.contains("ControlMaster=no"))
+
+        let remoteCommand = try XCTUnwrap(
+            sshArguments.first { $0.hasPrefix("RemoteCommand=") }
+        )
+        let decodedRemoteBootstrap = decodedReusableShellStartupCommand(remoteCommand)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_WORKSPACE_ID='\(workspaceID)'"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_SURFACE_ID='\(surfaceID)'"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("cmux-cloud-$cmux_cloud_tty_scope"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("unset CMUX_CLOUD_TMUX_SESSION"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("exec zsh -l"), decodedRemoteBootstrap)
+        XCTAssertEqual(
+            state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.ssh_info"]
+        )
     }
 
     func testDefaultFreestyleSSHAttachRejectedCredentialDoesNotExposePasswordPrompt() throws {

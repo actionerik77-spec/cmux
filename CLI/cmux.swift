@@ -3058,9 +3058,13 @@ final class SocketClient {
 }
 
 struct CMUXCLI {
+    typealias InteractiveProgramLauncher = (String, [String]) throws -> Never
+
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
+    private let processEnvironment: [String: String]
+    private let interactiveProgramLauncher: InteractiveProgramLauncher
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -3086,12 +3090,15 @@ struct CMUXCLI {
     init(
         args: [String],
         initialSIGPIPEInspectionPayload: [String: Any]? = nil,
-        simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning =
-            SimulatorOwnedCommandRunner()
+        simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning = SimulatorOwnedCommandRunner(),
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        interactiveProgramLauncher: @escaping InteractiveProgramLauncher = CMUXCLI.execInteractiveProgram
     ) {
         self.args = args
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
         self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
+        self.processEnvironment = processEnvironment
+        self.interactiveProgramLauncher = interactiveProgramLauncher
     }
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
@@ -11140,7 +11147,7 @@ struct CMUXCLI {
             usesDefaultFreestyleSSHD: usesDefaultFreestyleSSHD,
             client: client
         )
-        if ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] == nil {
+        if processEnvironment["CMUX_CLOUD_RECONNECT_ATTEMPT"] == nil {
             bootstrapFreestyleZshEnvironmentIfPossible(vmID: vmID, username: "cmux", client: client)
         }
         logVMTiming("ssh_info", vmID: vmID, transport: "ssh", startedAt: attachInfoStartedAt)
@@ -11154,8 +11161,8 @@ struct CMUXCLI {
         let sshArguments = buildSSHCommandArguments(
             options,
             remoteBootstrapScript: FreestyleInteractiveShellScript(
-                environment: ProcessInfo.processInfo.environment,
-                suppressWelcome: ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil
+                environment: processEnvironment,
+                suppressWelcome: processEnvironment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil
             ).text
         )
         guard let launchPath = sshArguments.first else {
@@ -11164,15 +11171,12 @@ struct CMUXCLI {
         client.close()
         if let passwordCredential = options.passwordCredential, !passwordCredential.isEmpty {
             let askpassRunner = try prepareSSHAskpassRunner(passwordCredential: passwordCredential)
-            try execInteractiveProgram(
-                launchPath: "/bin/sh",
-                arguments: [askpassRunner, launchPath] + Array(sshArguments.dropFirst())
+            try interactiveProgramLauncher(
+                "/bin/sh",
+                [askpassRunner, launchPath] + Array(sshArguments.dropFirst())
             )
         }
-        try execInteractiveProgram(
-            launchPath: launchPath,
-            arguments: Array(sshArguments.dropFirst())
-        )
+        try interactiveProgramLauncher(launchPath, Array(sshArguments.dropFirst()))
     }
 
     private func prepareSSHAskpassRunner(passwordCredential: String) throws -> String {
@@ -13373,7 +13377,7 @@ struct CMUXCLI {
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    private func execInteractiveProgram(
+    private static func execInteractiveProgram(
         launchPath: String,
         arguments: [String]
     ) throws -> Never {
