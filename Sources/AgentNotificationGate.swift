@@ -17,25 +17,23 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>` meta segment, optionally followed by the
-/// canonical `a=<approval-id>` for a needs-permission event. Returns `nil`
-/// unless every field is valid, so any other `c=...` tail stays part of the
-/// legacy notification body. (`.other` never rides the wire: senders omit the
-/// meta entirely for ungated alerts.)
+/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind-or-approval-id>][;n=<0|1>]`.
+/// The historical Codex approval form uses `a=<approval-id>`, while newer
+/// ordinary agent events use the same field for a validated agent slug. The
+/// value shape disambiguates the two without changing either wire format.
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
-    /// Correlates a native approval request with its completion. Only Codex
-    /// approval prompts carry this optional field; legacy category metadata
-    /// remains the exact two-field form.
     let approvalID: AgentApprovalCorrelationID?
+    let agentKind: String?
+    let isSubagent: Bool?
 
     init?(meta: String) {
-        // Accept ONLY the canonical serialization the CLI emits: the legacy
-        // two fields, or a needs-permission record with one opaque approval
-        // correlation id. Anything else stays part of the notification body.
+        // Accept ONLY the canonical serialization the CLI emits (`c=` then
+        // `p=`, optionally followed by `a=` then `n=`, this order, no
+        // duplicates or extras). Anything else stays part of the legacy body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        guard fields.count == 2 || fields.count == 3,
+        guard (2...4).contains(fields.count),
               fields[0].hasPrefix("c="),
               fields[1].hasPrefix("p=") else { return nil }
         guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))),
@@ -45,18 +43,45 @@ struct AgentNotificationMeta {
         case "0": self.pending = false
         default: return nil
         }
-        self.category = known
-        if fields.count == 3 {
-            guard known == .needsPermission,
-                  fields[2].hasPrefix("a="),
-                  let approvalID = AgentApprovalCorrelationID(
-                      rawValue: String(fields[2].dropFirst(2))
-                  ) else {
-                return nil
+        var approvalID: AgentApprovalCorrelationID? = nil
+        var agentKind: String? = nil
+        var isSubagent: Bool? = nil
+        var index = 2
+        if index < fields.count, fields[index].hasPrefix("a=") {
+            let value = String(fields[index].dropFirst(2))
+            if let parsedApprovalID = AgentApprovalCorrelationID(rawValue: value) {
+                guard known == .needsPermission else { return nil }
+                approvalID = parsedApprovalID
+            } else {
+                guard Self.isValidAgentKindTag(value) else { return nil }
+                agentKind = value
             }
-            self.approvalID = approvalID
-        } else {
-            self.approvalID = nil
+            index += 1
+        }
+        if index < fields.count, fields[index].hasPrefix("n=") {
+            switch fields[index].dropFirst(2) {
+            case "1": isSubagent = true
+            case "0": isSubagent = false
+            default: return nil
+            }
+            index += 1
+        }
+        guard index == fields.count else { return nil }
+        self.category = known
+        self.approvalID = approvalID
+        self.agentKind = agentKind
+        self.isSubagent = isSubagent
+    }
+
+    /// Mirror of the CLI's `AgentHookNotifyCategory.isValidAgentKindTag` slug
+    /// grammar: 1-64 characters of `[a-z0-9._-]`. Both sides must agree
+    /// exactly or the meta folds back into the notification body.
+    static func isValidAgentKindTag(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 64 else { return false }
+        return value.allSatisfy { character in
+            character.isASCII
+                && (character.isLowercase || character.isNumber
+                    || character == "." || character == "_" || character == "-")
         }
     }
 }

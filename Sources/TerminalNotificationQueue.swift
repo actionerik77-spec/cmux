@@ -31,6 +31,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let body: String
     let replyShape: TerminalNotificationReplyShape
     let correlationKey: String?
+    let agent: TerminalNotificationPolicyAgentContext?
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -134,6 +135,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
         correlationKey: String? = nil,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
         coalesces: Bool = true
     ) {
         enqueueNotification(QueuedTerminalNotification(
@@ -142,7 +144,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             subtitle: subtitle,
             body: body,
             replyShape: replyShape,
-            correlationKey: correlationKey
+            correlationKey: correlationKey,
+            agent: agent
         ), coalesces: coalesces)
     }
 
@@ -825,6 +828,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                     body: notification.body,
                     replyShape: notification.replyShape,
                     correlationKey: notification.correlationKey,
+                    agent: notification.agent,
                     notificationGeneration: entry.notificationGeneration ?? 0
                 )
                 // Retire an approval only after the replacement was accepted

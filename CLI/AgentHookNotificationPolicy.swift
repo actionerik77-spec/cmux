@@ -19,10 +19,59 @@ enum AgentHookNotifyCategory: String {
     /// the opaque correlation id used to settle native Codex approvals.
     /// `.other` is the explicit ungated category and never rides the wire.
     func metaSegment(pending: Bool, approvalID: String? = nil) -> String? {
+        metaSegment(
+            pending: pending,
+            approvalID: approvalID,
+            agentKind: nil,
+            isSubagent: nil
+        )
+    }
+
+    /// Extended meta segment carrying optional agent-event context for the
+    /// app's notification-policy hooks. Correlated Codex approvals retain the
+    /// historical `a=<approval-id>` spelling for compatibility.
+    func metaSegment(
+        pending: Bool,
+        agentKind: String?,
+        isSubagent: Bool?
+    ) -> String? {
+        metaSegment(
+            pending: pending,
+            approvalID: nil,
+            agentKind: agentKind,
+            isSubagent: isSubagent
+        )
+    }
+
+    private func metaSegment(
+        pending: Bool,
+        approvalID: String?,
+        agentKind: String?,
+        isSubagent: Bool?
+    ) -> String? {
         guard self != .other else { return nil }
-        let base = "c=\(rawValue);p=\(pending ? 1 : 0)"
-        guard self == .needsPermission, let approvalID else { return base }
-        return "\(base);a=\(approvalID)"
+        var segment = "c=\(rawValue);p=\(pending ? 1 : 0)"
+        if self == .needsPermission, let approvalID {
+            return "\(segment);a=\(approvalID)"
+        }
+        if let agentKind, Self.isValidAgentKindTag(agentKind) {
+            segment += ";a=\(agentKind)"
+        }
+        if let isSubagent {
+            segment += ";n=\(isSubagent ? 1 : 0)"
+        }
+        return segment
+    }
+
+    /// Mirror of the app-side agent-kind slug grammar: 1-64 characters of
+    /// `[a-z0-9._-]`.
+    static func isValidAgentKindTag(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 64 else { return false }
+        return value.allSatisfy { character in
+            character.isASCII
+                && (character.isLowercase || character.isNumber
+                    || character == "." || character == "_" || character == "-")
+        }
     }
 }
 
@@ -427,14 +476,15 @@ enum AgentHookNotificationClassifier {
                 notifyCategory: .idleReminder
             )
         }
-        let body = String.localizedStringWithFormat(
-            String(localized: "agent.generic.notification.body.needsAttention", defaultValue: "%@ needs your attention"),
-            displayName
-        )
+        // No usable message and no matching cue: nothing is fabricated. The
+        // empty body tells callers to reuse a stored summary or skip the
+        // banner, and the nil status makes no lifecycle claim — the old
+        // "%@ needs your attention" needs-input fallback is deliberately
+        // gone (semantic journal events carry state now).
         return AgentHookNotificationSummary(
             subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
-            body: body,
-            status: .needsInput,
+            body: "",
+            status: nil,
             isFallback: true,
             notifyCategory: .idleReminder
         )
