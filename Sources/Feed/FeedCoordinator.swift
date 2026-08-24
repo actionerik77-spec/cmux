@@ -34,6 +34,10 @@ private enum FeedAgentProcessEvidence: Sendable {
 final class FeedCoordinator: @unchecked Sendable {
     static let shared = FeedCoordinator()
     static let storeInstalledNotification = Notification.Name("cmux.feed.storeInstalled")
+    /// Refuse new blocking overlays once this bound is reached. The Feed card
+    /// remains available, while bounded ownership prevents a burst of native
+    /// prompts from retaining one token and callback per request indefinitely.
+    private static let maximumPendingBlockingAttentionStates = 512
 
     // The store runs on the main actor. The coordinator is not isolated,
     // so it hops to main explicitly when touching the store.
@@ -637,6 +641,10 @@ extension FeedCoordinator {
         resolved: (workspaceId: UUID, surfaceId: UUID?)?
     ) -> FeedAttentionTarget? {
         guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
+        guard pendingAttentionStates.count
+            < Self.maximumPendingBlockingAttentionStates else {
+            return nil
+        }
 
         #if DEBUG
         if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
@@ -664,16 +672,17 @@ extension FeedCoordinator {
         if !surfaced.usesRemoteProcessNamespace,
            let processGeneration = surfaced.processGeneration {
             let monitorKey = Self.blockingAttentionProcessMonitorKey(
-                target: surfaced.target
+                source: event.source,
+                generation: processGeneration
             )
             pendingAttentionStates[surfaced.target]?
                 .processExitMonitorKey = monitorKey
             attentionExitMonitor.observe(
                 key: monitorKey,
                 generation: processGeneration
-            ) { [weak self] _, generation in
+            ) { [weak self] key, generation in
                 self?.concludeBlockingDecisionAttention(
-                    surfaced.target,
+                    forProcessMonitorKey: key,
                     processExitGeneration: generation
                 )
             }
@@ -1147,9 +1156,16 @@ extension FeedCoordinator {
     }
 
     private static func blockingAttentionProcessMonitorKey(
-        target: FeedAttentionTarget
+        source: String,
+        generation: AgentPIDProcessIdentity
     ) -> String {
-        "blocking:\(target.token.id.uuidString.lowercased())"
+        [
+            "blocking",
+            source,
+            String(generation.pid),
+            String(generation.startSeconds),
+            String(generation.startMicroseconds),
+        ].joined(separator: ":")
     }
 
     private static func observedAttentionProcessMonitorKey(
@@ -1186,7 +1202,7 @@ extension FeedCoordinator {
             return
         }
         if let monitorKey = pendingState.processExitMonitorKey {
-            attentionExitMonitor.cancel(key: monitorKey)
+            cancelAttentionExitMonitorIfUnused(key: monitorKey)
         }
         let fallbackWorkspace = pendingState.fallbackWorkspace
         let owner = TerminalController.shared
@@ -1254,6 +1270,35 @@ extension FeedCoordinator {
                     key: target.statusKey,
                     panelId: target.panelId
                 )
+        }
+    }
+
+    /// A process-generation monitor is shared by every blocking decision from
+    /// that generation. An individual decision may therefore cancel it only
+    /// after the last owner releases the shared key.
+    @MainActor
+    private func cancelAttentionExitMonitorIfUnused(key: String) {
+        guard !pendingAttentionStates.values.contains(where: {
+            $0.processExitMonitorKey == key
+        }) else {
+            return
+        }
+        attentionExitMonitor.cancel(key: key)
+    }
+
+    @MainActor
+    private func concludeBlockingDecisionAttention(
+        forProcessMonitorKey monitorKey: String,
+        processExitGeneration: AgentPIDProcessIdentity
+    ) {
+        let targets = pendingAttentionStates.compactMap { target, state in
+            state.processExitMonitorKey == monitorKey ? target : nil
+        }
+        for target in targets {
+            concludeBlockingDecisionAttention(
+                target,
+                processExitGeneration: processExitGeneration
+            )
         }
     }
 
