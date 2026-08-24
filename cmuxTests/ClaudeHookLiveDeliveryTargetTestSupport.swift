@@ -95,6 +95,7 @@ enum ClaudeHookLiveDeliveryHarness {
         resumeClearSucceeds: Bool = true,
         resumeClearOwnsCheckpoint: Bool? = true,
         feedAttentionEndSucceeds: Bool = true,
+        feedAttentionEndGate: DispatchSemaphore? = nil,
         purgeSessionStoreOnFeedAttentionEnd: Bool = false,
         beforeSurfaceResolutionResponse: (@Sendable () -> Void)? = nil,
         feedExitPlanModesByRequestId: [String: String] = [:],
@@ -179,6 +180,9 @@ enum ClaudeHookLiveDeliveryHarness {
             case "feed.attention.begin":
                 return v2Response(id: id, ok: true, result: [:])
             case "feed.attention.end":
+                if let feedAttentionEndGate {
+                    _ = feedAttentionEndGate.wait(timeout: .now() + 30)
+                }
                 if purgeSessionStoreOnFeedAttentionEnd {
                     try? Data(#"{"version":1,"sessions":{}}"#.utf8)
                         .write(to: context.storeURL, options: .atomic)
