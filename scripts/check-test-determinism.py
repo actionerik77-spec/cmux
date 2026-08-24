@@ -361,6 +361,50 @@ def _string_literal_at(
     return None
 
 
+_JAVASCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".mjs")
+_JAVASCRIPT_REGEX_PREFIX = re.compile(
+    r"""(?x)
+    (?:^|[=(:,!&|?{}\[\];]|=>|\b(?:case|delete|else|in|new|of|return|throw|typeof|void))
+    \s*$
+    """
+)
+
+
+def _is_javascript_regex_start(line: str, index: int) -> bool:
+    """Return whether a slash can start a JavaScript regex literal here."""
+    if index >= len(line) or line[index] != "/":
+        return False
+    if index + 1 >= len(line) or line[index + 1] in ("/", "*"):
+        return False
+    return bool(_JAVASCRIPT_REGEX_PREFIX.search(line[:index]))
+
+
+def _javascript_regex_end(line: str, index: int) -> Optional[int]:
+    """Return the first closing slash of a same-line JavaScript regex literal."""
+    escaped = False
+    in_character_class = False
+    cursor = index + 1
+    while cursor < len(line):
+        character = line[cursor]
+        if character in "\r\n":
+            return None
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == "[":
+            in_character_class = True
+        elif character == "]":
+            in_character_class = False
+        elif character == "/" and not in_character_class:
+            cursor += 1
+            while cursor < len(line) and line[cursor].isalpha():
+                cursor += 1
+            return cursor
+        cursor += 1
+    return None
+
+
 def _lex_source_line(
     line: str,
     path_suffix: str,
@@ -489,6 +533,14 @@ def _lex_source_line(
             state.frames.append(_LexicalFrame(kind="code", terminator="`"))
             index += 1
             continue
+
+        if path_suffix in _JAVASCRIPT_SUFFIXES and _is_javascript_regex_start(line, index):
+            regex_end = _javascript_regex_end(line, index)
+            if regex_end is not None:
+                comment_stripped[index:regex_end] = [" "] * (regex_end - index)
+                executable[index:regex_end] = [" "] * (regex_end - index)
+                index = regex_end
+                continue
 
         literal = _string_literal_at(line, index, path_suffix)
         if literal is not None:
@@ -664,19 +716,21 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
-def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
-    """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
-    line = lines[idx]
+def detect_sleep_then_assert(code_lines: list[str], idx: int, path_suffix: str) -> bool:
+    """Sleep on a comment-stripped line followed by an assertion."""
+    line = code_lines[idx]
     is_sleep = bool(_SLEEP_CALL.search(line))
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
         return False
-    if _sleep_in_loop(lines, idx):
+    if _sleep_in_loop(code_lines, idx):
         return False
     seen = 0
-    for j in range(idx + 1, len(lines)):
-        nxt = lines[j]
+    for j in range(idx + 1, len(code_lines)):
+        # `code_lines` is the comment-stripped lexical view from `scan_text`, not
+        # the raw source. Assertions in comments must never satisfy this rule.
+        nxt = code_lines[j]
         if not nxt.strip():
             continue
         seen += 1
