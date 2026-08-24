@@ -25547,6 +25547,15 @@ struct CMUXCLI {
                     )
                 }
             }
+            if terminalResponse?["status"] as? String == "resolved" {
+                resumeClaudeAfterPermissionRequest(
+                    client: client,
+                    parsedInput: parsedInput,
+                    sessionStore: sessionStore,
+                    routing: hookRouting,
+                    telemetry: telemetry
+                )
+            }
 
         case "pre-tool-use":
             telemetry.breadcrumb("claude-hook.pre-tool-use")
