@@ -75,14 +75,48 @@ extension TerminalSurface {
     /// terminal input.
     ///
     /// Remote transports bypass ``sendInputResult(_:)`` but still share this
-    /// surface's agent-composer ownership. Reuse the socket input grammar so
-    /// Return remains a recoverable submission boundary and terminal-output
-    /// control sequences do not create false composer ownership.
+    /// surface's agent-composer ownership. Return remains a recoverable
+    /// submission boundary, while the common no-newline path avoids building a
+    /// parsed event array on the main actor for every short text write.
     @MainActor
     public func recordAcceptedUnownedPromptInput(_ text: String) {
-        recordPromptInputMutations(
-            for: Self.parsedSocketInputEvents(for: text)
-        )
+        guard !text.isEmpty else { return }
+        let hasReturn = text.unicodeScalars.contains { scalar in
+            scalar.value == 0x0A || scalar.value == 0x0D
+        }
+        guard hasReturn else {
+            promptInputLedger.recordHumanInput(.unknown)
+            return
+        }
+
+        var hasUnknownInput = false
+        var previousWasCR = false
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x0D:
+                if hasUnknownInput {
+                    promptInputLedger.recordHumanInput(.unknown)
+                    hasUnknownInput = false
+                }
+                promptInputLedger.recordHumanInput(.submissionBoundary)
+                previousWasCR = true
+            case 0x0A:
+                if !previousWasCR {
+                    if hasUnknownInput {
+                        promptInputLedger.recordHumanInput(.unknown)
+                        hasUnknownInput = false
+                    }
+                    promptInputLedger.recordHumanInput(.submissionBoundary)
+                }
+                previousWasCR = false
+            default:
+                hasUnknownInput = true
+                previousWasCR = false
+            }
+        }
+        if hasUnknownInput {
+            promptInputLedger.recordHumanInput(.unknown)
+        }
     }
 
     /// Records a named key that an external transport already accepted.

@@ -12207,7 +12207,10 @@ extension GhosttyNSView: NSTextInputClient {
 
         guard !sanitizedChars.isEmpty else { return }
         if let terminalSurface {
-            terminalSurface.recordHumanPromptInput(.unknown)
+            // Keep direct text commits on the same ownership grammar as socket
+            // and remote input. In particular, sendTextToSurface turns embedded
+            // newlines into Return key events that hooks must be able to confirm.
+            terminalSurface.recordAcceptedUnownedPromptInput(sanitizedChars)
         }
         terminalSurface?.didReceiveExplicitInput()
         // Otherwise send directly to the terminal

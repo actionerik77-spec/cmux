@@ -97,9 +97,24 @@ extension TerminalController {
             guard let surfaceID = v2UUIDAny(rawSurfaceID) else {
                 return nil
             }
-            return workspace.terminalInputTarget(
+            guard let target = workspace.terminalInputTarget(
                 forPanelID: surfaceID
-            )?.panel
+            ),
+                  let knownTarget = knownAgentPromptTarget(
+                      surfaceID: surfaceID,
+                      panel: target.panel,
+                      workspace: workspace
+                  ),
+                  knownTarget.agentInputScope != nil,
+                  let sessionPanel = agentPromptHookSessionPanel(
+                      in: workspace,
+                      hookSource: event.source,
+                      hookSessionID: event.sessionId
+                  ),
+                  sessionPanel.id == knownTarget.panel.id else {
+                return nil
+            }
+            return knownTarget.panel
         }
         if let sessionPanel = agentPromptHookSessionPanel(
             in: workspace,

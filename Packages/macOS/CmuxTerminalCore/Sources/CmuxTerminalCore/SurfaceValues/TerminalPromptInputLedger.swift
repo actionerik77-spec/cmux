@@ -128,7 +128,7 @@ public struct TerminalPromptInputLedger: Sendable {
                 count += 1
             }
         }
-        if exactProgrammaticCount == Self.maximumPendingBoundaries,
+        if exactProgrammaticCount >= Self.maximumPendingBoundaries,
            let oldestIndex = pendingBoundaries.firstIndex(where: {
                if case .programmatic = $0 {
                    return true
@@ -171,13 +171,15 @@ public struct TerminalPromptInputLedger: Sendable {
                     _,
                     let source,
                     let confirmsHumanInputSnapshot
-                ) = pendingBoundaries.remove(at: index) else {
+                ) = pendingBoundaries[index] else {
                     return .unmatched
                 }
+                // Keep a bounded sequence-only tombstone so a replayed hook
+                // cannot fall through and consume a newer human boundary.
+                retireProgrammaticBoundary(at: index)
                 if let confirmsHumanInputSnapshot,
                    confirmsHumanInputSnapshot.epoch == humanInputEpoch {
-                    confirmedHumanInputGeneration = max(
-                        confirmedHumanInputGeneration,
+                    confirmHumanInputThroughGeneration(
                         confirmsHumanInputSnapshot.generation
                     )
                 }
@@ -196,11 +198,26 @@ public struct TerminalPromptInputLedger: Sendable {
             return .unmatched
         }
         pendingBoundaries.removeFirst()
+        confirmHumanInputThroughGeneration(generation)
+        return .human
+    }
+
+    /// Confirms only input that exists in this epoch and retires its matching
+    /// boundaries so a delayed hook cannot attribute the same submission again.
+    private mutating func confirmHumanInputThroughGeneration(
+        _ generation: UInt64
+    ) {
+        let confirmedGeneration = min(generation, humanInputGeneration)
         confirmedHumanInputGeneration = max(
             confirmedHumanInputGeneration,
-            generation
+            confirmedGeneration
         )
-        return .human
+        pendingBoundaries.removeAll {
+            guard case .human(let boundaryGeneration) = $0 else {
+                return false
+            }
+            return boundaryGeneration <= confirmedGeneration
+        }
     }
 
     /// Retires one possible app-owned hook before unmatched attribution may
@@ -271,19 +288,11 @@ public struct TerminalPromptInputLedger: Sendable {
               case .human(let generation) = boundary else {
             return
         }
-        confirmedHumanInputGeneration = max(
-            confirmedHumanInputGeneration,
-            generation
-        )
-        pendingBoundaries.removeAll {
-            guard case .human(let boundaryGeneration) = $0 else {
-                return false
-            }
-            return boundaryGeneration <= generation
-        }
+        confirmHumanInputThroughGeneration(generation)
     }
 
     private mutating func retireProgrammaticBoundary(at index: Int) {
+        defer { trimRetiredProgrammaticBoundaries() }
         pendingBoundaries[index] = .retiredProgrammatic(count: 1)
         var retiredIndex = index
 
@@ -310,6 +319,23 @@ public struct TerminalPromptInputLedger: Sendable {
             count: addingWithoutOverflow(currentCount, nextCount)
         )
         pendingBoundaries.remove(at: retiredIndex + 1)
+    }
+
+    /// Keeps replay tombstones bounded without evicting human ownership proof.
+    private mutating func trimRetiredProgrammaticBoundaries() {
+        var retiredCount = pendingBoundaries.reduce(into: 0) { count, boundary in
+            if case .retiredProgrammatic = boundary {
+                count += 1
+            }
+        }
+        while retiredCount > Self.maximumPendingBoundaries,
+              let oldestIndex = pendingBoundaries.firstIndex(where: {
+                  if case .retiredProgrammatic = $0 { return true }
+                  return false
+              }) {
+            pendingBoundaries.remove(at: oldestIndex)
+            retiredCount -= 1
+        }
     }
 
     private func addingWithoutOverflow(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
