@@ -77,6 +77,51 @@ import Testing
         #expect(!ledger.hasUnconfirmedHumanInput)
     }
 
+    @Test func appConfirmationRetiresTheConfirmedHumanBoundary() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+        let snapshot = ledger.humanInputSnapshot
+        ledger.recordProgrammaticSubmission(
+            message: "native composer prompt",
+            source: "workspace.prompt_submit",
+            confirmsHumanInputSnapshot: snapshot
+        )
+
+        #expect(
+            ledger.confirmSubmission(message: "native composer prompt")
+                == .programmatic(source: "workspace.prompt_submit")
+        )
+        #expect(!ledger.hasUnconfirmedHumanInput)
+        // The boundary was already retired by the app-owned confirmation and
+        // must not be attributed to a later rewritten hook.
+        #expect(
+            ledger.confirmSubmission(message: "late human hook") == .unmatched
+        )
+    }
+
+    @Test func replayedProgrammaticHookCannotConfirmNewerHumanInput() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordProgrammaticSubmission(
+            message: "app prompt",
+            source: "workspace.agent_submit"
+        )
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+
+        #expect(
+            ledger.confirmSubmission(message: "app prompt")
+                == .programmatic(source: "workspace.agent_submit")
+        )
+        #expect(ledger.hasUnconfirmedHumanInput)
+        #expect(
+            ledger.confirmSubmission(message: "app prompt") == .unmatched
+        )
+        #expect(ledger.hasUnconfirmedHumanInput)
+        #expect(ledger.confirmSubmission(message: "human prompt") == .human)
+        #expect(!ledger.hasUnconfirmedHumanInput)
+    }
+
     @Test func olderAppConfirmationCannotUndoANewerConfirmation() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordHumanInput(.unknown)
