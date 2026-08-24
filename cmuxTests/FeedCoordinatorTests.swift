@@ -907,6 +907,36 @@ struct FeedCoordinatorTests {
     }
 
     @Test @MainActor
+    func transientAttentionStoreRemovesProjectedPaneByLiveSurfaceId() {
+        let store = FeedTransientAttentionStore()
+        let containerPanelId = UUID()
+        let liveSurfaceId = UUID()
+        let key = FeedTransientAttentionStore.Key(
+            source: "claude",
+            sessionId: "projected-pane-session",
+            requestId: "projected-pane-request"
+        )
+        store.insert(
+            FeedTransientAttentionStore.Entry(
+                target: FeedAttentionTarget.panel(
+                    id: containerPanelId,
+                    statusKey: "claude_code"
+                ),
+                liveSurfaceId: liveSurfaceId,
+                notificationCorrelationKey: "projected-pane-notification",
+                owner: .remoteWorkspace(UUID())
+            ),
+            for: key
+        )
+
+        #expect(
+            store.removeValues(surfaceId: liveSurfaceId)
+                .map(\.notificationCorrelationKey)
+                == ["projected-pane-notification"]
+        )
+    }
+
+    @Test @MainActor
     func transientAttentionStoreScopesCleanupToOneProcessGeneration() {
         let store = FeedTransientAttentionStore()
         let firstWorkspaceId = UUID()

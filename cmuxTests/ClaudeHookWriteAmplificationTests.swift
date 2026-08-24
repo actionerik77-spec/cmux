@@ -73,6 +73,109 @@ struct ClaudeHookWriteAmplificationTests {
         #expect(try Data(contentsOf: context.storeURL) == stateData)
     }
 
+    @Test func legacyOrdinaryToolResumesAStaleBlockingSession() throws {
+        let context = try Harness.makeContext(name: "legacy-ordinary-tool-transition")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "legacy-ordinary-tool-session"
+        let now: TimeInterval = 4_102_444_800
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "needsInput",
+                    "pendingBlockingToolUseIds": ["legacy-blocker"],
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        let commands = context.state.snapshot()
+        #expect(commands.contains { command in
+            guard let data = command.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["method"] as? String == "feed.attention.end",
+                  let params = object["params"] as? [String: Any] else {
+                return false
+            }
+            return params["session_id"] as? String == sessionId
+                && params["all_requests"] as? Bool == true
+        })
+        #expect(commands.contains { $0.hasPrefix("clear_notifications ") })
+        #expect(commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code running ") })
+        #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") })
+        let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["agentLifecycle"] as? String == "running")
+        #expect(record?["pendingBlockingToolUseIds"] as? [String] == [])
+    }
+
+    @Test func oversizedBlockingHookInputIsRejectedBeforeMutation() throws {
+        let context = try Harness.makeContext(name: "oversized-blocking-hook-input")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "oversized-blocking-hook-session"
+        _ = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let inputData = try JSONSerialization.data(withJSONObject: [
+            "session_id": sessionId,
+            "hook_event_name": "PreToolUse",
+            "tool_name": "ExitPlanMode",
+            "tool_input": ["plan": String(repeating: "x", count: 1_100_000)],
+            "permission_mode": "bypassPermissions",
+            "cwd": context.root.path,
+        ])
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            environment: environment,
+            standardInput: String(decoding: inputData, as: UTF8.self)
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(context.state.snapshot().isEmpty)
+    }
+
     @Test(arguments: ["PostToolUse", "PostToolUseFailure"])
     func blockingToolCompletionClearsNeedsInputWithoutFeedTelemetry(
         hookEventName: String
