@@ -14356,6 +14356,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Browser hard refresh owns its browser-scoped chord before an older
+        // persisted Rename Workspace binding can claim the same keystroke.
+        if handleBrowserHardReloadShortcut(event) {
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .renameWorkspace) {
             return requestRenameWorkspaceViaCommandPalette(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
@@ -15005,14 +15011,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             reloadBrowserPanelForShortcut(focusedBrowserPanel)
-            return true
-        }
-
-        if matchConfiguredShortcut(event: event, action: .browserHardReload) {
-            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
-                return false
-            }
-            hardReloadBrowserPanelForShortcut(focusedBrowserPanel)
             return true
         }
 
