@@ -281,8 +281,10 @@ extension ShortcutAction {
             return .atom(.sidebarFocus)
         case .commandPaletteNext, .commandPalettePrevious:
             return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
-        case .renameTab, .renameWorkspace:
+        case .renameTab:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+        case .renameWorkspace:
+            return .always
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .focusHistoryBack, .focusHistoryForward:
