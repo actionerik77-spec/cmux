@@ -900,6 +900,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/regex-quote-same-line.ts",
+            'const quote = /"/; await fetch("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -1077,6 +1082,16 @@ def _self_test() -> int:
             "                break\n"
             "            time.sleep(0.3)\n"
             "        _must('ok' in body, body)\n",
+        ),
+        # Assertion-like text in a comment after a sleep is inert and must not
+        # be mistaken for a synchronization assertion.
+        (
+            "tests/n26.py",
+            "time.sleep(0.1)\n# assert widget.is_rendered()\n",
+        ),
+        (
+            "web/tests/n27.ts",
+            "await Task.sleep(100)\n// expect(widget).toBeVisible()\n",
         ),
     ]
 
