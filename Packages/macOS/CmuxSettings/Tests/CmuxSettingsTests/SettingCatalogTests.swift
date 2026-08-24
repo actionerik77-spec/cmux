@@ -111,6 +111,11 @@ struct SettingCatalogTests {
         let prefix = SettingCatalog().shortcuts.prefix
         #expect(prefix.id == "shortcuts.prefix")
         #expect(prefix.defaultValue == .unbound)
+
+    }
+
+    @Test func adaptiveDefaultTerminalThemeDefaultsOnForUntouchedConfigs() {
+        #expect(SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {
