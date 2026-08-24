@@ -23,6 +23,13 @@ extension ClaudeHookSessionStore {
     }
 
     private static let maximumBlockingToolCorrelationCount = 256
+    /// Caps the canonical fallback payload so a synchronous hook cannot spend
+    /// unbounded time and memory serializing model-controlled tool input.
+    private static let maximumBlockingToolPayloadSignatureBytes = 64 * 1024
+    private static let maximumBlockingToolPayloadSignatureDepth = 4
+    private static let maximumBlockingToolPayloadSignatureCollectionCount = 16
+    private static let maximumBlockingToolPayloadSignatureStringBytes = 512
+    private static let maximumBlockingToolPayloadSignatureKeyBytes = 128
 
     /// Returns the session displaced by a pane-scoped active-session boundary.
     /// Legacy workspace-only slots are accepted only when their recorded pane
@@ -336,19 +343,108 @@ extension ClaudeHookSessionStore {
         guard let rawObject else { return nil }
         let rawToolName = rawObject["tool_name"] ?? rawObject["toolName"]
         let toolName = normalizedBlockingToolIdentifier(rawToolName as? String)
+            .map {
+                boundedBlockingToolString(
+                    $0,
+                    maxBytes: Self.maximumBlockingToolPayloadSignatureKeyBytes
+                )
+            }
         let toolInput = rawObject["tool_input"] ?? rawObject["toolInput"] ?? NSNull()
+        guard let boundedToolInput = boundedBlockingToolPayloadValue(toolInput, depth: 0) else {
+            return nil
+        }
         let canonicalPayload: [String: Any] = [
-            "tool_input": toolInput,
+            "tool_input": boundedToolInput,
             "tool_name": toolName ?? NSNull(),
         ]
         guard JSONSerialization.isValidJSONObject(canonicalPayload),
               let data = try? JSONSerialization.data(
                   withJSONObject: canonicalPayload,
                   options: [.sortedKeys]
-              ) else {
+              ), data.count <= Self.maximumBlockingToolPayloadSignatureBytes else {
             return nil
         }
         return Data(SHA256.hash(data: data)).base64EncodedString()
+    }
+
+    private func boundedBlockingToolPayloadValue(
+        _ value: Any,
+        depth: Int
+    ) -> Any? {
+        if let string = value as? String {
+            return boundedBlockingToolString(
+                string,
+                maxBytes: Self.maximumBlockingToolPayloadSignatureStringBytes
+            )
+        }
+        if let bool = value as? Bool {
+            return bool
+        }
+        if let number = value as? NSNumber {
+            return number
+        }
+        if value is NSNull {
+            return NSNull()
+        }
+        guard depth < Self.maximumBlockingToolPayloadSignatureDepth else {
+            return ["_cmux_truncated": true]
+        }
+        if let dictionary = value as? [String: Any] {
+            let keys = dictionary.keys.sorted()
+            var bounded: [String: Any] = [:]
+            for key in keys.prefix(Self.maximumBlockingToolPayloadSignatureCollectionCount) {
+                guard let rawValue = dictionary[key],
+                      let boundedValue = boundedBlockingToolPayloadValue(
+                          rawValue,
+                          depth: depth + 1
+                      ) else {
+                    continue
+                }
+                let boundedKey = boundedBlockingToolString(
+                    key,
+                    maxBytes: Self.maximumBlockingToolPayloadSignatureKeyBytes
+                )
+                bounded[boundedKey] = boundedValue
+            }
+            if keys.count > Self.maximumBlockingToolPayloadSignatureCollectionCount {
+                bounded["_cmux_truncated_key_count"] =
+                    keys.count - Self.maximumBlockingToolPayloadSignatureCollectionCount
+            }
+            return bounded
+        }
+        if let array = value as? [Any] {
+            let boundedValues = array.prefix(
+                Self.maximumBlockingToolPayloadSignatureCollectionCount
+            ).compactMap {
+                boundedBlockingToolPayloadValue($0, depth: depth + 1)
+            }
+            if array.count > Self.maximumBlockingToolPayloadSignatureCollectionCount {
+                return [
+                    "_cmux_values": boundedValues,
+                    "_cmux_truncated_value_count":
+                        array.count - Self.maximumBlockingToolPayloadSignatureCollectionCount,
+                ]
+            }
+            return boundedValues
+        }
+        return nil
+    }
+
+    private func boundedBlockingToolString(
+        _ value: String,
+        maxBytes: Int
+    ) -> String {
+        guard value.utf8.count > maxBytes else { return value }
+        var endIndex = value.startIndex
+        var usedBytes = 0
+        while endIndex < value.endIndex {
+            let nextIndex = value.index(after: endIndex)
+            let characterBytes = value[endIndex..<nextIndex].utf8.count
+            guard usedBytes + characterBytes <= maxBytes else { break }
+            usedBytes += characterBytes
+            endIndex = nextIndex
+        }
+        return String(value[..<endIndex])
     }
 
     private func normalizedBlockingToolIdentifier(_ value: String?) -> String? {

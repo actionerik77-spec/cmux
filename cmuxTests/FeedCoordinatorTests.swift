@@ -922,9 +922,9 @@ struct FeedCoordinatorTests {
                     id: containerPanelId,
                     statusKey: "claude_code"
                 ),
-                liveSurfaceId: liveSurfaceId,
                 notificationCorrelationKey: "projected-pane-notification",
-                owner: .remoteWorkspace(UUID())
+                owner: .remoteWorkspace(UUID()),
+                liveSurfaceId: liveSurfaceId
             ),
             for: key
         )

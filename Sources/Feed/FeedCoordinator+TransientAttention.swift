@@ -28,6 +28,21 @@ final class FeedTransientAttentionStore {
         let target: FeedAttentionTarget
         let notificationCorrelationKey: String
         let owner: Owner
+        /// The live terminal identity, which differs from `target.panelId` for
+        /// a projected remote-tmux pane whose layout owner is its container.
+        let liveSurfaceId: UUID?
+
+        init(
+            target: FeedAttentionTarget,
+            notificationCorrelationKey: String,
+            owner: Owner,
+            liveSurfaceId: UUID? = nil
+        ) {
+            self.target = target
+            self.notificationCorrelationKey = notificationCorrelationKey
+            self.owner = owner
+            self.liveSurfaceId = liveSurfaceId
+        }
     }
 
     private struct StoredEntry {
@@ -90,7 +105,9 @@ final class FeedTransientAttentionStore {
     }
 
     func removeValues(surfaceId: UUID) -> [Entry] {
-        removeValues { _, entry in entry.target.panelId == surfaceId }
+        removeValues { _, entry in
+            entry.liveSurfaceId == surfaceId || entry.target.panelId == surfaceId
+        }
     }
 
     func removeValues(
@@ -182,7 +199,8 @@ extension FeedCoordinator {
             FeedTransientAttentionStore.Entry(
                 target: target,
                 notificationCorrelationKey: correlationKey,
-                owner: owner
+                owner: owner,
+                liveSurfaceId: liveSurfaceId
             ),
             for: key
         )

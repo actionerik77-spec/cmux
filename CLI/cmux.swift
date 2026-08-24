@@ -24718,7 +24718,13 @@ struct CMUXCLI {
             callerTerminalBinding: callerTTYBindingProvider,
             agentPid: claudeAgentPID(from: ProcessInfo.processInfo.environment)
         )
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard let rawInputData = Self.readBoundedFeedHookStdin(
+            maxBytes: Self.claudeHookMaxStdinBytes
+        ), let rawInput = String(data: rawInputData, encoding: .utf8) else {
+            telemetry.breadcrumb("claude-hook.input-too-large-or-invalid")
+            printClaudeHookAck()
+            return
+        }
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
         // Record the hook-observed permission mode (shift+tab auto-accept, plan
@@ -25551,12 +25557,18 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             let toolName = parsedInput.object?["tool_name"] as? String
             let isBlockingNeedsInputTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
-            if !isBlockingNeedsInputTool {
+            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            // Legacy wrappers still invoke this command for ordinary tools. Keep
+            // their transition cleanup, but only when the durable session says a
+            // blocker is actually waiting; current targeted wrappers never pay
+            // this path for ordinary tool calls.
+            let legacyOrdinaryToolNeedsTransition = !isBlockingNeedsInputTool
+                && mappedSession?.agentLifecycle == .needsInput
+            if !isBlockingNeedsInputTool && !legacyOrdinaryToolNeedsTransition {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.ordinary-ignored")
                 printClaudeHookAck()
                 return
             }
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             // Skip only the pid/tty scan per tool call; the cheap
             // `{surface_id}` re-home probe stays enabled so a mid-turn pane
             // move cannot make this hook mutate (and re-record) the old
@@ -25695,6 +25707,13 @@ struct CMUXCLI {
                 return
             }
 
+            if legacyOrdinaryToolNeedsTransition,
+               let sessionId = parsedInput.sessionId {
+                endClaudeBlockingAttentionForTurnBoundary(
+                    client: client,
+                    sessionId: sessionId
+                )
+            }
             if let sessionId = parsedInput.sessionId {
                 _ = try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -25702,7 +25721,8 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .running
+                    agentLifecycle: .running,
+                    clearPendingBlockingTools: legacyOrdinaryToolNeedsTransition
                 )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
@@ -35372,6 +35392,7 @@ export default CMUXSessionRestore;
         return result
     }
 
+    private static let claudeHookMaxStdinBytes = 1 * 1024 * 1024
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
     private static let piFeedHookMaxStdinBytes = 128 * 1024
 
