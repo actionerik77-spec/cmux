@@ -283,6 +283,11 @@ extension AgentNotificationRegressionTests {
         )
         #expect(notification.tabId == fixture.owningWorkspace.id)
         #expect(!notification.persistsInSessionSnapshot)
+        #expect(
+            fixture.store.notificationFeedHistory.notifications.allSatisfy {
+                $0.title != "Remote Claude Code"
+            }
+        )
         let snapshot = fixture.owningWorkspace.sessionSnapshot(includeScrollback: false)
         let panelSnapshot = try #require(
             snapshot.panels.first { $0.id == fixture.panelId }

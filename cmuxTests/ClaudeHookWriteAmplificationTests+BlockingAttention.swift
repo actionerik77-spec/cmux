@@ -66,6 +66,59 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(record?["agentLifecycle"] as? String == "running")
     }
 
+    @Test func timedOutNativePermissionClearsNotificationLifecycle() throws {
+        let context = try AttentionHarness.makeContext(name: "permission-native-fallback")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "permission-native-fallback-session"
+        let now: TimeInterval = 4_102_444_800
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "needsInput",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId],
+            feedTerminalStatusesByRequestId: ["permission-fallback": "timed_out"]
+        )
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = AttentionHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_use_id":"permission-fallback","permission_mode":"default","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        let commands = context.state.snapshot()
+        #expect(commands.contains { $0.hasPrefix("clear_notifications ") })
+        #expect(commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code running ") })
+        #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") })
+        let record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["agentLifecycle"] as? String == "running")
+    }
+
     @Test func deniedPlanDoesNotPoisonTheNextBlockingTool() throws {
         let context = try AttentionHarness.makeContext(name: "denied-plan-blocker")
         defer { context.cleanup() }
