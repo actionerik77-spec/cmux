@@ -394,11 +394,12 @@ struct AgentPromptSubmissionTests {
         #expect(workspace.latestSubmittedMessage == nil)
 
         let event = WorkstreamEvent(
-            sessionId: "foreign-session",
+            sessionId: "unverified-prompt",
             hookEventName: .userPromptSubmit,
             source: "codex",
             workspaceId: workspace.id.uuidString,
-            surfaceId: nil,
+            surfaceId: panelID.uuidString,
+            ppid: Int(getpid()),
             toolInputJSON: #"{"prompt":"foreign human hook"}"#
         )
         TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
@@ -1082,10 +1083,23 @@ struct AgentPromptSubmissionTests {
                 cleanedURLs.append(contentsOf: urls)
             }
         )
-        let attachmentURL = URL(fileURLWithPath: "/tmp/cmux-mobile-chat.png")
-        service.registerMobileChatAttachmentFiles(
-            [attachmentURL],
-            surfaceID: "surface-mobile-chat"
+        let firstAttachmentURL = URL(fileURLWithPath: "/tmp/cmux-mobile-chat-1.png")
+        let secondAttachmentURL = URL(fileURLWithPath: "/tmp/cmux-mobile-chat-2.png")
+        #expect(
+            service.registerMobileChatAttachmentFiles(
+                [firstAttachmentURL],
+                sessionID: "mobile-chat-session",
+                surfaceID: "surface-mobile-chat",
+                prompt: "/tmp/cmux-mobile-chat-1.png"
+            )
+        )
+        #expect(
+            service.registerMobileChatAttachmentFiles(
+                [secondAttachmentURL],
+                sessionID: "mobile-chat-session",
+                surfaceID: "surface-mobile-chat",
+                prompt: "/tmp/cmux-mobile-chat-2.png"
+            )
         )
 
         service.noteHookEvent(
@@ -1093,11 +1107,41 @@ struct AgentPromptSubmissionTests {
                 sessionId: "mobile-chat-session",
                 hookEventName: .userPromptSubmit,
                 source: "codex",
+                surfaceId: "surface-mobile-chat",
+                toolInputJSON: #"{"prompt":"/tmp/cmux-mobile-chat-1.png"}"#
+            )
+        )
+        #expect(cleanedURLs.isEmpty)
+
+        service.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: "mobile-chat-session",
+                hookEventName: .stop,
+                source: "codex",
                 surfaceId: "surface-mobile-chat"
             )
         )
 
-        #expect(cleanedURLs == [attachmentURL])
+        #expect(cleanedURLs == [firstAttachmentURL])
+
+        service.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: "mobile-chat-session",
+                hookEventName: .userPromptSubmit,
+                source: "codex",
+                surfaceId: "surface-mobile-chat",
+                toolInputJSON: #"{"prompt":"/tmp/cmux-mobile-chat-2.png"}"#
+            )
+        )
+        service.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: "mobile-chat-session",
+                hookEventName: .stop,
+                source: "codex",
+                surfaceId: "surface-mobile-chat"
+            )
+        )
+        #expect(cleanedURLs == [firstAttachmentURL, secondAttachmentURL])
     }
 
     @Test func composerBusyMapsToDistinctRetryableSocketError() throws {

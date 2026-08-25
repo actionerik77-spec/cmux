@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxTerminal
+import CryptoKit
 import Foundation
 
 /// Retains terminal render/tick notifications only while live prose streaming
@@ -128,11 +129,11 @@ final class AgentChatTranscriptService {
     /// settlement to transcript lines that landed after the prompt started.
     private var latestTranscriptSeqBySessionID: [String: Int] = [:]
     /// Attachment batches staged by mobile chat until an authoritative agent
-    /// hook proves that the terminal consumed the submitted paths.
-    private var pendingMobileChatAttachmentURLsBySurfaceID: [
-        String: [[URL]]
-    ] = [:]
-    private static let maximumPendingMobileChatAttachmentBatchesPerSurface = 8
+    /// turn-completion hook proves that the terminal consumed the paths.
+    private var pendingMobileChatAttachmentBatches: [
+        MobileChatAttachmentBatch
+    ] = []
+    private static let maximumPendingMobileChatAttachmentBatches = 64
     /// Sessions whose transcript could not be resolved cheaply; skipped until
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
@@ -145,6 +146,16 @@ final class AgentChatTranscriptService {
         let startedAt: Date
         let transcriptFloorSeq: Int
     }
+
+    private typealias MobileChatAttachmentBatch = (
+        sessionID: String,
+        surfaceID: String,
+        processID: Int?,
+        promptDigest: [UInt8],
+        promptByteCount: Int,
+        fileURLs: [URL],
+        hookConfirmed: Bool
+    )
 
     /// Creates the service with a hook-store-backed registry.
     ///
@@ -312,10 +323,21 @@ final class AgentChatTranscriptService {
     func noteHookEvent(_ event: WorkstreamEvent) {
         let record = registry.noteHookEvent(event)
         switch event.hookEventName {
-        case .userPromptSubmit, .stop, .sessionEnd:
-            if let surfaceID = record.surfaceID ?? event.surfaceId {
-                cleanupConsumedMobileChatAttachments(forSurfaceID: surfaceID)
-            }
+        case .userPromptSubmit:
+            markMobileChatAttachmentBatchConfirmed(
+                for: event,
+                record: record
+            )
+        case .stop:
+            cleanupCompletedMobileChatAttachments(
+                for: event,
+                record: record
+            )
+        case .sessionEnd:
+            cleanupAllMobileChatAttachments(
+                for: event,
+                record: record
+            )
         default:
             break
         }
@@ -360,38 +382,166 @@ final class AgentChatTranscriptService {
         }
     }
 
+    /// Whether another mobile-chat attachment batch can be staged.
+    func canStageMobileChatAttachmentBatch() -> Bool {
+        pendingMobileChatAttachmentBatches.count
+            < Self.maximumPendingMobileChatAttachmentBatches
+    }
+
     /// Retains materialized mobile-chat files until the receiving terminal
-    /// emits an authoritative lifecycle hook.
+    /// emits a post-turn lifecycle hook.
     ///
     /// - Parameters:
     ///   - fileURLs: Owned image files referenced by one submitted prompt.
     ///   - surfaceID: Stable terminal surface receiving the prompt.
     func registerMobileChatAttachmentFiles(
         _ fileURLs: [URL],
-        surfaceID: String
-    ) {
+        sessionID: String,
+        surfaceID: String,
+        processID: Int? = nil,
+        prompt: String
+    ) -> Bool {
+        let normalizedSessionID = sessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
         let normalizedSurfaceID = normalizedMobileChatSurfaceID(surfaceID)
-        guard !normalizedSurfaceID.isEmpty, !fileURLs.isEmpty else { return }
-        var batches = pendingMobileChatAttachmentURLsBySurfaceID[
-            normalizedSurfaceID,
-            default: []
-        ]
-        batches.append(fileURLs)
-        while batches.count
-                > Self.maximumPendingMobileChatAttachmentBatchesPerSurface {
-            let evicted = batches.removeFirst()
-            cleanupMobileChatAttachments(evicted)
+        guard !normalizedSessionID.isEmpty,
+              !normalizedSurfaceID.isEmpty,
+              !fileURLs.isEmpty,
+              let promptSignature = mobileChatPromptSignature(prompt),
+              canStageMobileChatAttachmentBatch() else {
+            return false
         }
-        pendingMobileChatAttachmentURLsBySurfaceID[normalizedSurfaceID] = batches
+        pendingMobileChatAttachmentBatches.append(
+            (
+                sessionID: normalizedSessionID,
+                surfaceID: normalizedSurfaceID,
+                processID: processID,
+                promptDigest: promptSignature.digest,
+                promptByteCount: promptSignature.byteCount,
+                fileURLs: fileURLs,
+                hookConfirmed: false
+            )
+        )
+        return true
     }
 
-    private func cleanupConsumedMobileChatAttachments(forSurfaceID surfaceID: String) {
-        let normalizedSurfaceID = normalizedMobileChatSurfaceID(surfaceID)
-        guard let batches = pendingMobileChatAttachmentURLsBySurfaceID
-            .removeValue(forKey: normalizedSurfaceID) else {
+    private func markMobileChatAttachmentBatchConfirmed(
+        for event: WorkstreamEvent,
+        record: AgentChatSessionRecord
+    ) {
+        guard let index = pendingMobileChatAttachmentBatches.firstIndex(
+            where: { batch in
+                guard mobileChatAttachmentBatchMatches(
+                    batch,
+                    event: event,
+                    record: record
+                ) else {
+                    return false
+                }
+                guard let message = event.submittedPromptMessage,
+                      let signature = mobileChatPromptSignature(message) else {
+                    return !batch.hookConfirmed
+                }
+                return !batch.hookConfirmed
+                    && batch.promptDigest == signature.digest
+                    && batch.promptByteCount == signature.byteCount
+            }
+        ) else {
             return
         }
-        cleanupMobileChatAttachments(batches.flatMap { $0 })
+        pendingMobileChatAttachmentBatches[index].hookConfirmed = true
+    }
+
+    private func cleanupCompletedMobileChatAttachments(
+        for event: WorkstreamEvent,
+        record: AgentChatSessionRecord
+    ) {
+        cleanupMobileChatAttachmentBatches(
+            matching: { batch in
+                batch.hookConfirmed
+                    && mobileChatAttachmentBatchMatches(
+                        batch,
+                        event: event,
+                        record: record
+                    )
+            }
+        )
+    }
+
+    private func cleanupAllMobileChatAttachments(
+        for event: WorkstreamEvent,
+        record: AgentChatSessionRecord
+    ) {
+        cleanupMobileChatAttachmentBatches(
+            matching: { batch in
+                mobileChatAttachmentBatchMatches(
+                    batch,
+                    event: event,
+                    record: record
+                )
+            }
+        )
+    }
+
+    private func cleanupMobileChatAttachmentBatches(
+        matching predicate: (MobileChatAttachmentBatch) -> Bool
+    ) {
+        var retained: [MobileChatAttachmentBatch] = []
+        var cleanedURLs: [URL] = []
+        retained.reserveCapacity(pendingMobileChatAttachmentBatches.count)
+        for batch in pendingMobileChatAttachmentBatches {
+            if predicate(batch) {
+                cleanedURLs.append(contentsOf: batch.fileURLs)
+            } else {
+                retained.append(batch)
+            }
+        }
+        pendingMobileChatAttachmentBatches = retained
+        guard !cleanedURLs.isEmpty else { return }
+        cleanupMobileChatAttachments(cleanedURLs)
+    }
+
+    private func mobileChatAttachmentBatchMatches(
+        _ batch: MobileChatAttachmentBatch,
+        event: WorkstreamEvent,
+        record: AgentChatSessionRecord
+    ) -> Bool {
+        let eventSessionIDs = [
+            event.sessionId,
+            AgentChatSessionRegistry.normalizedSessionID(
+                event.sessionId,
+                source: event.source
+            ),
+            AgentChatSessionRegistry.normalizedSessionID(
+                batch.sessionID,
+                source: event.source
+            ),
+        ]
+        guard eventSessionIDs.contains(batch.sessionID) else { return false }
+        if let processID = batch.processID,
+           let hookProcessID = event.ppid,
+           processID != hookProcessID {
+            return false
+        }
+        guard let surfaceID = record.surfaceID ?? event.surfaceId else {
+            return false
+        }
+        return batch.surfaceID == normalizedMobileChatSurfaceID(surfaceID)
+    }
+
+    private func mobileChatPromptSignature(
+        _ prompt: String
+    ) -> (digest: [UInt8], byteCount: Int)? {
+        let normalized = prompt
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard !normalized.isEmpty else { return nil }
+        let data = Data(normalized.utf8)
+        return (
+            digest: Array(SHA256.hash(data: data)),
+            byteCount: data.count
+        )
     }
 
     private func normalizedMobileChatSurfaceID(_ surfaceID: String) -> String {

@@ -294,6 +294,15 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
+        if !attachments.isEmpty,
+           let agentChatTranscriptService,
+           !agentChatTranscriptService.canStageMobileChatAttachmentBatch() {
+            return .err(
+                code: "resource_busy",
+                message: Self.chatAttachmentPreparationErrorMessage,
+                data: ["retryable": true]
+            )
+        }
         var attachmentPayloads: [MobileChatAttachmentPayload] = []
         attachmentPayloads.reserveCapacity(attachments.count)
         for attachment in attachments {
@@ -359,16 +368,27 @@ extension TerminalController {
         pasteParams["text"] = promptComponents.joined(separator: " ")
         let deliveredSurfaceID = pasteParams["surface_id"] as? String
             ?? surfaceID.uuidString
+        let deliveredProcessID = agentChatTranscriptService?
+            .sessionRecord(sessionID: sessionID)?.pid
+        let submittedPrompt = promptComponents.joined(separator: " ")
         let result = v2MobileTerminalPaste(
             params: pasteParams,
             rejectIfHumanComposerBusy: true
         )
         if case .ok = result,
            let agentChatTranscriptService {
-            agentChatTranscriptService.registerMobileChatAttachmentFiles(
-                attachmentFileURLs,
-                surfaceID: deliveredSurfaceID
-            )
+            let registered = agentChatTranscriptService
+                .registerMobileChatAttachmentFiles(
+                    attachmentFileURLs,
+                    sessionID: sessionID,
+                    surfaceID: deliveredSurfaceID,
+                    processID: deliveredProcessID,
+                    prompt: submittedPrompt
+                )
+            if !registered {
+                GhosttyApp.terminalPasteboard
+                    .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
+            }
         } else {
             GhosttyApp.terminalPasteboard
                 .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
