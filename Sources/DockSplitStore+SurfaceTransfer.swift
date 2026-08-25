@@ -409,7 +409,8 @@ extension DockSplitStore {
         focus: Bool = true
     ) -> UUID? {
         guard containsPane(paneId.id), panels[detached.panelId] == nil else {
-            FeedCoordinator.shared.endTransientBlockingAttention(surfaceId: detached.panelId)
+            // The caller may roll this transfer back to its source container;
+            // only panel destruction, not an attach rejection, ends attention.
             return nil
         }
         let panel = detached.panel
@@ -438,7 +439,6 @@ extension DockSplitStore {
             isPinned: false,
             inPane: paneId
         ) else {
-            FeedCoordinator.shared.endTransientBlockingAttention(surfaceId: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)
@@ -502,7 +502,6 @@ extension DockSplitStore {
         focus: Bool = true
     ) -> UUID? {
         guard containsPane(paneId.id), panels[detached.panelId] == nil else {
-            FeedCoordinator.shared.endTransientBlockingAttention(surfaceId: detached.panelId)
             return nil
         }
         let panel = detached.panel
@@ -535,7 +534,6 @@ extension DockSplitStore {
             )
         }
         guard let newPane else {
-            FeedCoordinator.shared.endTransientBlockingAttention(surfaceId: detached.panelId)
             removeSurfaceMapping(forSurfaceId: tab.id)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             panels.removeValue(forKey: detached.panelId)

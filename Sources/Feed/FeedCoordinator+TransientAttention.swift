@@ -66,27 +66,23 @@ final class FeedTransientAttentionStore {
         entries[key]?.entry
     }
 
+    func hasCapacity(for key: Key) -> Bool {
+        entries[key] != nil || entries.count < maximumEntryCount
+    }
+
     /// Inserts one request and returns any oldest entries evicted to preserve
     /// the hard registry bound. Duplicate request identities remain idempotent.
     @discardableResult
     func insert(_ entry: Entry, for key: Key) -> [Entry] {
         guard entries[key] == nil else { return [] }
-
-        var evicted: [Entry] = []
-        while entries.count >= maximumEntryCount,
-              let oldestKey = entries.min(by: {
-                  $0.value.insertionOrder < $1.value.insertionOrder
-              })?.key,
-              let oldest = removeValue(for: oldestKey) {
-            evicted.append(oldest)
-        }
+        guard entries.count < maximumEntryCount else { return [] }
 
         entries[key] = StoredEntry(
             entry: entry,
             insertionOrder: nextInsertionOrder
         )
         nextInsertionOrder &+= 1
-        return evicted
+        return []
     }
 
     func removeValue(for key: Key) -> Entry? {
@@ -198,6 +194,12 @@ extension FeedCoordinator {
         }
         if let existing = transientAttentionStore.entry(for: key) {
             return existing.owner == owner
+        }
+        guard transientAttentionStore.hasCapacity(for: key) else {
+            // A durable Claude correlation refuses its own overflow; keep the
+            // app registry equally fail-closed instead of evicting another
+            // live request whose durable owner would outlive this row.
+            return false
         }
 
         guard let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(

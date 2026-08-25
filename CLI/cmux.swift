@@ -25839,6 +25839,8 @@ struct CMUXCLI {
                         )
                     case .active:
                         break
+                    case .uncertain:
+                        telemetry.breadcrumb("claude-hook.pre-tool-use.attention-uncertain")
                     case .rejected:
                         telemetry.breadcrumb("claude-hook.pre-tool-use.attention-rejected")
                     }

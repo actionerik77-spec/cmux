@@ -4,6 +4,7 @@ extension CMUXCLI {
     enum ClaudeBlockingAttentionBeginResult: Equatable {
         case active
         case unavailable
+        case uncertain
         case rejected
     }
 
@@ -65,8 +66,13 @@ extension CMUXCLI {
                 responseTimeout: Self.claudeBlockingAttentionResponseTimeout
             )
             return response["active"] as? Bool == false ? .rejected : .active
-        } catch {
+        } catch let error as CLIError where error.v2Code == "method_not_found"
+                || error.v2Code == "unrecognized_method" {
             return .unavailable
+        } catch {
+            // A timeout may race an app-side commit. Do not switch to a V1
+            // fallback until the request's ownership is known.
+            return .uncertain
         }
     }
 
