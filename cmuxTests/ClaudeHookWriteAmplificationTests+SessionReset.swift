@@ -139,7 +139,7 @@ extension ClaudeHookWriteAmplificationTests {
         )
     }
 
-    @Test func bypassAttentionFallsBackWhenTransientEndpointIsInactive() throws {
+    @Test func bypassAttentionFallsBackWhenTransientEndpointIsUnavailable() throws {
         let context = try SessionResetHarness.makeContext(name: "legacy-attention-fallback")
         defer { context.cleanup() }
 
@@ -162,7 +162,7 @@ extension ClaudeHookWriteAmplificationTests {
             surfacesByWorkspace: [workspaceId: [surfaceId]],
             pidTarget: nil,
             surfaceTargets: [surfaceId: workspaceId],
-            feedAttentionBeginActive: false
+            feedAttentionBeginSucceeds: false
         )
         var environment = SessionResetHarness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = workspaceId
