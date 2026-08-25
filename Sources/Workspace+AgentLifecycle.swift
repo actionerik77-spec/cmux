@@ -127,8 +127,12 @@ extension Workspace {
               binding.source == "agent-hook" else {
             return
         }
-        let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard checkpointId == nil || checkpointId == restoredAgent.sessionId else {
+        if let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ManagedAgentSessionIdentity.sessionIDsMatch(
+               kind: restoredAgent.kind.rawValue,
+               lhs: checkpointId,
+               rhs: restoredAgent.sessionId
+           ) {
             return
         }
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
@@ -176,7 +180,11 @@ extension Workspace {
             return false
         }
         guard entry.snapshot.kind.rawValue == kind,
-              entry.snapshot.sessionId == checkpointId else {
+              ManagedAgentSessionIdentity.sessionIDsMatch(
+                  kind: kind,
+                  lhs: entry.snapshot.sessionId,
+                  rhs: checkpointId
+              ) else {
             // The index saw another identity for this panel. That is still not
             // an explicit exit observation for this binding; retain it until a
             // matching generation reports `.exited` or its hook tears down.

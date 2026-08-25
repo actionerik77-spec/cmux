@@ -75,7 +75,9 @@ import Testing
         let firstTerminal = try #require(first.panels.first?.terminal)
         #expect(firstTerminal.agent?.sessionId == sessionId)
         #expect(firstTerminal.resumeBinding?.checkpointId == sessionId)
-        #expect(firstTerminal.wasAgentRunning == nil)
+        // Unknown liveness is persisted fail-closed so a scan gap cannot turn
+        // into an automatic resume on the next restart.
+        #expect(firstTerminal.wasAgentRunning == false)
 
         let second = workspace.sessionSnapshot(
             includeScrollback: false,
@@ -162,6 +164,24 @@ import Testing
                 $0.key == Workspace.resumeBindingGapStatusKey
             }
         )
+    }
+
+    @Test @MainActor
+    func dockResumeBindingGapPublishesToOwningWorkspaceImmediately() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockSplit
+        let panelId = UUID()
+
+        dock.setResumeBindingGap(true, panelId: panelId)
+        #expect(workspace.unresolvedResumeBindingGapCount == 1)
+        #expect(
+            workspace.sidebarStatusEntriesInDisplayOrder().contains {
+                $0.key == Workspace.resumeBindingGapStatusKey
+            }
+        )
+
+        dock.setResumeBindingGap(false, panelId: panelId)
+        #expect(workspace.unresolvedResumeBindingGapCount == 0)
     }
 
     @Test func structuredLaunchCaptureRoundTripsAdditively() throws {

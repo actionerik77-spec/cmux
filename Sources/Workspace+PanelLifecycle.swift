@@ -505,9 +505,7 @@ extension Workspace {
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-        if unresolvedResumeBindingPanelIds.remove(panelId) != nil {
-            unresolvedResumeBindingStatusUpdatedAt = Date.now
-        }
+        setResumeBindingGap(false, panelId: panelId)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG

@@ -177,11 +177,15 @@ extension DockSplitStore {
             let tmuxStartCommand = restorableAgent == nil
                 ? policy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
                 : nil
+            let persistedAgentWasRunning: Bool? =
+                restorableAgent != nil || resumeBinding != nil || managedResumeBinding != nil
+                    ? (agentWasRunning ?? false)
+                    : nil
             let resumeStartupInput = policy.surfaceResumeStartupInput(
                 resumeBinding,
                 autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
                     defaults: agentSessionAutoResumeDefaults
-                ) && (agentWasRunning ?? true),
+                ) && persistedAgentWasRunning == true,
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
@@ -245,7 +249,7 @@ extension DockSplitStore {
                 textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: persistedAgentWasRunning
             )
             browserSnapshot = nil
         case .browser:
@@ -421,7 +425,14 @@ extension DockSplitStore {
             ? managedBinding?.checkpointId
             : restorableAgent?.sessionId
         let relevantObservation = observation.flatMap { entry -> RestorableAgentSessionIndex.Entry? in
-            guard entry.snapshot.kind == expectedKind, entry.snapshot.sessionId == expectedSessionId else {
+            guard let expectedKind,
+                  let expectedSessionId,
+                  entry.snapshot.kind.rawValue == expectedKind.rawValue,
+                  ManagedAgentSessionIdentity.sessionIDsMatch(
+                      kind: expectedKind.rawValue,
+                      lhs: entry.snapshot.sessionId,
+                      rhs: expectedSessionId
+                  ) else {
                 return nil
             }
             return entry

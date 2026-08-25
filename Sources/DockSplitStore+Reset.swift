@@ -21,7 +21,7 @@ extension DockSplitStore {
         restoredAgentLifecycle.resumeStatesByPanelId.removeAll()
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeAll()
         surfaceResumeBindingsByPanelId.removeAll()
-        unresolvedResumeBindingPanelIds.removeAll()
+        clearAllResumeBindingGaps()
         managedAgentResumeBindingsByPanelId.removeAll()
         invalidatedCachedTransferAgentSessionPanelIds.removeAll()
         replacedCachedTransferAgentSessionPanelIds.removeAll()

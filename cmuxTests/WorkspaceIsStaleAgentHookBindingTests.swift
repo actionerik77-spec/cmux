@@ -16,6 +16,11 @@ import Testing
 @MainActor
 @Suite
 struct WorkspaceIsStaleAgentHookBindingTests {
+    private static let piSessionID = "019fbf0f-7fcd-70aa-9388-f44c4e27fa0c"
+    private static let piSessionPath =
+        "/Users/test/.pi/agent/sessions/--Users-test-project--/" +
+        "2026-08-01T18-39-09-000Z_\(piSessionID).jsonl"
+
     private static func agentHookBinding(
         launchFlavor: SurfaceResumeLaunchFlavor
     ) -> SurfaceResumeBindingSnapshot {
@@ -24,6 +29,43 @@ struct WorkspaceIsStaleAgentHookBindingTests {
             checkpointId: "session-1",
             source: "agent-hook",
             launchFlavor: launchFlavor
+        )
+    }
+
+    private static func piAgentHookBinding() -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            kind: "pi",
+            command: "pi --session \(piSessionID)",
+            checkpointId: piSessionID,
+            source: "agent-hook"
+        )
+    }
+
+    private static func piIndex(
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> RestorableAgentSessionIndex {
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: "/tmp/cmux-pi-repeat-restore-empty-home",
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                key: (
+                    snapshot: SessionRestorableAgentSnapshot(
+                        kind: .custom("pi"),
+                        sessionId: piSessionPath
+                    ),
+                    updatedAt: 1,
+                    processIDs: [31_398],
+                    agentProcessIDs: [31_398],
+                    sessionIDSource: .explicit
+                ),
+            ],
+            processIdentityProvider: { _ in nil }
         )
     }
 
@@ -53,5 +95,39 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         // NOT be reported as stale (that would delete a still-live remote
         // binding on the next reconciliation).
         #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == false)
+    }
+
+    @Test
+    func reconciliationKeepsPiBindingAfterScannerResolvesUUIDToSessionPath() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = Self.piAgentHookBinding()
+        let index = Self.piIndex(workspaceId: workspace.id, panelId: panelId)
+        try #require(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        workspace.reconcileSurfaceResumeBindings(
+            using: .empty,
+            restorableAgentIndex: index
+        )
+
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == binding)
+    }
+
+    @Test
+    func sessionRestoreMatchesPiBindingUUIDToDetectedSessionPath() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = Self.piAgentHookBinding()
+        let index = Self.piIndex(workspaceId: workspace.id, panelId: panelId)
+        let detectedSnapshot = try #require(
+            index.snapshot(workspaceId: workspace.id, panelId: panelId)
+        )
+
+        let restoredSnapshot = Workspace.restorableAgentForSessionRestore(
+            detectedSnapshot,
+            resumeBinding: binding
+        )
+
+        #expect(restoredSnapshot?.sessionId == Self.piSessionPath)
     }
 }

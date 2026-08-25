@@ -518,13 +518,21 @@ extension Workspace {
                         return true
                     }
                     guard let effectiveRestorableAgent,
-                          effectiveRestorableAgent.kind == bindingKind,
-                          effectiveRestorableAgent.sessionId == bindingSessionId else {
+                          effectiveRestorableAgent.kind.rawValue == bindingKind.rawValue,
+                          ManagedAgentSessionIdentity.sessionIDsMatch(
+                              kind: bindingKind.rawValue,
+                              lhs: effectiveRestorableAgent.sessionId,
+                              rhs: bindingSessionId
+                          ) else {
                         return false
                     }
                     guard let restorableAgentObservation,
-                          restorableAgentObservation.snapshot.kind == bindingKind,
-                          restorableAgentObservation.snapshot.sessionId == bindingSessionId else {
+                          restorableAgentObservation.snapshot.kind.rawValue == bindingKind.rawValue,
+                          ManagedAgentSessionIdentity.sessionIDsMatch(
+                              kind: bindingKind.rawValue,
+                              lhs: restorableAgentObservation.snapshot.sessionId,
+                              rhs: bindingSessionId
+                          ) else {
                         // Missing process-index evidence is inconclusive. Keep
                         // the shell signal when available, and leave it nil when
                         // it is not; restore treats nil as eligible for a safe
@@ -559,9 +567,19 @@ extension Workspace {
                         processPresence: agentProcessPresence
                     )
             }()
+            // A newly captured agent with inconclusive liveness must not use the
+            // legacy nil-as-running fallback. Keep nil only for ordinary
+            // non-agent terminals; old snapshots still decode nil and retain
+            // their backwards-compatible restore behavior.
+            let persistedAgentWasRunning: Bool? =
+                effectiveRestorableAgent != nil || effectiveResumeBinding != nil
+                    ? (agentWasRunning ?? false)
+                    : nil
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
                 effectiveResumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) && (agentWasRunning ?? true),
+                autoResumeAgentSessions:
+                    AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) &&
+                    persistedAgentWasRunning == true,
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
@@ -629,7 +647,7 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: persistedAgentWasRunning
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1021,12 +1039,17 @@ extension Workspace {
         guard let binding, binding.isAgentHookBinding, let restorableAgent else {
             return binding
         }
-        guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
+        guard let checkpointId = normalizedResumeBindingValue(binding.checkpointId),
+              ManagedAgentSessionIdentity.sessionIDsMatch(
+                  kind: restorableAgent.kind.rawValue,
+                  lhs: checkpointId,
+                  rhs: restorableAgent.sessionId
+              ) else {
             return binding
         }
         if let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
            !bindingKind.isEmpty,
-           RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
+           RestorableAgentKind(rawValue: bindingKind)?.rawValue != restorableAgent.kind.rawValue {
             return binding
         }
 
@@ -1055,12 +1078,16 @@ extension Workspace {
         }
 
         if let checkpointId = normalizedResumeBindingValue(resumeBinding.checkpointId),
-           checkpointId != restorableAgent.sessionId {
+           !ManagedAgentSessionIdentity.sessionIDsMatch(
+               kind: restorableAgent.kind.rawValue,
+               lhs: checkpointId,
+               rhs: restorableAgent.sessionId
+           ) {
             return nil
         }
         if let kindValue = normalizedResumeBindingValue(resumeBinding.kind) {
             guard let bindingKind = RestorableAgentKind(rawValue: kindValue),
-                  bindingKind == restorableAgent.kind else {
+                  bindingKind.rawValue == restorableAgent.kind.rawValue else {
                 return nil
             }
         }
@@ -5155,7 +5182,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func updateDockResumeBindingGaps(_ panelIds: Set<UUID>) {
+    func updateDockResumeBindingGaps(_ panelIds: Set<UUID>) {
         guard unresolvedDockResumeBindingPanelIds != panelIds else { return }
         unresolvedDockResumeBindingPanelIds = panelIds
         unresolvedResumeBindingStatusUpdatedAt = Date.now

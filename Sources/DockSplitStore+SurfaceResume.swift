@@ -146,11 +146,22 @@ extension DockSplitStore {
     }
 
     func setResumeBindingGap(_ hasGap: Bool, panelId: UUID) {
+        let didChange: Bool
         if hasGap {
-            unresolvedResumeBindingPanelIds.insert(panelId)
+            didChange = unresolvedResumeBindingPanelIds.insert(panelId).inserted
         } else {
-            unresolvedResumeBindingPanelIds.remove(panelId)
+            didChange = unresolvedResumeBindingPanelIds.remove(panelId) != nil
         }
+        guard didChange else { return }
+        terminalFontSizeOwningWorkspace?.updateDockResumeBindingGaps(
+            unresolvedResumeBindingPanelIds
+        )
+    }
+
+    func clearAllResumeBindingGaps() {
+        guard !unresolvedResumeBindingPanelIds.isEmpty else { return }
+        unresolvedResumeBindingPanelIds.removeAll(keepingCapacity: false)
+        terminalFontSizeOwningWorkspace?.updateDockResumeBindingGaps([])
     }
 
     func managedAgentResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
