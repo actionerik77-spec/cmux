@@ -23,10 +23,12 @@ struct AgentPromptSubmissionTests {
         let first = Task.detached {
             await lane.perform { receipt in
                 probe.started("first", receipt: receipt)
-                return .submitted(
-                    workspaceID: firstWorkspaceID,
-                    surfaceID: firstSurfaceID,
-                    queued: true
+                return .admitted(
+                    .submitted(
+                        workspaceID: firstWorkspaceID,
+                        surfaceID: firstSurfaceID,
+                        queued: true
+                    )
                 )
             }
         }
@@ -35,10 +37,12 @@ struct AgentPromptSubmissionTests {
         let second = Task.detached {
             await lane.perform { receipt in
                 probe.started("second", receipt: receipt)
-                return .submitted(
-                    workspaceID: secondWorkspaceID,
-                    surfaceID: secondSurfaceID,
-                    queued: true
+                return .admitted(
+                    .submitted(
+                        workspaceID: secondWorkspaceID,
+                        surfaceID: secondSurfaceID,
+                        queued: true
+                    )
                 )
             }
         }
@@ -48,20 +52,24 @@ struct AgentPromptSubmissionTests {
         probe.finishFirst(.sent)
 
         #expect(
-            await first.value == .submitted(
-                workspaceID: firstWorkspaceID,
-                surfaceID: firstSurfaceID,
-                queued: false
+            await first.value == .admitted(
+                .submitted(
+                    workspaceID: firstWorkspaceID,
+                    surfaceID: firstSurfaceID,
+                    queued: true
+                )
             )
         )
         #expect(probe.waitUntilStarted(count: 2))
         #expect(probe.startedMessages == ["first", "second"])
         probe.finishSecond(.sent)
         #expect(
-            await second.value == .submitted(
-                workspaceID: secondWorkspaceID,
-                surfaceID: secondSurfaceID,
-                queued: false
+            await second.value == .admitted(
+                .submitted(
+                    workspaceID: secondWorkspaceID,
+                    surfaceID: secondSurfaceID,
+                    queued: true
+                )
             )
         )
     }

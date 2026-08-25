@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxTerminal
+import CmuxTerminalCore
 import Foundation
 
 extension TerminalController {
@@ -9,7 +10,8 @@ extension TerminalController {
     func deliverAgentPromptSubmission(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
-        text: String
+        text: String,
+        deliveryReceipt: PromptSubmissionDeliveryReceipt? = nil
     ) -> AgentPromptSubmissionResult {
         guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID)
                 ?? (self.tabManager?.tabs.contains(where: { $0.id == workspaceID }) == true
@@ -40,7 +42,8 @@ extension TerminalController {
             submitKey: submitKey,
             agentInputScope: target.agentInputScope,
             rejectIfHumanComposerBusy: true,
-            hookRecordingSource: "workspace.agent_submit"
+            hookRecordingSource: "workspace.agent_submit",
+            deliveryReceipt: deliveryReceipt
         )
         switch result {
         case .sent, .queued:

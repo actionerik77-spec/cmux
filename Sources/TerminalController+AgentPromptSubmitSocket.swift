@@ -1,4 +1,12 @@
+import CmuxControlSocket
+import CmuxTerminalCore
 import Foundation
+
+private struct AgentPromptSubmissionRequest: Sendable {
+    let rawWorkspaceID: String
+    let rawSurfaceID: String?
+    let text: String
+}
 
 extension TerminalController {
     nonisolated static var agentPromptComposerBusyMessage: String {
@@ -15,56 +23,133 @@ extension TerminalController {
         )
     }
 
-    /// Worker-lane handler for `workspace.agent_submit`.
-    ///
-    /// The socket worker owns the definitive reply. One `v2MainSync` admission
-    /// covers target resolution, validation, and delivery, so concurrent
-    /// callers cannot interleave or reorder prompt transactions between hops.
+    /// Synchronous compatibility handler for `workspace.agent_submit` callers
+    /// that still use the legacy dispatcher. Network socket traffic uses the
+    /// async handler below so its lane remains occupied through delivery.
     nonisolated func v2WorkspaceAgentSubmit(params: [String: Any]) -> V2CallResult {
+        switch Self.parseAgentPromptSubmissionRequest(params) {
+        case .failure(let result):
+            return result
+        case .success(let request):
+            return Self.agentPromptSocketResult(
+                admitAgentPromptSubmission(
+                    request: request,
+                    deliveryReceipt: nil
+                )
+            )
+        }
+    }
+
+    /// Async socket-worker handler that keeps one global transaction turn
+    /// until the admitted compound prompt is actually delivered.
+    nonisolated func v2WorkspaceAgentSubmitAsync(
+        request: ControlRequest
+    ) async -> String {
+        let params = request.params.mapValues(\.foundationObject)
+        switch Self.parseAgentPromptSubmissionRequest(params) {
+        case .failure(let result):
+            return Self.v2Encoder.response(
+                id: request.id,
+                Self.controlCallResult(fromLegacy: result)
+            )
+        case .success(let parsed):
+            let result = await agentPromptSubmissionDeliveryLane.perform {
+                receipt in
+                self.admitAgentPromptSubmissionValue(
+                    request: parsed,
+                    deliveryReceipt: receipt
+                )
+            }
+            let socketResult = Self.agentPromptSocketResult(result)
+            return Self.v2Encoder.response(
+                id: request.id,
+                Self.controlCallResult(fromLegacy: socketResult)
+            )
+        }
+    }
+
+    private nonisolated static func parseAgentPromptSubmissionRequest(
+        _ params: [String: Any]
+    ) -> Result<AgentPromptSubmissionRequest, V2CallResult> {
         guard let rawWorkspaceID = params["workspace_id"] as? String else {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.workspace.agentSubmit.invalidWorkspace",
-                    defaultValue: "Missing or invalid workspace_id."
-                ),
-                data: nil
+            return .failure(
+                .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.workspace.agentSubmit.invalidWorkspace",
+                        defaultValue: "Missing or invalid workspace_id."
+                    ),
+                    data: nil
+                )
             )
         }
         guard let text = params["text"] as? String,
               !text.trimmingCharacters(
                   in: .whitespacesAndNewlines
               ).isEmpty else {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.workspace.agentSubmit.missingText",
-                    defaultValue: "Agent prompt text must not be empty."
-                ),
-                data: nil
+            return .failure(
+                .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.workspace.agentSubmit.missingText",
+                        defaultValue: "Agent prompt text must not be empty."
+                    ),
+                    data: nil
+                )
             )
         }
         let rawSurfaceID: String?
         if let rawSurface = params["surface_id"], !(rawSurface is NSNull) {
             guard let rawSurface = rawSurface as? String else {
-                return .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "socket.workspace.agentSubmit.invalidSurface",
-                        defaultValue: "surface_id must be a valid surface UUID."
-                    ),
-                    data: nil
+                return .failure(
+                    .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "socket.workspace.agentSubmit.invalidSurface",
+                            defaultValue: "surface_id must be a valid surface UUID."
+                        ),
+                        data: nil
+                    )
                 )
             }
             rawSurfaceID = rawSurface
         } else {
             rawSurfaceID = nil
         }
+        return .success(
+            AgentPromptSubmissionRequest(
+                rawWorkspaceID: rawWorkspaceID,
+                rawSurfaceID: rawSurfaceID,
+                text: text
+            )
+        )
+    }
+
+    private nonisolated func admitAgentPromptSubmission(
+        request: AgentPromptSubmissionRequest,
+        deliveryReceipt: PromptSubmissionDeliveryReceipt?
+    ) -> V2CallResult {
+        Self.agentPromptSocketResult(
+            admitAgentPromptSubmissionValue(
+                request: request,
+                deliveryReceipt: deliveryReceipt
+            )
+        )
+    }
+
+    private nonisolated func admitAgentPromptSubmissionValue(
+        request: AgentPromptSubmissionRequest,
+        deliveryReceipt: PromptSubmissionDeliveryReceipt?
+    ) -> AgentPromptSubmissionDeliveryLane.Outcome {
+        let rawWorkspaceID = request.rawWorkspaceID
+        let rawSurfaceID = request.rawSurfaceID
+        let text = request.text
         let admit = {
             self.admitAgentPromptSubmission(
                 rawWorkspaceID: rawWorkspaceID,
                 rawSurfaceID: rawSurfaceID,
-                text: text
+                text: text,
+                deliveryReceipt: deliveryReceipt
             )
         }
         if Thread.isMainThread {
@@ -76,41 +161,56 @@ extension TerminalController {
     private nonisolated func admitAgentPromptSubmission(
         rawWorkspaceID: String,
         rawSurfaceID: String?,
-        text: String
-    ) -> V2CallResult {
+        text: String,
+        deliveryReceipt: PromptSubmissionDeliveryReceipt? = nil
+    ) -> AgentPromptSubmissionDeliveryLane.Outcome {
         v2MainSync(commandKey: "workspace.agent_submit") {
             guard let workspaceID = v2UUIDAny(rawWorkspaceID) else {
-                return .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "socket.workspace.agentSubmit.invalidWorkspace",
-                        defaultValue: "Missing or invalid workspace_id."
-                    ),
-                    data: nil
-                )
+                return .invalidWorkspace
             }
             let requestedSurfaceID: UUID?
             if let rawSurfaceID {
                 guard let parsed = v2UUIDAny(rawSurfaceID) else {
-                    return .err(
-                        code: "invalid_params",
-                        message: String(
-                            localized: "socket.workspace.agentSubmit.invalidSurface",
-                            defaultValue: "surface_id must be a valid surface UUID."
-                        ),
-                        data: nil
-                    )
+                    return .invalidSurface
                 }
                 requestedSurfaceID = parsed
             } else {
                 requestedSurfaceID = nil
             }
-            return Self.agentPromptSocketResult(
+            return .admitted(
                 deliverAgentPromptSubmission(
                     workspaceID: workspaceID,
                     requestedSurfaceID: requestedSurfaceID,
-                    text: text
+                    text: text,
+                    deliveryReceipt: deliveryReceipt
                 )
+            )
+        }
+    }
+
+    private nonisolated static func agentPromptSocketResult(
+        _ outcome: AgentPromptSubmissionDeliveryLane.Outcome
+    ) -> V2CallResult {
+        switch outcome {
+        case .admitted(let result):
+            return agentPromptSocketResult(result)
+        case .invalidWorkspace:
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.workspace.agentSubmit.invalidWorkspace",
+                    defaultValue: "Missing or invalid workspace_id."
+                ),
+                data: nil
+            )
+        case .invalidSurface:
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.workspace.agentSubmit.invalidSurface",
+                    defaultValue: "surface_id must be a valid surface UUID."
+                ),
+                data: nil
             )
         }
     }

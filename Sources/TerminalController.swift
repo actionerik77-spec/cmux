@@ -149,13 +149,17 @@ class TerminalController {
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
-    /// FIFO admission for complete agent submissions arriving on independent
-    /// socket workers. This serializes admission, not mutable domain state.
+    /// FIFO admission for legacy synchronous agent-submit callers. Real socket
+    /// requests also hold `agentPromptSubmissionDeliveryLane` until the queued
+    /// compound write completes.
     private nonisolated let agentPromptSubmissionAdmissionQueue =
         DispatchQueue(
             label: "com.cmux.agent-prompt-submission-admission",
             qos: .userInitiated
         )
+    /// Serializes the real async socket lane through delivery completion.
+    nonisolated let agentPromptSubmissionDeliveryLane =
+        AgentPromptSubmissionDeliveryLane()
     /// Bounds worker threads and completion contexts parked for synchronous
     /// `reload_config` acknowledgements. Excess callers receive backpressure.
     private nonisolated let reloadConfigurationWaiterAdmission =

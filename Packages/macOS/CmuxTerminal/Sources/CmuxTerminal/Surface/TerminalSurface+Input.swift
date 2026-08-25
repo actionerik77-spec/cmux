@@ -26,6 +26,7 @@ extension TerminalSurface {
                     _,
                     let hookRecordingSource,
                     _,
+                    _,
                     _
                 ) = input else {
                     return false
@@ -79,7 +80,7 @@ extension TerminalSurface {
     ///
     /// Generic socket/mobile input records through this same ledger below.
     /// Attributed compound submissions deliberately use
-    /// ``sendPromptSubmission(_:submitKey:preparationKeys:rejectIfHumanComposerBusy:hookRecordingSource:hookConfirmsHumanInput:)``
+    /// ``sendPromptSubmission``
     /// instead, so their hooks cannot consume an unowned human boundary.
     ///
     /// - Parameter mutation: The conservatively modeled composer mutation.
@@ -106,9 +107,9 @@ extension TerminalSurface {
     /// terminal input.
     ///
     /// Remote transports bypass ``sendInputResult(_:)`` but still share this
-    /// surface's agent-composer ownership. Return remains a recoverable
-    /// submission boundary, while the common no-newline path avoids building a
-    /// parsed event array on the main actor for every short text write.
+    /// surface's agent-composer ownership. Return is a recoverable submission
+    /// boundary only for agents whose cached submit chord is plain Return; a
+    /// configured multiline agent treats it as unknown input.
     @MainActor
     public func recordAcceptedUnownedPromptInput(_ text: String) {
         guard !text.isEmpty else { return }
@@ -122,6 +123,10 @@ extension TerminalSurface {
 
         var hasUnknownInput = false
         var previousWasCR = false
+        let returnMutation: HumanPromptInputMutation =
+            controlReturnIsPromptSubmissionBoundary
+                ? .unknown
+                : .submissionBoundary
         for scalar in text.unicodeScalars {
             switch scalar.value {
             case 0x0D:
@@ -129,7 +134,7 @@ extension TerminalSurface {
                     promptInputLedger.recordHumanInput(.unknown)
                     hasUnknownInput = false
                 }
-                promptInputLedger.recordHumanInput(.submissionBoundary)
+                promptInputLedger.recordHumanInput(returnMutation)
                 previousWasCR = true
             case 0x0A:
                 if !previousWasCR {
@@ -137,7 +142,7 @@ extension TerminalSurface {
                         promptInputLedger.recordHumanInput(.unknown)
                         hasUnknownInput = false
                     }
-                    promptInputLedger.recordHumanInput(.submissionBoundary)
+                    promptInputLedger.recordHumanInput(returnMutation)
                 }
                 previousWasCR = false
             default:
@@ -166,11 +171,19 @@ extension TerminalSurface {
         controlReturnIsPromptSubmissionBoundary:
             Bool? = nil
     ) {
+        let previousScope = promptInputLedger.currentAgentScope
         if let controlReturnIsPromptSubmissionBoundary {
             self.controlReturnIsPromptSubmissionBoundary =
                 controlReturnIsPromptSubmissionBoundary
         }
         promptInputLedger.synchronizeAgentScope(scope)
+        if previousScope != scope {
+            // A prompt retained across a process replacement can only replay
+            // once its original scope is bound again. Reconcile that queue at
+            // the same ownership transition instead of waiting for a new
+            // runtime-surface creation event.
+            flushPendingSocketInputIfNeeded()
+        }
     }
 
     /// Matches an agent `UserPromptSubmit` hook to a known input boundary.
@@ -549,24 +562,29 @@ extension TerminalSurface {
         hookRecordingSource: String? = nil,
         hookConfirmsHumanInput: Bool = false,
         recordHumanPromptInput: Bool = false,
-        agentInputScope: String? = nil
+        agentInputScope: String? = nil,
+        deliveryReceipt: PromptSubmissionDeliveryReceipt? = nil
     ) -> PromptSubmissionSendResult {
         let data = Data(text.utf8)
         guard let submitEvent = pendingKeyEvent(for: submitKey) else {
+            deliveryReceipt?.finish(.unknownKey)
             return .unknownKey
         }
         let preparationEvents = preparationKeys.compactMap {
             pendingKeyEvent(for: $0)
         }
         guard preparationEvents.count == preparationKeys.count else {
+            deliveryReceipt?.finish(.unknownKey)
             return .unknownKey
         }
         if rejectIfHumanComposerBusy,
            promptInputLedger.hasUnconfirmedHumanInput {
+            deliveryReceipt?.finish(.composerBusy)
             return .composerBusy
         }
         if rejectIfHumanComposerBusy,
            surfaceView.hasDeferredHumanInputDuringClipboardRead() {
+            deliveryReceipt?.finish(.composerBusy)
             return .composerBusy
         }
         let hookConfirmedHumanInputSnapshot = !recordHumanPromptInput
@@ -590,7 +608,11 @@ extension TerminalSurface {
             estimatedBytes: estimatedBytes,
             isHumanInput: recordHumanPromptInput,
             replay: { [weak self] in
-                _ = self?.sendPromptSubmissionAfterAdmission(
+                guard let self else {
+                    deliveryReceipt?.finish(.surfaceUnavailable)
+                    return
+                }
+                let result = self.sendPromptSubmissionAfterAdmission(
                     text,
                     data: data,
                     preparationEvents: preparationEvents,
@@ -599,8 +621,25 @@ extension TerminalSurface {
                     recordHumanPromptInput: recordHumanPromptInput,
                     admittedAgentInputScope: admittedAgentInputScope,
                     hookConfirmedHumanInputSnapshot:
-                        hookConfirmedHumanInputSnapshot
+                        hookConfirmedHumanInputSnapshot,
+                    deliveryReceipt: deliveryReceipt
                 )
+                if result == .agentScopeUnavailable,
+                   deliveryReceipt == nil {
+                    let retainedInput: PendingSocketInput = .promptSubmission(
+                        preparationKeys: preparationEvents,
+                        text: data,
+                        submitKey: submitEvent,
+                        hookRecordingSource: hookRecordingSource,
+                        hookConfirmedHumanInputSnapshot:
+                            hookConfirmedHumanInputSnapshot,
+                        agentInputScope: admittedAgentInputScope,
+                        deliveryReceipt: nil
+                    )
+                    _ = self.enqueuePendingSocketInput(retainedInput)
+                } else if result != .queued {
+                    deliveryReceipt?.finish(result)
+                }
             }
         ) {
             hibernationRecorder.recordTerminalInput(
@@ -619,8 +658,12 @@ extension TerminalSurface {
             recordHumanPromptInput: recordHumanPromptInput,
             admittedAgentInputScope: admittedAgentInputScope,
             hookConfirmedHumanInputSnapshot:
-                hookConfirmedHumanInputSnapshot
+                hookConfirmedHumanInputSnapshot,
+            deliveryReceipt: deliveryReceipt
         )
+        if result != .queued {
+            deliveryReceipt?.finish(result)
+        }
         if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
@@ -641,7 +684,8 @@ extension TerminalSurface {
         recordHumanPromptInput: Bool,
         admittedAgentInputScope: String?,
         hookConfirmedHumanInputSnapshot:
-            TerminalPromptInputLedger.HumanInputSnapshot?
+            TerminalPromptInputLedger.HumanInputSnapshot?,
+        deliveryReceipt: PromptSubmissionDeliveryReceipt?
     ) -> PromptSubmissionSendResult {
         if let admittedAgentInputScope,
            promptInputLedger.currentAgentScope != admittedAgentInputScope {
@@ -664,7 +708,8 @@ extension TerminalSurface {
                     hookRecordingSource: hookRecordingSource,
                     hookConfirmedHumanInputSnapshot:
                         hookConfirmedHumanInputSnapshot,
-                    agentInputScope: admittedAgentInputScope
+                    agentInputScope: admittedAgentInputScope,
+                    deliveryReceipt: deliveryReceipt
                 )
             guard enqueuePendingSocketInput(pendingInput) else {
                 return .inputQueueFull
@@ -788,6 +833,7 @@ extension TerminalSurface {
             case .rawBytes(let data):
                 promptInputLedger.recordHumanInput(
                     data.count == 1 && data.first == 0x0D
+                        && !controlReturnIsPromptSubmissionBoundary
                         ? .submissionBoundary
                         : .unknown
                 )
@@ -824,7 +870,12 @@ extension TerminalSurface {
                 | GHOSTTY_MODS_SUPER.rawValue
         let relevantModifiers = mods.rawValue & relevantModifierMask
         if relevantModifiers == GHOSTTY_MODS_NONE.rawValue {
-            return .submissionBoundary
+            // Claude's multiline composer uses Ctrl-Return as the submit
+            // chord. A plain Return inserts an interior line break and must
+            // stay unknown so its hook cannot confirm that boundary.
+            return controlReturnIsPromptSubmissionBoundary
+                ? .unknown
+                : .submissionBoundary
         }
         if controlReturnIsPromptSubmissionBoundary,
            relevantModifiers == GHOSTTY_MODS_CTRL.rawValue {
@@ -1445,12 +1496,14 @@ extension TerminalSurface {
             _,
             _,
             _,
-            let admittedAgentInputScope
+            let admittedAgentInputScope,
+            let deliveryReceipt
         ) = input,
               let admittedAgentInputScope else {
             return false
         }
-        return promptInputLedger.currentAgentScope != admittedAgentInputScope
+        return deliveryReceipt == nil
+            && promptInputLedger.currentAgentScope != admittedAgentInputScope
     }
 
     @MainActor
@@ -1476,7 +1529,12 @@ extension TerminalSurface {
             estimatedBytes: input.estimatedBytes,
             isHumanInput: input.isHumanInput,
             replay: { [weak self] in
-                _ = self?.deliverPendingSocketInput(input)
+                guard let self else { return }
+                let delivered = self.deliverPendingSocketInput(input)
+                if !delivered,
+                   self.shouldRetainPendingPromptAfterScopeMismatch(input) {
+                    _ = self.enqueuePendingSocketInput(input)
+                }
             }
         ) {
             return true
@@ -1491,6 +1549,10 @@ extension TerminalSurface {
             guard let currentSurface = liveSurfaceForSocketWrite(
                 reason: "socket.flushPendingInput.item"
             ) else {
+                finishPendingPromptDelivery(
+                    input,
+                    with: .surfaceUnavailable
+                )
                 validatedSurface = nil
                 validatedGeneration = nil
                 return false
@@ -1498,6 +1560,11 @@ extension TerminalSurface {
             surface = currentSurface
             validatedSurface = currentSurface
             validatedGeneration = runtimeSurfaceGeneration
+        }
+        if case .promptSubmission = input,
+           ghostty_surface_process_exited(surface) {
+            finishPendingPromptDelivery(input, with: .processExited)
+            return false
         }
         switch input {
         case .pasteText(let chunk):
@@ -1526,10 +1593,12 @@ extension TerminalSurface {
             let submitKey,
             let hookRecordingSource,
             let hookConfirmedHumanInputSnapshot,
-            let admittedAgentInputScope
+            let admittedAgentInputScope,
+            let deliveryReceipt
         ):
             if let admittedAgentInputScope,
                promptInputLedger.currentAgentScope != admittedAgentInputScope {
+                deliveryReceipt?.finish(.agentScopeUnavailable)
                 return false
             }
             for preparationKey in preparationKeys {
@@ -1551,6 +1620,7 @@ extension TerminalSurface {
                 confirmsHumanInputSnapshot:
                     hookConfirmedHumanInputSnapshot
             )
+            deliveryReceipt?.finish(.sent)
         case .humanPromptSubmission(
             let preparationKeys,
             let text,
@@ -1576,5 +1646,18 @@ extension TerminalSurface {
             )
         }
         return false
+    }
+
+    @MainActor
+    private func finishPendingPromptDelivery(
+        _ input: PendingSocketInput,
+        with result: PromptSubmissionSendResult
+    ) {
+        guard case .promptSubmission(
+            _, _, _, _, _, _, let deliveryReceipt
+        ) = input else {
+            return
+        }
+        deliveryReceipt?.finish(result)
     }
 }

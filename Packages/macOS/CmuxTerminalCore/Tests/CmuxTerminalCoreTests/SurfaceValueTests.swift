@@ -62,7 +62,8 @@ import GhosttyKit
                 submitKey: key,
                 hookRecordingSource: "workspace.agent_submit",
                 hookConfirmedHumanInputSnapshot: nil,
-                agentInputScope: "agent:test"
+                agentInputScope: "agent:test",
+                deliveryReceipt: nil
             ).estimatedBytes == 29
         )
     }
@@ -103,7 +104,8 @@ import GhosttyKit
             ),
             hookRecordingSource: "workspace.prompt_submit",
             hookConfirmedHumanInputSnapshot: snapshot,
-            agentInputScope: "agent:test"
+            agentInputScope: "agent:test",
+            deliveryReceipt: nil
         )
 
         guard case .promptSubmission(
@@ -112,6 +114,7 @@ import GhosttyKit
             _,
             _,
             let queuedSnapshot,
+            _,
             _
         ) = input else {
             Issue.record("Expected compound prompt")

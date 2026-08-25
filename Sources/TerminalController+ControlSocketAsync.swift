@@ -109,6 +109,9 @@ extension TerminalController {
     private nonisolated func socketWorkerV2ResponseAsync(
         _ request: ControlRequest
     ) async -> String? {
+        if request.method == "workspace.agent_submit" {
+            return await v2WorkspaceAgentSubmitAsync(request: request)
+        }
         if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,
@@ -402,7 +405,7 @@ extension TerminalController {
         )
     }
 
-    private nonisolated static func controlCallResult(
+    nonisolated static func controlCallResult(
         fromLegacy result: V2CallResult
     ) -> ControlCallResult {
         switch result {
