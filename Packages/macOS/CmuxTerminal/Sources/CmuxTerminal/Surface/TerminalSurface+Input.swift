@@ -665,6 +665,7 @@ extension TerminalSurface {
                 deferredPromptSubmissionRetries = [pendingPromptInput]
                 deferredPromptSubmissionRetryBytes =
                     pendingPromptInput.estimatedBytes
+                deferredPromptSubmissionRetryRounds = 0
             }
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
@@ -1494,6 +1495,7 @@ extension TerminalSurface {
         pendingSocketInputBytes = 0
         deferredPromptSubmissionRetries.removeAll(keepingCapacity: false)
         deferredPromptSubmissionRetryBytes = 0
+        deferredPromptSubmissionRetryRounds = 0
         for input in queued {
             finishPendingPromptDelivery(input, with: result)
         }
@@ -1503,6 +1505,7 @@ extension TerminalSurface {
     private func clearDeferredPromptSubmissionRetry() {
         deferredPromptSubmissionRetries.removeAll(keepingCapacity: false)
         deferredPromptSubmissionRetryBytes = 0
+        deferredPromptSubmissionRetryRounds = 0
     }
 
     @MainActor
@@ -1518,6 +1521,12 @@ extension TerminalSurface {
                 <= maxPendingSocketInputBytes else {
             return false
         }
+        if deferredPromptSubmissionRetries.isEmpty {
+            deferredPromptSubmissionRetryRounds = max(
+                1,
+                deferredPromptSubmissionRetryRounds
+            )
+        }
         deferredPromptSubmissionRetries.append(input)
         deferredPromptSubmissionRetryBytes += bytes
         return true
@@ -1530,12 +1539,33 @@ extension TerminalSurface {
         ) else {
             return
         }
+        if !deferredPromptSubmissionRetries.isEmpty {
+            if deferredPromptSubmissionRetryRounds >= 3 {
+                let expired = deferredPromptSubmissionRetries
+                clearDeferredPromptSubmissionRetry()
+                for input in expired {
+                    finishPendingPromptDelivery(
+                        input,
+                        with: .agentScopeUnavailable
+                    )
+                }
+#if DEBUG
+                logDebugEvent(
+                    "surface.socket_input.expire_deferred_prompt surface=\(id.uuidString.prefix(8)) " +
+                    "items=\(expired.count)"
+                )
+#endif
+            } else {
+                deferredPromptSubmissionRetryRounds += 1
+            }
+        }
         let queued = deferredPromptSubmissionRetries
             + pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
-        clearDeferredPromptSubmissionRetry()
+        deferredPromptSubmissionRetries.removeAll(keepingCapacity: false)
+        deferredPromptSubmissionRetryBytes = 0
         guard !queued.isEmpty else { return }
 
         var validatedSurface: ghostty_surface_t? = liveSurface
@@ -1571,6 +1601,10 @@ extension TerminalSurface {
                     guard retainDeferredPromptSubmission(item) else { break }
                 }
             }
+        }
+        if deferredPromptSubmissionRetries.isEmpty,
+           retainedItems.isEmpty {
+            deferredPromptSubmissionRetryRounds = 0
         }
 #if DEBUG
         logDebugEvent(

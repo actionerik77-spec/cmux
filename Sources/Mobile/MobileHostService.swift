@@ -2035,6 +2035,7 @@ actor MobileHostConnection {
     private var orderedRequestQueuesBySurfaceKey: [String: MobileHostOrderedRequestQueue] = [:]
     private var orderedRequestWorkerTasksBySurfaceKey: [String: Task<Void, Never>] = [:]
     private var orderedRequestRunningFrameByteCountsBySurfaceKey: [String: Int] = [:]
+    private let chatOrderingBarrier = MobileHostChatOrderingBarrier()
     private var receiveTask: Task<Void, Never>?
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
@@ -2345,9 +2346,18 @@ actor MobileHostConnection {
             // close the connection instead of pinning it forever.
             switch request.decodedRequest {
             case let .success(decoded):
+                let isChatOrderingRequest = decoded.method == "mobile.chat.send"
+                    || decoded.method == "mobile.chat.interrupt"
+                    || decoded.method == "mobile.chat.answer"
+                await chatOrderingBarrier.enter(
+                    isChat: isChatOrderingRequest
+                )
                 if let response = await successResponsePayload(for: decoded) {
                     startResponseSendTask(response)
                 }
+                await chatOrderingBarrier.leave(
+                    isChat: isChatOrderingRequest
+                )
             case .failure:
                 // Decode failures are never enqueued ordered; keep the
                 // defensive path identical to the concurrent one.

@@ -167,6 +167,7 @@ public struct TerminalPromptInputLedger: Sendable {
     public mutating func confirmSubmission(message: String?)
         -> PromptSubmissionConfirmationOrigin
     {
+        removeProgrammaticBoundariesSupersededByHumanInput()
         if let message,
            let messageSignature = messageSignature(message) {
             if let index = pendingBoundaries.firstIndex(where: {
@@ -223,6 +224,28 @@ public struct TerminalPromptInputLedger: Sendable {
         pendingBoundaries.removeFirst()
         confirmHumanInputThroughGeneration(generation)
         return .human
+    }
+
+    /// Removes app-owned records whose admission snapshot predates newer
+    /// human input in the same epoch. An identical human prompt must not be
+    /// attributed to the older app transaction merely because its text
+    /// signature matches.
+    private mutating func removeProgrammaticBoundariesSupersededByHumanInput() {
+        pendingBoundaries.removeAll { boundary in
+            guard case .programmatic(
+                _, _, let snapshot
+            ) = boundary else {
+                return false
+            }
+            guard let snapshot else { return false }
+            guard snapshot.epoch == humanInputEpoch else { return false }
+            return pendingBoundaries.contains { boundary in
+                guard case .human(let generation) = boundary else {
+                    return false
+                }
+                return generation > snapshot.generation
+            }
+        }
     }
 
     /// Confirms only input that exists in this epoch and retires its matching

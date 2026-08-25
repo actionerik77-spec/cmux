@@ -55,6 +55,22 @@ import Testing
         #expect(ledger.hasUnconfirmedHumanInput)
     }
 
+    @Test func identicalHumanPromptWinsWhenItFollowsAnAppAdmissionSnapshot() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.synchronizeAgentScope("agentPIDKey:codex.session")
+        let admissionSnapshot = ledger.humanInputSnapshot
+        ledger.recordProgrammaticSubmission(
+            message: "same prompt",
+            source: "workspace.agent_submit",
+            confirmsHumanInputSnapshot: admissionSnapshot
+        )
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+
+        #expect(ledger.confirmSubmission(message: "same prompt") == .human)
+        #expect(!ledger.hasUnconfirmedHumanInput)
+    }
+
     @Test func humanHookCanPassAConfirmedProgrammaticTombstone() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordProgrammaticSubmission(

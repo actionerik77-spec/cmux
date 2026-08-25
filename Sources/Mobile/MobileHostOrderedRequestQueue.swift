@@ -41,7 +41,7 @@ extension MobileHostRPCRequest {
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.scroll", "terminal.scroll",
              "mobile.terminal.mouse", "terminal.mouse",
-             "mobile.chat.send":
+             "mobile.chat.send", "mobile.chat.interrupt", "mobile.chat.answer":
             true
         default:
             false
@@ -57,5 +57,62 @@ extension MobileHostRPCRequest {
         }
         (params["surface_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+}
+
+/// Coordinates chat writes with per-surface terminal-input workers.
+///
+/// Normal terminal requests on different surfaces may proceed concurrently.
+/// A chat send/answer/interrupt waits for all active terminal writes, then
+/// blocks new terminal writes until its own compound operation completes.
+actor MobileHostChatOrderingBarrier {
+    private var activeNormalRequests = 0
+    private var chatIsActive = false
+    private var waitingChatRequests = 0
+    private var normalWaiters: [CheckedContinuation<Void, Never>] = []
+    private var chatWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func enter(isChat: Bool) async {
+        if isChat {
+            guard !chatIsActive,
+                  activeNormalRequests == 0,
+                  chatWaiters.isEmpty else {
+                waitingChatRequests += 1
+                await withCheckedContinuation { chatWaiters.append($0) }
+                return
+            }
+            chatIsActive = true
+            return
+        }
+
+        guard !chatIsActive, waitingChatRequests == 0 else {
+            await withCheckedContinuation { normalWaiters.append($0) }
+            return
+        }
+        activeNormalRequests += 1
+    }
+
+    func leave(isChat: Bool) {
+        if isChat {
+            chatIsActive = false
+        } else {
+            activeNormalRequests = max(0, activeNormalRequests - 1)
+        }
+        drainWaiters()
+    }
+
+    private func drainWaiters() {
+        guard !chatIsActive else { return }
+        if activeNormalRequests == 0, !chatWaiters.isEmpty {
+            waitingChatRequests = max(0, waitingChatRequests - 1)
+            chatIsActive = true
+            chatWaiters.removeFirst().resume()
+            return
+        }
+        guard waitingChatRequests == 0 else { return }
+        while !normalWaiters.isEmpty {
+            activeNormalRequests += 1
+            normalWaiters.removeFirst().resume()
+        }
     }
 }

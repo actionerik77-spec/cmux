@@ -292,6 +292,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // caller-visible `queued` admission.
     var deferredPromptSubmissionRetries: [PendingSocketInput] = []
     var deferredPromptSubmissionRetryBytes = 0
+    var deferredPromptSubmissionRetryRounds = 0
     let maxDeferredPromptSubmissionRetries = 64
     var promptInputLedger = TerminalPromptInputLedger()
     var controlReturnIsPromptSubmissionBoundary = false
@@ -666,6 +667,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         pendingSocketInputBytes = 0
         deferredPromptSubmissionRetries.removeAll(keepingCapacity: false)
         deferredPromptSubmissionRetryBytes = 0
+        deferredPromptSubmissionRetryRounds = 0
         registry.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so
