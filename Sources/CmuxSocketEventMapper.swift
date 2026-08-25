@@ -185,7 +185,7 @@ enum CmuxSocketEventMapper {
             )
         case "notify", "notify_target", "notify_target_async":
             CmuxEventBus.shared.publish(name: "notification.requested", category: "notification", source: "socket.v1", workspaceId: firstUUID(in: args), payload: payload)
-        case "clear_notifications":
+        case "clear_notifications", "clear_notification_correlation":
             CmuxEventBus.shared.publish(name: "notification.clear_requested", category: "notification", source: "socket.v1", workspaceId: firstUUID(in: args), payload: payload)
         case "set_status", "report_meta", "report_meta_block":
             CmuxEventBus.shared.publish(name: "sidebar.metadata.updated", category: "sidebar", source: "socket.v1", workspaceId: firstUUID(in: args), payload: payload)
@@ -268,7 +268,7 @@ enum CmuxSocketEventMapper {
 
     private static func redactedV1Args(name: String, args: String) -> String {
         switch name {
-        case "send", "send_surface", "notify", "notify_surface", "notify_target", "notify_target_async":
+        case "send", "send_surface", "notify", "notify_surface", "notify_target", "notify_target_async", "clear_notification_correlation":
             return "<redacted>"
         default:
             return args

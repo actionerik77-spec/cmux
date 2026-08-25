@@ -383,8 +383,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     ]
 
     /// The v1 notification family, whose worker-lane bodies live on
-    /// `TerminalController`: parse/format on the worker; `notify_target_async`
-    /// and `clear_notifications` are pure mutation-bus enqueues (zero main
+    /// `TerminalController`: parse/format on the worker; `notify_target_async`,
+    /// `clear_notifications`, and correlation clears are pure mutation-bus enqueues (zero main
     /// hops, hooks nohup them and discard the reply); the synchronous
     /// notify/list verbs keep one `v2MainSync` hop because their replies
     /// depend on tab/surface resolution or the delivered store state.
@@ -518,8 +518,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "report_shell_state",
         "report_tty",
         "ports_kick",
-        // The v1 notification family (tranche B2): notify_target_async and
-        // clear_notifications are pure bus enqueues; the synchronous verbs
+        // The v1 notification family (tranche B2): notify_target_async,
+        // clear_notifications, and correlation clears are pure bus enqueues; the synchronous verbs
         // are one inline-collapsing hop each.
         "notify",
         "notify_surface",
@@ -527,6 +527,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notify_target_async",
         "list_notifications",
         "clear_notifications",
+        "clear_notification_correlation",
         // The v1 resolution reads (tranche D): non-blocking single-hop
         // snapshot reads whose hop collapses inline on a main-thread caller,
         // so they are safe by construction.
