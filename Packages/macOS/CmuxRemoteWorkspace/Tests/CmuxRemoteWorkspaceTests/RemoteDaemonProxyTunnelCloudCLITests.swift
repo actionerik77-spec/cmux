@@ -116,6 +116,42 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
         #expect(error["code"] as? String == "remote_cli_method_denied")
     }
 
+    @Test("Claude transient attention is workspace-scoped")
+    func transientAttentionIsScopedAndForwarded() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let request = try jsonData([
+            "id": "attention-1",
+            "method": "feed.attention.begin",
+            "params": [
+                "source": "claude",
+                "session_id": "session-1",
+                "request_id": "request-1",
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "title": "Claude Code",
+                "body": "Waiting",
+            ],
+        ])
+
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(
+            request,
+            ownerWorkspaceID: workspaceID,
+            remoteRelayTokenHex: String(repeating: "a", count: 64)
+        )
+        guard case .forward(let forwarded) = validation else {
+            Issue.record("expected transient attention request to be forwarded")
+            return
+        }
+        let envelope = try jsonObject(forwarded)
+        #expect(envelope["method"] as? String == "feed.attention.begin")
+        let params = try #require(envelope["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["surface_id"] as? String == surfaceID.uuidString)
+        #expect(params["_cmux_remote_workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["_cmux_remote_relay_authentication_code"] is String)
+    }
+
     @Test("socket auth request is JSON-RPC auth.login")
     func authLoginRequestUsesSocketAuthProtocol() throws {
         let request = try RemoteDaemonProxyTunnel.cloudCLIAuthLoginRequest(password: "secret")
