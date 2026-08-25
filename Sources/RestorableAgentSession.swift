@@ -1748,6 +1748,7 @@ struct RestorableAgentSessionIndex: Sendable {
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
         if kind == .codex {
+            guard record.launchCommand?.isRejectedCapture != true else { return false }
             guard record.isRestorable != false else { return false }
             guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
             let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()
@@ -1766,6 +1767,7 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
         guard kind == .claude else {
+            guard record.launchCommand?.isRejectedCapture != true else { return false }
             return record.isRestorable != false
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
