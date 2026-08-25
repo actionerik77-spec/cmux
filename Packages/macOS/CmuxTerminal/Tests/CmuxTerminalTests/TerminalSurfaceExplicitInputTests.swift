@@ -133,6 +133,82 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(acceptedInputCount == 1)
     }
 
+    @Test(
+        "app-owned mobile controls do not enter the human composer ledger",
+        arguments: ["escape", "ctrl-c"]
+    )
+    func appOwnedNamedKeyDoesNotRecordPromptInput(_ keyName: String) {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:claude.mobile-control"
+        )
+
+        let result = fixture.surface.sendAppOwnedNamedKeyResult(keyName)
+
+        #expect(result.accepted)
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test(
+        "app-owned mobile answers do not enter the human composer ledger",
+        arguments: ["1", "1\r"]
+    )
+    func appOwnedInputDoesNotRecordPromptInput(_ answer: String) {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.mobile-answer"
+        )
+
+        let result = fixture.surface.sendAppOwnedInputResult(answer)
+
+        #expect(result.accepted)
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func deferredPromptSubmissionKeepsAdmissionSnapshotAndOneCompoundItem() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.clipboard-compound"
+        )
+        fixture.nativeView.shouldDeferRuntimeInput = true
+        let admissionSnapshot = fixture.surface.promptInputLedger.humanInputSnapshot
+
+        let result = fixture.surface.sendPromptSubmission(
+            "deferred prompt",
+            submitKey: "return",
+            preparationKeys: ["ctrl+a", "ctrl+k"],
+            hookRecordingSource: "workspace.agent_submit",
+            hookConfirmsHumanInput: true
+        )
+
+        #expect(result == .queued)
+        #expect(fixture.nativeView.runtimeInputDeferralCallCount == 1)
+        #expect(fixture.surface.pendingSocketInputQueue.isEmpty)
+
+        // This input arrived after admission. A replay must retain the
+        // original snapshot instead of recapturing this newer generation.
+        fixture.surface.recordHumanPromptInput(.unknown)
+        fixture.nativeView.shouldDeferRuntimeInput = false
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
+
+        #expect(fixture.surface.pendingSocketInputQueue.count == 1)
+        guard case .promptSubmission(
+            let preparationKeys,
+            _,
+            _,
+            _,
+            let replaySnapshot
+        ) = fixture.surface.pendingSocketInputQueue[0] else {
+            Issue.record("Expected one deferred compound prompt item")
+            return
+        }
+        #expect(preparationKeys.map(\.label) == ["ctrl+a", "ctrl+k"])
+        #expect(replaySnapshot == admissionSnapshot)
+    }
+
     @Test func rejectedParsedInputDoesNotNotifyItsOwner() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
