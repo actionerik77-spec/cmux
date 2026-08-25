@@ -217,25 +217,23 @@ struct TerminalSurfaceExplicitInputTests {
         )
         fixture.nativeView.shouldDeferRuntimeInput = true
 
+        #expect(fixture.surface.sendInputResult("human draft") == .queued)
+        #expect(fixture.nativeView.deferredRuntimeInputs.count == 1)
+
+        // The human event was admitted before the automation request. A
+        // strict prompt must reject synchronously instead of acknowledging a
+        // transaction that could later lose its replay race.
         #expect(
             fixture.surface.sendPromptSubmission(
                 "automation prompt",
                 submitKey: "return",
                 hookRecordingSource: "workspace.agent_submit"
-            ) == .queued
+            ) == .composerBusy
         )
-        #expect(fixture.surface.sendInputResult("human draft") == .queued)
-        #expect(fixture.nativeView.deferredRuntimeInputs.count == 2)
 
-        // The real clipboard sequencer replays in admission order. Simulate a
-        // human event admitted before the automation transaction so the
-        // replay-time ownership guard must reject the automation write.
-        let humanReplay = fixture.nativeView.deferredRuntimeInputs.remove(at: 1)
-        let promptReplay = fixture.nativeView.deferredRuntimeInputs.removeFirst()
         fixture.nativeView.shouldDeferRuntimeInput = false
-        humanReplay()
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
         #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
-        promptReplay()
 
         #expect(
             fixture.surface.pendingSocketInputSnapshotForTests
