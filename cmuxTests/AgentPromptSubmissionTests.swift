@@ -485,6 +485,7 @@ struct AgentPromptSubmissionTests {
             source: "codex",
             workspaceId: workspace.id.uuidString,
             surfaceId: panelID.uuidString,
+            ppid: Int(getpid()),
             toolInputJSON: #"{"prompt":"real prompt"}"#
         )
         TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
@@ -493,7 +494,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func legacyClaudeHookCannotConfirmAnUnboundSession() throws {
+    @Test func legacyClaudeHookRequiresTheCurrentProcessBinding() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = previousAppDelegate ?? AppDelegate()
         let previousTabManager = appDelegate.tabManager
@@ -534,11 +535,25 @@ struct AgentPromptSubmissionTests {
             source: "claude",
             workspaceId: workspace.id.uuidString,
             surfaceId: panelID.uuidString,
+            ppid: Int(getpid()) + 1,
             toolInputJSON: #"{"prompt":"stale hook"}"#
         )
         TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
 
         #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+
+        let currentEvent = WorkstreamEvent(
+            sessionId: "restarted-claude-session",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: workspace.id.uuidString,
+            surfaceId: panelID.uuidString,
+            ppid: Int(getpid()),
+            toolInputJSON: #"{"prompt":"current hook"}"#
+        )
+        TerminalController.shared.v2ApplyIMessageModeSideEffects(for: currentEvent)
+
+        #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
     }
 
     @Test func livePromptScopeOverridesStaleLaunchHintsForSubmitKey() {
@@ -686,6 +701,7 @@ struct AgentPromptSubmissionTests {
             source: "codex",
             workspaceId: workspace.id.uuidString,
             surfaceId: nil,
+            ppid: Int(getpid()),
             toolInputJSON: #"{"prompt":"target prompt"}"#
         )
         TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
