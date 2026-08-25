@@ -12118,11 +12118,14 @@ extension GhosttyNSView: NSTextInputClient {
     /// keep their normal interactive behaviors (autosuggestions, Return
     /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
     /// automation payloads remain byte-for-byte stable.
-    fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
-        guard !chars.isEmpty else { return }
+    fileprivate func sendTextToSurface(
+        _ chars: String,
+        preserveLiteralEscape: Bool
+    ) -> Bool {
+        guard !chars.isEmpty else { return false }
         terminalSurface?.didReceiveExplicitInput()
         recordDirectAgentHibernationTerminalInput()
-        sendTextToSurfaceAfterInputNotification(
+        return sendTextToSurfaceAfterInputNotification(
             chars,
             preserveLiteralEscape: preserveLiteralEscape
         )
@@ -12131,7 +12134,7 @@ extension GhosttyNSView: NSTextInputClient {
     private func sendTextToSurfaceAfterInputNotification(
         _ chars: String,
         preserveLiteralEscape: Bool
-    ) {
+    ) -> Bool {
         if deferRuntimeInputDuringClipboardRead(
             estimatedBytes: chars.utf8.count,
             replay: { [weak self] in
@@ -12141,9 +12144,9 @@ extension GhosttyNSView: NSTextInputClient {
                 )
             }
         ) {
-            return
+            return true
         }
-        guard ensureSurfaceReadyForInput() != nil else { return }
+        guard ensureSurfaceReadyForInput() != nil else { return false }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
 #endif
@@ -12160,15 +12163,16 @@ extension GhosttyNSView: NSTextInputClient {
         var bufferedText = ""
         var previousWasCR = false
 
+        var acceptedInput = false
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
             let committedText = bufferedText
             bufferedText.removeAll(keepingCapacity: true)
-            sendCommittedTextChunk(committedText)
+            acceptedInput = sendCommittedTextChunk(committedText) || acceptedInput
         }
 
         func sendControlKey(_ keycode: UInt32) {
-            sendCommittedControlKey(keycode)
+            acceptedInput = sendCommittedControlKey(keycode) || acceptedInput
         }
 
         for scalar in chars.unicodeScalars {
@@ -12208,17 +12212,18 @@ extension GhosttyNSView: NSTextInputClient {
             extra: "textBytes=\(chars.utf8.count)"
         )
 #endif
+        return acceptedInput
     }
 
-    private func sendCommittedTextChunk(_ text: String) {
-        guard !text.isEmpty else { return }
+    private func sendCommittedTextChunk(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
         if deferRuntimeInputDuringClipboardRead(
             estimatedBytes: text.utf8.count,
             replay: { [weak self] in self?.sendCommittedTextChunk(text) }
         ) {
-            return
+            return true
         }
-        guard let surface = ensureSurfaceReadyForInput() else { return }
+        guard let surface = ensureSurfaceReadyForInput() else { return false }
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = 0
@@ -12226,20 +12231,20 @@ extension GhosttyNSView: NSTextInputClient {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
-        text.withCString { pointer in
+        return text.withCString { pointer in
             keyEvent.text = pointer
-            _ = sendGhosttyKey(surface, keyEvent)
+            sendGhosttyKey(surface, keyEvent)
         }
     }
 
-    private func sendCommittedControlKey(_ keycode: UInt32) {
+    private func sendCommittedControlKey(_ keycode: UInt32) -> Bool {
         if deferRuntimeInputDuringClipboardRead(
             estimatedBytes: MemoryLayout<UInt32>.size,
             replay: { [weak self] in self?.sendCommittedControlKey(keycode) }
         ) {
-            return
+            return true
         }
-        guard let surface = ensureSurfaceReadyForInput() else { return }
+        guard let surface = ensureSurfaceReadyForInput() else { return false }
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = keycode
@@ -12248,7 +12253,7 @@ extension GhosttyNSView: NSTextInputClient {
         keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
         keyEvent.text = nil
-        _ = sendGhosttyKey(surface, keyEvent)
+        return sendGhosttyKey(surface, keyEvent)
     }
 
     /// External accessibility/dictation tools should commit plain text, but
@@ -12641,19 +12646,16 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
 
         guard !sanitizedChars.isEmpty else { return }
-        if let terminalSurface {
+        let didDeliver = sendTextToSurface(
+            sanitizedChars,
+            preserveLiteralEscape: !isExternalCommittedText
+        )
+        if didDeliver, let terminalSurface {
             // Keep direct text commits on the same ownership grammar as socket
             // and remote input. In particular, sendTextToSurface turns embedded
             // newlines into Return key events that hooks must be able to confirm.
             terminalSurface.recordAcceptedUnownedPromptInput(sanitizedChars)
         }
-        terminalSurface?.didReceiveExplicitInput()
-        // Otherwise send directly to the terminal
-        recordDirectAgentHibernationTerminalInput()
-        sendTextToSurface(
-            sanitizedChars,
-            preserveLiteralEscape: !isExternalCommittedText
-        )
     }
 
     private func insertBopomofoPreeditText(_ chars: String, replacementRange: NSRange) {

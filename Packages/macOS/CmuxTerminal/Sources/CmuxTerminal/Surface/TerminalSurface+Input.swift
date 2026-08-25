@@ -1405,17 +1405,27 @@ extension TerminalSurface {
         var validatedSurface: ghostty_surface_t? = liveSurface
         var validatedGeneration: UInt64? = runtimeSurfaceGeneration
         var queuedKeys = 0
+        var retainedItems: [PendingSocketInput] = []
         for item in queued {
             if case .key = item {
                 queuedKeys += 1
             } else if case .appOwnedKey = item {
                 queuedKeys += 1
             }
-            _ = deliverPendingSocketInput(
+            let delivered = deliverPendingSocketInput(
                 item,
                 validatedSurface: &validatedSurface,
                 validatedGeneration: &validatedGeneration
             )
+            if !delivered, shouldRetainPendingPromptAfterScopeMismatch(item) {
+                retainedItems.append(item)
+            }
+        }
+        if !retainedItems.isEmpty {
+            // Keep an admitted prompt available for the original process
+            // scope instead of silently dropping a caller-visible `queued`
+            // transaction after a restart/rebind.
+            _ = enqueuePendingSocketInputs(retainedItems)
         }
 #if DEBUG
         logDebugEvent(
@@ -1423,6 +1433,24 @@ extension TerminalSurface {
             "keys=\(queuedKeys) bytes=\(queuedBytes)"
         )
 #endif
+    }
+
+    @MainActor
+    private func shouldRetainPendingPromptAfterScopeMismatch(
+        _ input: PendingSocketInput
+    ) -> Bool {
+        guard case .promptSubmission(
+            _,
+            _,
+            _,
+            _,
+            _,
+            let admittedAgentInputScope
+        ) = input,
+              let admittedAgentInputScope else {
+            return false
+        }
+        return promptInputLedger.currentAgentScope != admittedAgentInputScope
     }
 
     @MainActor
