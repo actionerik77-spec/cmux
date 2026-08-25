@@ -14,11 +14,18 @@ enum AgentHookNotifyCategory: String {
     case idleReminder = "idle-reminder"
     case other
 
-    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. `.other` is the
-    /// explicit ungated category and never rides the wire.
-    func metaSegment(pending: Bool) -> String? {
+    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>[;k=<key>]`.
+    /// `.other` is the explicit ungated category and never rides the wire.
+    func metaSegment(pending: Bool, correlationKey: String? = nil) -> String? {
         guard self != .other else { return nil }
-        return "c=\(rawValue);p=\(pending ? 1 : 0)"
+        let base = "c=\(rawValue);p=\(pending ? 1 : 0)"
+        guard let correlationKey,
+              !correlationKey.isEmpty,
+              correlationKey.utf8.count <= 256,
+              !correlationKey.contains(where: { $0 == ";" || $0 == "|" || $0.isWhitespace }) else {
+            return base
+        }
+        return "\(base);k=\(correlationKey)"
     }
 }
 

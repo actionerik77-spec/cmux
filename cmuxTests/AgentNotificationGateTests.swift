@@ -74,6 +74,16 @@ import Testing
         #expect(c?.pending == true)
     }
 
+    @Test func metaPreservesBoundedCorrelationKey() {
+        let parsed = AgentNotificationMeta(
+            meta: "c=needs-permission;p=0;k=claude-permission:test"
+        )
+        #expect(parsed?.category == .needsPermission)
+        #expect(parsed?.pending == false)
+        #expect(parsed?.correlationKey == "claude-permission:test")
+        #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;k=bad;extra") == nil)
+    }
+
     @Test func metaUnknownCategoryIsRejected() {
         // Only the three known category literals are wire-valid; anything else
         // (including "c=other") stays part of the legacy notification body.

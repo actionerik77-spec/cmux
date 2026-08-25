@@ -235,7 +235,7 @@ struct ControlCommandExecutionPolicyTests {
         // in-process callers stay safe.
         for command in [
             "notify", "notify_surface", "notify_target", "notify_target_async",
-            "list_notifications", "clear_notifications",
+            "list_notifications", "clear_notifications", "clear_notification_correlation",
         ] {
             let policy = ControlCommandExecutionPolicy(forV1Command: command)
             #expect(policy == .socketWorker(mainThreadCallable: true), "\(command)")
@@ -315,7 +315,7 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy.sidebarTelemetryV1Commands == telemetry)
         let notification: Set<String> = [
             "notify", "notify_surface", "notify_target", "notify_target_async",
-            "list_notifications", "clear_notifications",
+            "list_notifications", "clear_notifications", "clear_notification_correlation",
         ]
         #expect(ControlCommandExecutionPolicy.notificationV1Commands == notification)
         let terminalRead: Set<String> = ["read_screen"]

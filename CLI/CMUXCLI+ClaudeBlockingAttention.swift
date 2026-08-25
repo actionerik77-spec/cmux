@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 extension CMUXCLI {
@@ -20,6 +21,23 @@ extension CMUXCLI {
     ) -> String {
         nonEmptyClaudeHookIdentifier(toolUseId)
             ?? Self.legacyClaudeBlockingAttentionRequestId
+    }
+
+    /// Derives the stable correlation key used by Claude's native permission
+    /// notification. Hashing keeps the session identifier out of the socket
+    /// payload while letting a later PermissionRequest clear only Claude's
+    /// own row on that session's surface.
+    func claudePermissionNotificationCorrelationKey(
+        sessionId: String
+    ) -> String? {
+        let normalized = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        let token = Data(SHA256.hash(data: Data(normalized.utf8)))
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "claude-permission:\(token)"
     }
 
     @discardableResult
@@ -136,6 +154,42 @@ extension CMUXCLI {
             bounded.removeLast()
         }
         return bounded + "…"
+    }
+
+    /// Clears Claude's native permission row without touching unrelated agent
+    /// notifications. Pre-correlation app builds do not know the targeted
+    /// command; only their explicit command error takes the legacy pane-wide
+    /// fallback, while transport failures never widen a potentially-applied
+    /// request into an unsafe clear.
+    func clearClaudePermissionNotification(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceId: String,
+        sessionId: String
+    ) {
+        guard let correlationKey = claudePermissionNotificationCorrelationKey(
+            sessionId: sessionId
+        ) else { return }
+        let targetedCommandRejected: Bool
+        do {
+            _ = try sendV1Command(
+                "clear_notification_correlation \(correlationKey)",
+                client: client
+            )
+            targetedCommandRejected = false
+        } catch let error as CLIError where error.message.hasPrefix("ERROR:") {
+            targetedCommandRejected = true
+        } catch {
+            // A transport timeout may race an app-side clear. Do not widen it
+            // into a pane-wide fallback whose result is now ambiguous.
+            return
+        }
+        guard targetedCommandRejected else { return }
+        // Compatibility with an app that predates correlation-scoped clears.
+        _ = try? sendV1Command(
+            "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
     }
 
     @discardableResult
@@ -398,9 +452,11 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.permission-request.resume-state-changed")
             return
         }
-        _ = try? sendV1Command(
-            "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-            client: client
+        clearClaudePermissionNotification(
+            client: client,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            sessionId: sessionId
         )
         setAgentLifecycle(
             client: client,

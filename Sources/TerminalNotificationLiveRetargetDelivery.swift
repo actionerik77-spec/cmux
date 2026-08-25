@@ -16,6 +16,7 @@ extension TerminalController {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
+        correlationKey: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
         let target: (tabId: UUID, surfaceId: UUID?)
@@ -58,7 +59,8 @@ extension TerminalController {
             subtitle: subtitle,
             body: body,
             replyShape: replyShape,
-            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            cooldownKey: correlationKey
         )
     }
 }

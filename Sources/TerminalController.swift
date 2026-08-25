@@ -1165,8 +1165,9 @@ class TerminalController {
             case "ping":
                 return (true, "PONG")
             // The v1 notification family: nonisolated bodies on this
-            // controller (parse on this worker thread; notify_target_async and
-            // clear_notifications are pure bus enqueues, the others carry one
+            // controller (parse on this worker thread; notify_target_async,
+            // clear_notifications, and correlation clears are pure bus enqueues,
+            // the others carry one
             // v2MainSync hop).
             case "notify":
                 return (true, notifyCurrent(args))
@@ -1180,6 +1181,8 @@ class TerminalController {
                 return (true, listNotifications())
             case "clear_notifications":
                 return (true, clearNotifications(args))
+            case "clear_notification_correlation":
+                return (true, clearNotificationCorrelation(args))
             // The v1 terminal-read family (tranche C): the Ghostty capture
             // takes one v2MainSync hop, the (possibly multi-MB) formatting
             // runs here on this worker thread. NOT mainThreadCallable — the
@@ -2186,6 +2189,9 @@ class TerminalController {
 
         case "clear_notifications":
             return clearNotifications(args)
+
+        case "clear_notification_correlation":
+            return clearNotificationCorrelation(args)
 
         case "set_app_focus":
             return setAppFocusOverride(args)
@@ -12437,7 +12443,8 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                correlationKey: meta?.correlationKey
             )
             return "OK"
         }
@@ -12474,7 +12481,8 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                correlationKey: meta?.correlationKey
             )
             return "OK"
         }
@@ -12521,7 +12529,8 @@ class TerminalController {
                     title: title,
                     subtitle: subtitle,
                     body: body,
-                    replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                    replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                    correlationKey: meta?.correlationKey
                 )
                 return "OK"
             }
@@ -12545,7 +12554,8 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                correlationKey: meta?.correlationKey
             )
             return "OK"
         }
@@ -12587,7 +12597,8 @@ class TerminalController {
             subtitle: subtitle,
             body: body,
             category: meta?.category,
-            pending: meta?.pending ?? false
+            pending: meta?.pending ?? false,
+            correlationKey: meta?.correlationKey
         ) else {
 #if DEBUG
             if let meta {
@@ -12691,6 +12702,23 @@ class TerminalController {
                     )
                 }
             }
+        }
+        return "OK"
+    }
+
+    /// Clears queued and delivered notifications by their exact correlation
+    /// key. Agent hooks use this narrow path when one request completes so a
+    /// sibling agent's surface notification cannot be dismissed accidentally.
+    private nonisolated func clearNotificationCorrelation(_ args: String) -> String {
+        let key = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty, key.utf8.count <= 256,
+              !key.contains(where: { $0 == "|" || $0 == ";" || $0.isWhitespace }) else {
+            return "ERROR: clear_notification_correlation requires one bounded key"
+        }
+        let keys: Set<String> = [key]
+        TerminalMutationBus.shared.discardPendingNotifications(correlationKeys: keys)
+        TerminalMutationBus.shared.enqueueMainActorMutation {
+            TerminalNotificationStore.shared.clearNotifications(correlationKeys: keys)
         }
         return "OK"
     }
@@ -13357,7 +13385,8 @@ class TerminalController {
     }
 
     /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
-    /// `meta` segment (e.g. `c=turn-complete;p=1`) that agent hooks append to gate
+    /// `meta` segment (e.g. `c=turn-complete;p=1` or
+    /// `c=needs-permission;p=0;k=claude-permission:...`) that agent hooks append to gate
     /// delivery by user config. The 4th segment is only treated as meta when it
     /// begins with `c=`; otherwise it is folded back into the body, so legacy
     /// callers whose body itself contains `|` parse byte-identically to before
@@ -13371,12 +13400,13 @@ class TerminalController {
         var meta: AgentNotificationMeta? = nil
         if parts.count == 4 {
             // The 4th segment is treated as gating metadata only when it parses
-            // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
+            // as the FULL `c=<category>;p=<0|1>[;k=<correlation>]` grammar. Anything else — including
             // a legacy body that happens to contain "|c=..." — is folded back into
             // the body so pre-meta callers parse byte-identically to before.
             // Conscious tradeoff: this reserves exactly three trailing literals
             // ("|c=turn-complete;p=<0|1>", "|c=needs-permission;p=<0|1>",
-            // "|c=idle-reminder;p=<0|1>") in notify payloads; any other "c=..."
+            // "|c=idle-reminder;p=<0|1>") in notify payloads; a valid optional
+            // `k=` field follows the same reserved grammar; any other "c=..."
             // tail (unknown categories included) stays part of the body. Accepted
             // because the only meta producers are cmux's own agent hooks (whose
             // fields are |-sanitized) and a collision requires one of those exact

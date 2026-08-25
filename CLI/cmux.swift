@@ -727,6 +727,11 @@ final class ClaudeHookSessionStore {
                 // cleanup and overwrite attention owned by the next turn.
                 record.pendingBlockingToolUseIds = []
                 record.pendingBlockingToolCorrelations = []
+                // A turn boundary also retires ordinary PermissionRequest
+                // markers and any legacy V1 fallback notice. Both belong to
+                // the completed turn and must not gate the next one.
+                record.pendingPermissionRequestIds = nil
+                record.legacyBlockingAttentionFallbackActive = nil
             }
             let superseded: [ClaudeHookSessionRecord]
             if supersedesSameProcessSession {
@@ -25347,11 +25352,23 @@ struct CMUXCLI {
             // payload, so don't put it on the wire: the app parser accepts only
             // the three known category literals, keeping the reserved suffix
             // grammar as narrow as possible.
+            let notificationCorrelationKey: String?
+            if notifyCategory == .needsPermission,
+               let sessionId = parsedInput.sessionId {
+                notificationCorrelationKey = claudePermissionNotificationCorrelationKey(
+                    sessionId: sessionId
+                )
+            } else {
+                notificationCorrelationKey = nil
+            }
             let payload = notificationPayload(
                 title: title,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                meta: notifyCategory.metaSegment(pending: notifyPending)
+                meta: notifyCategory.metaSegment(
+                    pending: notifyPending,
+                    correlationKey: notificationCorrelationKey
+                )
             )
 
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
@@ -25608,14 +25625,14 @@ struct CMUXCLI {
             let toolName = firstString(in: rawObject, keys: ["tool_name", "toolName"])
             let isBlockingTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
             let permissionRequestToolUseId = extractClaudeHookToolUseId(from: rawObject)
-            let permissionRequestWasRegistered: Bool
+            let permissionRequestId: String?
             if !isBlockingTool, let sessionId = parsedInput.sessionId {
-                permissionRequestWasRegistered = (try? sessionStore.beginPermissionRequest(
+                permissionRequestId = try? sessionStore.registerPermissionRequest(
                     sessionId: sessionId,
                     toolUseId: permissionRequestToolUseId
-                )) == true
+                )
             } else {
-                permissionRequestWasRegistered = false
+                permissionRequestId = nil
             }
             let terminalResponse = try runFeedHook(
                 commandArgs: ["--source", "claude"],
@@ -25666,11 +25683,11 @@ struct CMUXCLI {
             let permissionResponseStatus = terminalResponse?["status"] as? String
             let ordinaryPermissionWasResolved: Bool
             if !isBlockingTool,
-               permissionRequestWasRegistered,
+               let permissionRequestId,
                let sessionId = parsedInput.sessionId {
                 ordinaryPermissionWasResolved = (try? sessionStore.finishPermissionRequest(
                     sessionId: sessionId,
-                    toolUseId: permissionRequestToolUseId
+                    toolUseId: permissionRequestId
                 )) == true
             } else {
                 ordinaryPermissionWasResolved = false

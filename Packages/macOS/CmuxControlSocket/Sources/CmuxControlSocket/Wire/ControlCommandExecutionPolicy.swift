@@ -396,6 +396,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notify_target_async",
         "list_notifications",
         "clear_notifications",
+        "clear_notification_correlation",
     ]
 
     /// The v1 terminal-read family (tranche C): `read_screen` is the v1 twin

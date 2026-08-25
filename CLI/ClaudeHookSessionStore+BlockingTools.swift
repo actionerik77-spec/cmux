@@ -36,27 +36,38 @@ extension ClaudeHookSessionStore {
     private static let maximumPermissionRequestCount = 64
 
     /// Records one ordinary PermissionRequest without changing the agent
-    /// lifecycle. The marker lets its completion clear only its own waiter.
+    /// lifecycle. Claude's PermissionRequest payload does not include
+    /// `tool_use_id`, so an omitted ID receives a bounded synthetic marker
+    /// owned by this synchronous hook process.
+    @discardableResult
+    func registerPermissionRequest(
+        sessionId: String,
+        toolUseId: String?
+    ) throws -> String? {
+        guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
+            return nil
+        }
+        let requestId = normalizedBlockingToolIdentifier(toolUseId)
+            ?? "cmux-permission-\(UUID().uuidString.lowercased())"
+        return try withLockedState { state in
+            guard var record = state.sessions[sessionId] else { return nil }
+            var pending = record.pendingPermissionRequestIds ?? []
+            guard !pending.contains(requestId) else { return requestId }
+            guard pending.count < Self.maximumPermissionRequestCount else { return nil }
+            pending.append(requestId)
+            record.pendingPermissionRequestIds = pending
+            record.updatedAt = Date.now.timeIntervalSince1970
+            state.sessions[sessionId] = record
+            return requestId
+        }
+    }
+
     @discardableResult
     func beginPermissionRequest(
         sessionId: String,
         toolUseId: String?
     ) throws -> Bool {
-        guard let sessionId = normalizedBlockingToolIdentifier(sessionId),
-              let toolUseId = normalizedBlockingToolIdentifier(toolUseId) else {
-            return false
-        }
-        return try withLockedState { state in
-            guard var record = state.sessions[sessionId] else { return false }
-            var pending = record.pendingPermissionRequestIds ?? []
-            guard !pending.contains(toolUseId) else { return true }
-            guard pending.count < Self.maximumPermissionRequestCount else { return false }
-            pending.append(toolUseId)
-            record.pendingPermissionRequestIds = pending
-            record.updatedAt = Date.now.timeIntervalSince1970
-            state.sessions[sessionId] = record
-            return true
-        }
+        try registerPermissionRequest(sessionId: sessionId, toolUseId: toolUseId) != nil
     }
 
     @discardableResult
@@ -129,7 +140,8 @@ extension ClaudeHookSessionStore {
         }
         return try withLockedState { state in
             guard var record = state.sessions[sessionId],
-                  record.pendingBlockingToolUseIds?.isEmpty != false else {
+                  record.pendingBlockingToolUseIds?.isEmpty != false,
+                  record.pendingPermissionRequestIds?.isEmpty != false else {
                 return false
             }
             let lifecycleIsEligible = record.agentLifecycle == .needsInput
@@ -238,6 +250,12 @@ extension ClaudeHookSessionStore {
                 lastBody: lastBody,
                 now: now
             )
+            if !requestAlreadyPending {
+                // A new turn's real transient endpoint must not inherit a
+                // legacy V1 fallback release marker from a failed prior turn.
+                // The fallback path re-establishes it below when needed.
+                record.legacyBlockingAttentionFallbackActive = nil
+            }
             if let agentPID {
                 updateProcessIdentity(&record, pid: agentPID)
             }
@@ -329,6 +347,7 @@ extension ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 lifecycle: record.pendingBlockingToolUseIds?.isEmpty == false
+                    || record.pendingPermissionRequestIds?.isEmpty == false
                     ? .needsInput
                     : .running,
                 lastSubtitle: nil,
@@ -397,7 +416,10 @@ extension ClaudeHookSessionStore {
             record.pendingBlockingToolCorrelations =
                 (record.pendingBlockingToolCorrelations ?? [])
                 .filter { $0.toolUseId != toolUseId }
-            record.agentLifecycle = remaining.isEmpty ? .running : .needsInput
+            record.agentLifecycle = remaining.isEmpty
+                && record.pendingPermissionRequestIds?.isEmpty != false
+                ? .running
+                : .needsInput
             if remaining.isEmpty {
                 record.lastSubtitle = nil
                 record.lastBody = nil
@@ -409,7 +431,9 @@ extension ClaudeHookSessionStore {
         // Legacy records lack IDs, so the only safe behavior is the historic
         // session-wide resolution. New correlated records never return to nil.
         record.pendingBlockingToolCorrelations = nil
-        record.agentLifecycle = .running
+        record.agentLifecycle = record.pendingPermissionRequestIds?.isEmpty != false
+            ? .running
+            : .needsInput
         record.lastSubtitle = nil
         record.lastBody = nil
         record.updatedAt = now

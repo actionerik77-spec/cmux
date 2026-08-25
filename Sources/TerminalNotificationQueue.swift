@@ -164,6 +164,16 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
+    /// Drops queued notifications with one of the supplied correlation keys.
+    /// Correlation-scoped clears must not widen to a surface or workspace.
+    nonisolated func discardPendingNotifications(correlationKeys: Set<String>) {
+        guard !correlationKeys.isEmpty else { return }
+        discardPendingNotifications { notification, _ in
+            guard let correlationKey = notification.correlationKey else { return false }
+            return correlationKeys.contains(correlationKey)
+        }
+    }
+
     /// Clear-scoped discard: canonical surface identity when surface-scoped;
     /// live destination workspace when workspace-scoped.
     @MainActor
