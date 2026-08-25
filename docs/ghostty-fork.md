@@ -12,8 +12,8 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `fd13a3fc2`, a topic commit based on the
-`64b5767a6` fork-main line after https://github.com/manaflow-ai/ghostty/pull/200.
+The submodule pinned by this branch is `466f85867`, a compatibility merge based
+on the current cmux fork API line after https://github.com/manaflow-ai/ghostty/pull/200.
 It installs Fish's SSH wrapper when either SSH integration feature is enabled.
 The pin includes the prior fork changes below, including the render-disposition
 APIs, formatter cursor restoration at `533c27ae1`, VT stream-boundary visibility
@@ -21,8 +21,8 @@ at `9513174f2`, and Hangul canonical font resolution at `3fbdd078d`.
 
 ### Fish SSH wrapper feature disjunction
 
-- Pull request: https://github.com/manaflow-ai/ghostty/pull/206
-- Commit: `fd13a3fc2` (fish: install SSH wrapper for either SSH feature)
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/207
+- Commit: `466f85867` (merge cmux Fish and render API compatibility pin)
 - File: `src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish`
 - Summary:
   - Separates the non-empty `GHOSTTY_BIN` guard from the feature disjunction so
@@ -33,13 +33,13 @@ at `9513174f2`, and Hangul canonical font resolution at `3fbdd078d`.
   - Preserve the explicit feature disjunction if upstream rewrites the Fish
     integration. A single enabled SSH feature must still install the wrapper.
 - Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fd13a3fc20f8aab4136437b5693e2e447b86eafc-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `4b0ad8668eb50b57a36868c693ab80d5a75e9b0c4900e97f8f95150e0c7d9a35`
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `a27c76e786da0b625b4cab8c0e0ae052e559bbf598fecca1935087b262844afb`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
 The latest mainline sync also retains the iOS render-disposition work below;
 its artifact entries remain in `scripts/ghosttykit-checksums.txt` for the
-mainline pins while this branch stays on `fd13a3fc2` so the Fish wrapper fix and
+mainline pins while this branch stays on `466f85867` so the Fish wrapper fix and
 the iOS render APIs are included together.
 
 ### iOS tokened render disposition and nonblocking prompt reveal

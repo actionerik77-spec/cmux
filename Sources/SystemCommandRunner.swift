@@ -104,6 +104,11 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             return false
         }
 
+        // Arm the app-owned observer before invoking loginwindow. The public
+        // session dictionary and distributed notifications are complementary
+        // signals, and either can be absent in a given session context.
+        _ = await Self.isScreenLockedOrObserved()
+
         // Register before invoking the private call: loginwindow can publish
         // the transition before the IPC returns, and AsyncStream buffers that
         // event until the waiting child starts consuming it.
@@ -119,7 +124,7 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
                 )
             }
             lockScreenImmediate()
-            if Self.isScreenLocked() {
+            if await Self.isScreenLockedOrObserved() {
                 group.cancelAll()
                 return true
             }
@@ -150,7 +155,9 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 for await _ in notifications {
-                    return true
+                    if await Self.isScreenLockedOrObserved() {
+                        return true
+                    }
                 }
                 return false
             }
@@ -160,7 +167,12 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             }
             let result = await group.next() ?? false
             group.cancelAll()
-            return result
+            // A notification wakes the confirmation, but the final decision
+            // comes from a fresh dictionary/observer read. This tolerates a
+            // delayed run-loop delivery without treating an unrelated stale
+            // notification as proof that the current request locked the Mac.
+            guard result else { return false }
+            return await Self.isScreenLockedOrObserved()
         }
     }
 
@@ -169,6 +181,15 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             return false
         }
         return (session["CGSSessionScreenIsLocked"] as? Bool) ?? false
+    }
+
+    private static func isScreenLockedOrObserved() async -> Bool {
+        if isScreenLocked() {
+            return true
+        }
+        return await MainActor.run {
+            ScreenLockObserver.shared.isLockedObserved
+        }
     }
 
     @discardableResult
