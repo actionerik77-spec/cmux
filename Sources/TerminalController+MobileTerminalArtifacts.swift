@@ -78,11 +78,7 @@ extension TerminalController {
                 )
             }
             do {
-                guard let indexedSession = try await mobileChatArtifactIndexedSession(sessionID: sessionID) else {
-                    return TerminalArtifactWire.result(
-                        TerminalArtifactScanResponse(artifacts: [], sessionID: sessionID)
-                    )
-                }
+                let indexedSession = try await mobileChatArtifactIndexedSession(sessionID: sessionID)
                 let galleryRowTotal: Int?
                 if requestsGalleryRowTotal {
                     galleryRowTotal = await mobileChatArtifactGalleryRowTotal(
@@ -151,12 +147,10 @@ extension TerminalController {
                 #endif
                 return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
             }
-        } catch ArtifactByteReader.Error.fileNotFound {
-            return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
-        } catch ArtifactByteReader.Error.unsupportedMedia {
-            return mobileTerminalArtifactError(.unsupportedMedia, path: context.requestedPath)
+        } catch let error as ArtifactByteReader.Error {
+            return mobileArtifactReadFailure(error, path: context.requestedPath)
         } catch {
-            return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
+            return mobileArtifactReadFailure(.readFailed, path: context.requestedPath)
         }
     }
 
@@ -202,16 +196,22 @@ extension TerminalController {
             switch error.issueFailure {
             case .fileNotFound:
                 return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
+            case .permissionDenied:
+                return mobileArtifactReadFailure(.permissionDenied, path: context.requestedPath)
+            case .notRegularFile:
+                return mobileArtifactReadFailure(.notRegularFile, path: context.requestedPath)
+            case .readFailed:
+                return mobileArtifactReadFailure(.readFailed, path: context.requestedPath)
             case .unavailable:
                 return mobileTerminalArtifactError(.unavailable, path: context.requestedPath)
             }
         } catch TerminalArtifactReadContext.Error.forbidden {
             debugLogMobileTerminalArtifactDenial(op: "fetch", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
-        } catch ArtifactByteReader.Error.fileNotFound {
-            return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
+        } catch let error as ArtifactByteReader.Error {
+            return mobileArtifactReadFailure(error, path: context.requestedPath)
         } catch {
-            return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
+            return mobileArtifactReadFailure(.readFailed, path: context.requestedPath)
         }
     }
 
@@ -231,10 +231,10 @@ extension TerminalController {
         } catch TerminalArtifactReadContext.Error.forbidden {
             debugLogMobileTerminalArtifactDenial(op: "thumbnail", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
-        } catch ArtifactByteReader.Error.fileNotFound {
-            return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
+        } catch let error as ArtifactByteReader.Error {
+            return mobileArtifactReadFailure(error, path: context.requestedPath)
         } catch {
-            return mobileTerminalArtifactError(.unsupportedMedia, path: context.requestedPath)
+            return mobileArtifactReadFailure(.previewFailed, path: context.requestedPath)
         }
     }
 
@@ -253,10 +253,10 @@ extension TerminalController {
         } catch TerminalArtifactReadContext.Error.forbidden {
             debugLogMobileTerminalArtifactDenial(op: "list", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
-        } catch ArtifactByteReader.Error.fileNotFound {
-            return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
+        } catch let error as ArtifactByteReader.Error {
+            return mobileArtifactReadFailure(error, path: context.requestedPath)
         } catch {
-            return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
+            return mobileArtifactReadFailure(.readFailed, path: context.requestedPath)
         }
     }
 
@@ -342,7 +342,7 @@ extension TerminalController {
         switch kind {
         case .notFound:
             return .err(
-                code: "not_found",
+                code: "terminal_not_found",
                 message: String(
                     localized: "mobile.terminal.artifact.error.terminalNotFound",
                     defaultValue: "That terminal is no longer available."
