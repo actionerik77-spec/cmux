@@ -3107,7 +3107,7 @@ struct CMUXCLI {
     // creation succeeds. Do not rotate it without a migration.
     private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
     private static let persistentCloudVMWorkspaceName = "sshd"
-    private static let claudeCodeStatusKey = "claude_code"
+    static let claudeCodeStatusKey = "claude_code"
 
     private static var allowedAgentLifecycleStatusKeys: Set<String> {
         var keys = Set(agentDefs.map(\.statusKey))
@@ -25822,7 +25822,7 @@ struct CMUXCLI {
                         owner: registeredBlockingTool.owner,
                         title: title,
                         subtitle: waitingSubtitle,
-                        body: needsInputBody
+                        body: boundedNeedsInputBody
                     )
                     switch transientAttentionBeginResult {
                     case .unavailable:
