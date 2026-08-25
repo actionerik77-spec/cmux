@@ -76,6 +76,7 @@ extension TerminalNotificationStore {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape,
+        correlationKey: String? = nil,
         notificationGeneration: UInt64
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
@@ -102,6 +103,7 @@ extension TerminalNotificationStore {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: true,
+            cooldownKey: correlationKey,
             notificationGeneration: notificationGeneration
         )
     }

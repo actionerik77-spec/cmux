@@ -41,29 +41,16 @@ struct AgentNotificationDelivery: Sendable {
             return false
         }
         let replyShape = TerminalNotificationReplyShape.forAgentCategory(wire: category?.rawValue)
-        if let correlationKey {
-            TerminalMutationBus.shared.enqueueMainActorMutation {
-                TerminalNotificationStore.shared.addNotification(
-                    tabId: workspaceID,
-                    surfaceId: surfaceID,
-                    title: title,
-                    subtitle: subtitle,
-                    body: body,
-                    replyShape: replyShape,
-                    cooldownKey: correlationKey
-                )
-            }
-        } else {
-            TerminalMutationBus.shared.enqueueNotification(
-                tabId: workspaceID,
-                surfaceId: surfaceID,
-                title: title,
-                subtitle: subtitle,
-                body: body,
-                replyShape: replyShape,
-                coalesces: coalesces
-            )
-        }
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: workspaceID,
+            surfaceId: surfaceID,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            replyShape: replyShape,
+            coalesces: correlationKey == nil ? coalesces : false,
+            correlationKey: correlationKey
+        )
         return true
     }
 }

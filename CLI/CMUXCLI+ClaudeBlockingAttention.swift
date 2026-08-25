@@ -53,12 +53,12 @@ extension CMUXCLI {
             params["ppid_start_microseconds"] = ownerPIDStartMicroseconds
         }
         do {
-            _ = try client.sendV2(
+            let response = try client.sendV2(
                 method: "feed.attention.begin",
                 params: params,
                 responseTimeout: Self.claudeBlockingAttentionResponseTimeout
             )
-            return true
+            return response["active"] as? Bool != false
         } catch {
             return false
         }
@@ -130,12 +130,15 @@ extension CMUXCLI {
             return false
         }
         do {
-            _ = try client.sendV2(
+            let response = try client.sendV2(
                 method: "feed.attention.end",
                 params: params,
                 responseTimeout: Self.claudeBlockingAttentionResponseTimeout
             )
-            return true
+            if params["legacy_release"] as? Bool == true {
+                return true
+            }
+            return response["ended"] as? Bool != false
         } catch let error as CLIError where error.v2Code == "method_not_found"
                 || error.v2Code == "unrecognized_method" {
             // Older app builds never acquired transient attention, so an
@@ -172,12 +175,15 @@ extension CMUXCLI {
             return false
         }
         do {
-            _ = try client.sendV2(
+            let response = try client.sendV2(
                 method: "feed.attention.end",
                 params: params,
                 responseTimeout: Self.claudeBlockingAttentionTurnBoundaryTimeout
             )
-            return true
+            if params["legacy_release"] as? Bool == true {
+                return true
+            }
+            return response["ended"] as? Bool != false
         } catch let error as CLIError where error.v2Code == "method_not_found"
                 || error.v2Code == "unrecognized_method" {
             return true
