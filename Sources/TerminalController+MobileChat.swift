@@ -531,10 +531,17 @@ extension TerminalController {
         cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
         #endif
         if let refreshed = await service.refreshSessionBindings(sessionID: sessionID),
+           let refreshedWorkspaceID = refreshed.workspaceID,
            let surfaceID = refreshed.surfaceID,
-           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
+           mobileChatBindingResolves(
+               workspaceID: refreshedWorkspaceID,
+               surfaceID: surfaceID
+           ),
            mobileChatBindingIsCurrentAgent(refreshed) {
-            return ["workspace_id": workspaceID, "surface_id": surfaceID]
+            return [
+                "workspace_id": refreshedWorkspaceID,
+                "surface_id": surfaceID,
+            ]
         }
         #if DEBUG
         cmuxDebugLog("mobile.chat binding unresolved session=\(sessionID.prefix(8))")
