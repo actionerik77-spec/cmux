@@ -164,23 +164,6 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         }
     }
 
-    /// Foundation's observer token is not Sendable, but it is only retained to
-    /// remove the observer; registration/removal are thread-safe Foundation
-    /// operations and no token state crosses the callback boundary.
-    private final class DistributedObserverToken: @unchecked Sendable {
-        private let center: DistributedNotificationCenter
-        private let token: any NSObjectProtocol
-
-        init(center: DistributedNotificationCenter, token: any NSObjectProtocol) {
-            self.center = center
-            self.token = token
-        }
-
-        func remove() {
-            center.removeObserver(token)
-        }
-    }
-
     private static func isScreenLocked() -> Bool {
         guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
             return false

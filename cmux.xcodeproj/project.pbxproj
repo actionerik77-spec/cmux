@@ -1008,6 +1008,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A28B087F0000000000000009 /* DiffViewerSessionTrustRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F000000000000000A /* DiffViewerSessionTrustRegistry.swift */; };
 		9648DEAD0000000000000002 /* DiffViewerURLSchemeHandlerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9648DEAD0000000000000001 /* DiffViewerURLSchemeHandlerLifecycleTests.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
+		C7B0FACE0000000000000022 /* DistributedObserverToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000023 /* DistributedObserverToken.swift */; };
 		DCDC1000000000000000B003 /* DockConfigFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B004 /* DockConfigFile.swift */; };
 		DCDC1000000000000000B005 /* DockConfigIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B006 /* DockConfigIdentity.swift */; };
 		DCDC1000000000000000B007 /* DockConfigResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B008 /* DockConfigResolution.swift */; };
@@ -3836,6 +3837,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A28B087F000000000000000A /* DiffViewerSessionTrustRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerSessionTrustRegistry.swift; sourceTree = "<group>"; };
 		9648DEAD0000000000000001 /* DiffViewerURLSchemeHandlerLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffViewerURLSchemeHandlerLifecycleTests.swift; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
+		C7B0FACE0000000000000023 /* DistributedObserverToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DistributedObserverToken.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B004 /* DockConfigFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigFile.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B006 /* DockConfigIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigIdentity.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B008 /* DockConfigResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigResolution.swift; sourceTree = "<group>"; };
@@ -6919,6 +6921,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7B0FACE0000000000000009 /* SleepyCommandRunning.swift */,
 				C7B0FACE000000000000000B /* SleepyPowerControlling.swift */,
 				C7B0FACE000000000000000D /* SystemCommandRunner.swift */,
+				C7B0FACE0000000000000023 /* DistributedObserverToken.swift */,
 				C7B0FACE000000000000000F /* SleepyReactions.swift */,
 				C7B0FACE0000000000000011 /* SleepyPetFrame.swift */,
 				C7B0FACE0000000000000013 /* SleepyPixelButtonStyle.swift */,
@@ -9629,6 +9632,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A28B087F0000000000000017 /* DiffViewerNavigationDocumentSnapshot.swift in Sources */,
 				A28B087F000000000000000D /* DiffViewerNavigationDocumentState.swift in Sources */,
 				A28B087F0000000000000009 /* DiffViewerSessionTrustRegistry.swift in Sources */,
+				C7B0FACE0000000000000022 /* DistributedObserverToken.swift in Sources */,
 				DCDC1000000000000000B003 /* DockConfigFile.swift in Sources */,
 				DCDC1000000000000000B005 /* DockConfigIdentity.swift in Sources */,
 				DCDC1000000000000000B007 /* DockConfigResolution.swift in Sources */,
