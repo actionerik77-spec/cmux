@@ -1453,11 +1453,19 @@ final class TerminalNotificationStore: ObservableObject {
             clickAction: clickAction,
             replyShape: request.replyShape
         )
-        if effects.record {
+        var effectiveEffects = effects
+        if notification.isTransientAgentAttention {
+            // Keep an in-memory row even when a policy disables persistence so
+            // native delivery receives a removable notification identity. The
+            // transient correlation filter still excludes it from history,
+            // unread projections, and mobile reconciliation.
+            effectiveEffects.record = true
+        }
+        if effectiveEffects.record {
             recordNotification(
                 notification,
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-                effects: effects,
+                effects: effectiveEffects,
                 now: now,
                 cooldownReservation: cooldownReservation
             )
@@ -1466,15 +1474,15 @@ final class TerminalNotificationStore: ObservableObject {
 
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
+            "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effectiveEffects.desktop ? 1 : 0) sound=\(effectiveEffects.sound ? 1 : 0) command=\(effectiveEffects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        if effects.reorderWorkspace,
+        if effectiveEffects.reorderWorkspace,
            UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
         }
-        if hasAnyNotificationEffect(effects) {
+        if hasAnyNotificationEffect(effectiveEffects) {
             commitCooldownReservation(cooldownReservation, at: now)
         } else {
             restoreCooldownReservation(cooldownReservation)
@@ -1482,7 +1490,7 @@ final class TerminalNotificationStore: ObservableObject {
         deliverNotificationSideEffects(
             notification,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-            effects: effects
+            effects: effectiveEffects
         )
     }
     private func recordNotification(

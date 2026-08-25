@@ -115,7 +115,8 @@ extension CMUXCLI {
         client: SocketClient,
         sessionId: String,
         toolUseId: String?,
-        owner: ClaudeHookSessionRecord? = nil
+        owner: ClaudeHookSessionRecord? = nil,
+        responseTimeout: TimeInterval = Self.claudeBlockingAttentionResponseTimeout
     ) -> Bool {
         var params: [String: Any] = [
             "source": "claude",
@@ -133,7 +134,7 @@ extension CMUXCLI {
             let response = try client.sendV2(
                 method: "feed.attention.end",
                 params: params,
-                responseTimeout: Self.claudeBlockingAttentionResponseTimeout
+                responseTimeout: responseTimeout
             )
             if params["legacy_release"] as? Bool == true {
                 return true
@@ -211,14 +212,28 @@ extension CMUXCLI {
         guard !pending.isEmpty else {
             return true
         }
-        return pending.allSatisfy { requestId in
-            endClaudeBlockingAttention(
+        let deadline = Date().addingTimeInterval(
+            Self.claudeBlockingAttentionTurnBoundaryTimeout
+        )
+        var didReleaseAll = true
+        for requestId in pending {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                didReleaseAll = false
+                break
+            }
+            let released = endClaudeBlockingAttention(
                 client: client,
                 sessionId: sessionId,
                 toolUseId: requestId,
-                owner: owner
+                owner: owner,
+                responseTimeout: min(remaining, 0.2)
             )
+            if !released {
+                didReleaseAll = false
+            }
         }
+        return didReleaseAll
     }
 
     /// Releases old-session attention claimed by the durable superseded-cleanup
