@@ -250,7 +250,18 @@ extension AgentNotificationRegressionTests {
 
         let sessionId = "relay-transient-session"
         let requestId = "relay-transient-request"
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let defaults = UserDefaults.standard
+        let priorTombstones = defaults.object(forKey: tombstoneKey)
+        defaults.removeObject(forKey: tombstoneKey)
+        TerminalNotificationStore.shared.reloadDismissedTombstonesForTesting()
         defer {
+            if let priorTombstones {
+                defaults.set(priorTombstones, forKey: tombstoneKey)
+            } else {
+                defaults.removeObject(forKey: tombstoneKey)
+            }
+            TerminalNotificationStore.shared.reloadDismissedTombstonesForTesting()
             _ = FeedCoordinator.shared.endTransientBlockingAttention(
                 source: "claude",
                 sessionId: sessionId,
@@ -366,6 +377,10 @@ extension AgentNotificationRegressionTests {
         #expect(end["ended"] as? Bool == true)
         TerminalMutationBus.shared.drainForTesting()
         #expect(!fixture.store.notifications.contains { $0.id == notification.id })
+        #expect(
+            defaults.object(forKey: tombstoneKey) == nil,
+            "live-only attention cleanup must not persist phone-dismiss tombstones"
+        )
     }
 
     @Test(arguments: ["feed.attention.begin", "feed.attention.end"])

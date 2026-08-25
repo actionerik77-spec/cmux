@@ -556,7 +556,8 @@ extension ClaudeHookWriteAmplificationTests {
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = surfaceId
 
-        func runPreToolUse(toolUseId: String, plan: String) {
+        func runPreToolUse(toolUseId: String, plan: String) -> [String] {
+            let commandStart = context.state.snapshot().count
             let result = AttentionHarness.runHookProcess(
                 context: context,
                 arguments: ["hooks", "claude", "pre-tool-use"],
@@ -566,6 +567,7 @@ extension ClaudeHookWriteAmplificationTests {
             #expect(serverHandled.wait(timeout: .now() + 5) == .success)
             #expect(!result.timedOut, Comment(rawValue: result.stderr))
             #expect(result.status == 0, Comment(rawValue: result.stderr))
+            return Array(context.state.snapshot().dropFirst(commandStart))
         }
 
         func runPermissionRequest(plan: String) {
@@ -580,7 +582,14 @@ extension ClaudeHookWriteAmplificationTests {
             #expect(result.status == 0, Comment(rawValue: result.stderr))
         }
 
-        runPreToolUse(toolUseId: "same-payload-first", plan: "Same plan")
+        let firstPreToolCommands = runPreToolUse(
+            toolUseId: "same-payload-first",
+            plan: "Same plan"
+        )
+        #expect(
+            firstPreToolCommands.contains { $0.contains(#""method":"feed.push""#) },
+            "plan-mode targeted blockers retain Feed telemetry for the PermissionRequest path"
+        )
         runPreToolUse(toolUseId: "different-payload", plan: "Different plan")
         runPreToolUse(toolUseId: "same-payload-second", plan: "Same plan")
 
