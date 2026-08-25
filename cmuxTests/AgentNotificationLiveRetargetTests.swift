@@ -241,7 +241,9 @@ extension AgentNotificationRegressionTests {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
-            terminalStartupCommand: nil
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "retarget-test"
         )
         fixture.claimedWorkspace.remoteConfiguration = remoteConfiguration
         fixture.owningWorkspace.remoteConfiguration = remoteConfiguration
@@ -289,9 +291,6 @@ extension AgentNotificationRegressionTests {
         #expect(panelSnapshot.hasUnreadIndicator != true)
         #expect(snapshot.hasUnreadIndicator != true)
 
-        var preservedConfiguration = remoteConfiguration
-        preservedConfiguration.preserveAfterTerminalExit = true
-        fixture.owningWorkspace.remoteConfiguration = preservedConfiguration
         #expect(
             fixture.owningWorkspace.markRemoteTerminalSessionEnded(
                 surfaceId: fixture.panelId,
