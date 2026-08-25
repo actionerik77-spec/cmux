@@ -287,6 +287,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var pendingSocketInputQueue: [PendingSocketInput] = []
     var pendingSocketInputBytes: Int = 0
     let maxPendingSocketInputBytes = 1_048_576
+    // A clipboard-deferred receipt-less compound prompt gets one bounded
+    // retry lane so a transient scope/surface failure cannot consume a
+    // caller-visible `queued` admission.
+    var deferredPromptSubmissionRetries: [PendingSocketInput] = []
+    var deferredPromptSubmissionRetryBytes = 0
+    let maxDeferredPromptSubmissionRetries = 64
     var promptInputLedger = TerminalPromptInputLedger()
     var controlReturnIsPromptSubmissionBoundary = false
     var backgroundSurfaceStartQueued = false
@@ -653,8 +659,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         for input in pendingSocketInputQueue {
             input.completePromptSubmissionDelivery(with: .surfaceUnavailable)
         }
+        for input in deferredPromptSubmissionRetries {
+            input.completePromptSubmissionDelivery(with: .surfaceUnavailable)
+        }
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
+        deferredPromptSubmissionRetries.removeAll(keepingCapacity: false)
+        deferredPromptSubmissionRetryBytes = 0
         registry.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so

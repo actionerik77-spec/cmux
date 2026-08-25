@@ -107,4 +107,14 @@ public enum PendingSocketInput: Sendable {
         }
         deliveryReceipt?.finish(result)
     }
+
+    /// Whether a queued compound prompt was cancelled before replay.
+    public var isCancelledPromptSubmission: Bool {
+        guard case .promptSubmission(
+            _, _, _, _, _, _, let deliveryReceipt
+        ) = self else {
+            return false
+        }
+        return deliveryReceipt?.isCancelled == true
+    }
 }

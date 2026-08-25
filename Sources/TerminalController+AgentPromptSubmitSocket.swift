@@ -31,12 +31,26 @@ extension TerminalController {
         case .failure(let result):
             return result
         case .success(let request):
-            return Self.agentPromptSocketResult(
-                admitAgentPromptSubmission(
-                    request: request,
-                    deliveryReceipt: nil
+            guard agentPromptSubmissionDeliveryLane
+                .tryBeginSynchronousTurn() else {
+                return Self.agentPromptSocketResult(
+                    .laneBusy
                 )
+            }
+            let receipt = PromptSubmissionDeliveryReceipt()
+            let outcome = admitAgentPromptSubmissionValue(
+                request: request,
+                deliveryReceipt: receipt
             )
+            let result = Self.agentPromptSocketResult(outcome)
+            if case .admitted(.submitted) = outcome {
+                agentPromptSubmissionDeliveryLane
+                    .holdSynchronousTurn(receipt)
+            } else {
+                agentPromptSubmissionDeliveryLane
+                    .completeSynchronousTurn()
+            }
+            return result
         }
     }
 
@@ -125,18 +139,6 @@ extension TerminalController {
         )
     }
 
-    private nonisolated func admitAgentPromptSubmission(
-        request: AgentPromptSubmissionRequest,
-        deliveryReceipt: PromptSubmissionDeliveryReceipt?
-    ) -> V2CallResult {
-        Self.agentPromptSocketResult(
-            admitAgentPromptSubmissionValue(
-                request: request,
-                deliveryReceipt: deliveryReceipt
-            )
-        )
-    }
-
     private nonisolated func admitAgentPromptSubmissionValue(
         request: AgentPromptSubmissionRequest,
         deliveryReceipt: PromptSubmissionDeliveryReceipt?
@@ -211,6 +213,12 @@ extension TerminalController {
                     defaultValue: "surface_id must be a valid surface UUID."
                 ),
                 data: nil
+            )
+        case .laneBusy:
+            return .err(
+                code: "input_queue_full",
+                message: terminalInputQueueFullMessage,
+                data: ["retryable": true]
             )
         }
     }

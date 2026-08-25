@@ -12,6 +12,52 @@ import Testing
 
 @Suite("Atomic agent prompt submission", .serialized)
 struct AgentPromptSubmissionTests {
+    @Test func deliveryLaneTimesOutAndReleasesItsTurn() async {
+        let lane = AgentPromptSubmissionDeliveryLane(
+            deliveryTimeout: .milliseconds(1),
+            maximumWaitingTurns: 1
+        )
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let timedOut = await lane.perform { _ in
+            .admitted(
+                .submitted(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    queued: true
+                )
+            )
+        }
+        #expect(
+            timedOut == .admitted(
+                .surfaceUnavailable(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            )
+        )
+
+        let recovered = await lane.perform { receipt in
+            receipt.finish(.sent)
+            return .admitted(
+                .submitted(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    queued: false
+                )
+            )
+        }
+        #expect(
+            recovered == .admitted(
+                .submitted(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    queued: false
+                )
+            )
+        )
+    }
+
     @Test func deliveryLaneWaitsForActualDeliveryBeforeStartingNext() async {
         let lane = AgentPromptSubmissionDeliveryLane()
         let probe = AgentPromptDeliveryLaneProbe()

@@ -402,7 +402,12 @@ extension TerminalController {
                     prompt: submittedPrompt
                 )
             attachmentReservationHeld = false
-            _ = registered
+            if !registered {
+                GhosttyApp.terminalPasteboard
+                    .cleanupTransferredTemporaryImageFiles(
+                        attachmentFileURLs
+                    )
+            }
         } else {
             attachmentReservationHeld = false
             attachmentService?.releaseMobileChatAttachmentBatchReservation(
