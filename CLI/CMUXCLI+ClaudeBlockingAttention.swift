@@ -351,6 +351,10 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.permission-request.resume-state-changed")
             return
         }
+        _ = try? sendV1Command(
+            "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
         setAgentLifecycle(
             client: client,
             key: Self.claudeCodeStatusKey,

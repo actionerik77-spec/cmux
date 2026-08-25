@@ -16,6 +16,11 @@ extension TerminalController {
               let peerProcessID else {
             return sanitized
         }
+        // Relay parameters are already HMAC-signed by the workspace rewriter;
+        // adding the host socket peer PID would invalidate that signature.
+        if sanitized["_cmux_remote_workspace_id"] != nil {
+            return sanitized
+        }
         sanitized["_cmux_peer_pid"] = Int(peerProcessID)
         return sanitized
     }
