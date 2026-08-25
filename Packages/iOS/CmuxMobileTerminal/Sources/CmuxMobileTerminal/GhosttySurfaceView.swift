@@ -386,6 +386,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         view.delegate = self
         return view
     }()
+    /// Whether a scroll gesture or its deceleration currently owns the
+    /// scroll mechanics view. Runtime seam: the local pixel-scroll path uses
+    /// it to hold position through replays mid-gesture, so it must compile in
+    /// every configuration, not just DEBUG.
+    var scrollInteractionActive: Bool {
+        scrollMechanicsView.isTracking
+            || scrollMechanicsView.isDragging
+            || scrollMechanicsView.isDecelerating
+    }
     #if DEBUG
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
@@ -455,13 +464,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var loggedDisplayInfo = false
     }
     var debugScrollFrameRateStats = DebugScrollFrameRateStats()
-    /// Whether a scroll gesture or its deceleration currently owns the
-    /// scroll mechanics view (narrow seam for the frame-rate audit).
-    var scrollInteractionActive: Bool {
-        scrollMechanicsView.isTracking
-            || scrollMechanicsView.isDragging
-            || scrollMechanicsView.isDecelerating
-    }
     var debugScrollScriptDone = false
 
     /// The live `key=value;…` description of the bottom dock, read by
@@ -1280,6 +1282,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     var hostedKeyboardHeight: CGFloat { keyboardHeight }
+
+    var hostedChromeHidden: Bool { chromeHidden }
 
     /// Host-driven geometry resync for inputs the surface cannot observe
     /// itself: the grid container reads the WINDOW's bottom safe-area inset
