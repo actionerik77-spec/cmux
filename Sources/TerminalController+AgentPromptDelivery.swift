@@ -111,7 +111,8 @@ extension TerminalController {
                       in: workspace,
                       panelID: knownTarget.panel.id,
                       hookSource: event.source,
-                      hookSessionID: event.sessionId
+                      hookSessionID: event.sessionId,
+                      hookPID: event.ppid
                   ) else {
                 return nil
             }
@@ -120,7 +121,8 @@ extension TerminalController {
         if let sessionPanel = agentPromptHookSessionPanel(
             in: workspace,
             hookSource: event.source,
-            hookSessionID: event.sessionId
+            hookSessionID: event.sessionId,
+            hookPID: event.ppid
         ) {
             return sessionPanel
         }
@@ -134,7 +136,8 @@ extension TerminalController {
     private func agentPromptHookSessionPanel(
         in workspace: Workspace,
         hookSource: String,
-        hookSessionID: String
+        hookSessionID: String,
+        hookPID: Int?
     ) -> TerminalPanel? {
         let normalizedSource = hookSource.trimmingCharacters(
             in: .whitespacesAndNewlines
@@ -158,6 +161,8 @@ extension TerminalController {
                 Set([key]),
                 sourceContext: sourceContext,
                 sessionID: normalizedSessionID,
+                hookPID: hookPID,
+                workspace: workspace,
                 allowSessionlessKey: false
             )
             guard matchesSession,
@@ -180,7 +185,8 @@ extension TerminalController {
         in workspace: Workspace,
         panelID: UUID,
         hookSource: String,
-        hookSessionID: String
+        hookSessionID: String,
+        hookPID: Int?
     ) -> Bool {
         let normalizedSource = hookSource.trimmingCharacters(
             in: .whitespacesAndNewlines
@@ -195,12 +201,13 @@ extension TerminalController {
             workspace.agentPIDKeysByPanelId[panelID] ?? [],
             sourceContext: "agentPIDKey:\(normalizedSource)",
             sessionID: normalizedSessionID,
-            // A current prompt scope is process-owned, but the historical
-            // `claude_code` key carries no session token. Accepting it here
-            // would let a delayed hook from a replaced Claude process clear
-            // the current composer's human boundary, so fail closed unless
-            // the registration itself is session-qualified.
-            allowSessionlessKey: false
+            hookPID: hookPID,
+            workspace: workspace,
+            // The historical `claude_code` key carries no session token. An
+            // explicit surface plus the current process identity is the
+            // authoritative proof available for that legacy registration;
+            // surface-less hooks remain session-qualified only.
+            allowSessionlessKey: true
         )
     }
 
@@ -208,6 +215,8 @@ extension TerminalController {
         _ keys: Set<String>,
         sourceContext: String,
         sessionID: String,
+        hookPID: Int?,
+        workspace: Workspace,
         allowSessionlessKey: Bool
     ) -> Bool {
         keys.contains { key in
@@ -217,14 +226,37 @@ extension TerminalController {
             ) else {
                 return false
             }
+            guard agentPromptHookProcessIdentityMatches(
+                key: key,
+                hookPID: hookPID,
+                workspace: workspace
+            ) else {
+                return false
+            }
             guard let separator = key.firstIndex(of: ".") else {
-                // Claude's historical `claude_code` key is panel-scoped and
-                // has no session suffix; an explicit surface ID is the
-                // deterministic owner for that legacy registration.
                 return allowSessionlessKey && key == "claude_code"
             }
             return key[key.index(after: separator)...] == sessionID
         }
+    }
+
+    /// Requires the hook's agent PID and birth timestamp to match the current
+    /// registration, preventing a delayed event from a replaced process (or a
+    /// reused PID) from clearing a newer composer boundary.
+    private func agentPromptHookProcessIdentityMatches(
+        key: String,
+        hookPID: Int?,
+        workspace: Workspace
+    ) -> Bool {
+        guard let rawPID = hookPID,
+              rawPID > 0,
+              let pid = pid_t(exactly: rawPID),
+              workspace.agentPIDs[key] == pid,
+              let recordedIdentity = workspace.agentPIDProcessIdentitiesByKey[key],
+              Workspace.agentPIDProcessIdentity(pid: pid) == recordedIdentity else {
+            return false
+        }
+        return true
     }
 
     private func normalizedHookSessionID(
