@@ -444,6 +444,78 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func explicitSurfaceHookAcceptsSourcePrefixedSession() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        var workspaceForCleanup: Workspace?
+        var panelForCleanup: TerminalPanel?
+        defer {
+            panelForCleanup?.surface.releaseSurfaceForTesting()
+            if let workspace = workspaceForCleanup,
+               tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+        let workspace = tabManager.addWorkspace(select: true)
+        workspaceForCleanup = workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        panelForCleanup = panel
+
+        workspace.recordAgentPID(
+            key: "codex.real-session",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        panel.surface.recordHumanPromptInput(.unknown)
+        panel.surface.recordHumanPromptInput(.submissionBoundary)
+
+        let event = WorkstreamEvent(
+            sessionId: "codex-real-session",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: workspace.id.uuidString,
+            surfaceId: panelID.uuidString,
+            toolInputJSON: #"{"prompt":"real prompt"}"#
+        )
+        TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
+
+        #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @MainActor
+    @Test func staleCachedAgentIdentityCannotProvidePromptScope() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        defer { panel.surface.releaseSurfaceForTesting() }
+
+        let key = "codex.stale-session"
+        workspace.recordAgentPID(
+            key: key,
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        var pids = workspace.agentPIDs
+        pids[key] = pid_t.max - 1
+        workspace.agentPIDs = pids
+
+        #expect(workspace.agentPromptInputScope(forPanelId: panelID) == nil)
+    }
+
+    @MainActor
     @Test func surfaceLessHookUsesExactSessionInMultiAgentWorkspace() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = previousAppDelegate ?? AppDelegate()
