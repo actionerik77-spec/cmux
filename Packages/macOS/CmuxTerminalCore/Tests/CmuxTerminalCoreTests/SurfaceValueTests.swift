@@ -41,6 +41,13 @@ import GhosttyKit
         let key = PendingKeyEvent(keycode: 53, mods: GHOSTTY_MODS_NONE, label: "escape")
         #expect(PendingSocketInput.key(key).estimatedBytes == 6)
         #expect(PendingSocketInput.appOwnedKey(key).estimatedBytes == 6)
+        #expect(
+            PendingSocketInput.humanPromptSubmission(
+                preparationKeys: [],
+                text: data,
+                submitKey: key
+            ).estimatedBytes == 12
+        )
         let preparationKeys = ["ctrl+a", "ctrl+k", "ctrl+u"].map {
             PendingKeyEvent(
                 keycode: 0,
@@ -71,6 +78,13 @@ import GhosttyKit
         #expect(!PendingSocketInput.appOwnedKey(key).isHumanInput)
         #expect(PendingSocketInput.inputText(data).isHumanInput)
         #expect(PendingSocketInput.key(key).isHumanInput)
+        #expect(
+            PendingSocketInput.humanPromptSubmission(
+                preparationKeys: [],
+                text: data,
+                submitKey: key
+            ).isHumanInput
+        )
     }
 
     @Test func queuedPromptCarriesAdmissionTimeHumanSnapshot() {

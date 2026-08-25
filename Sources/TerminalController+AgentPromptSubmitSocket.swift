@@ -60,7 +60,25 @@ extension TerminalController {
         } else {
             rawSurfaceID = nil
         }
-        return v2MainSync(commandKey: "workspace.agent_submit") {
+        let admit = {
+            self.admitAgentPromptSubmission(
+                rawWorkspaceID: rawWorkspaceID,
+                rawSurfaceID: rawSurfaceID,
+                text: text
+            )
+        }
+        if Thread.isMainThread {
+            return admit()
+        }
+        return agentPromptSubmissionAdmissionQueue.sync(execute: admit)
+    }
+
+    private nonisolated func admitAgentPromptSubmission(
+        rawWorkspaceID: String,
+        rawSurfaceID: String?,
+        text: String
+    ) -> V2CallResult {
+        v2MainSync(commandKey: "workspace.agent_submit") {
             guard let workspaceID = v2UUIDAny(rawWorkspaceID) else {
                 return .err(
                     code: "invalid_params",

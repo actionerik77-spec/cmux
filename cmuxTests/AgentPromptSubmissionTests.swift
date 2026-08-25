@@ -134,6 +134,36 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func normalMobileTerminalPasteClaimsHumanPromptOwnership() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.releaseSurfaceForTesting() }
+        let agentScope = "agentPIDKey:codex.mobile-paste"
+        panel.surface.synchronizePromptInputAgentScope(agentScope)
+
+        let result = panel.sendPromptSubmissionResult(
+            "mobile draft",
+            submitKey: "return",
+            agentInputScope: agentScope,
+            rejectIfHumanComposerBusy: false,
+            hookRecordingSource: nil,
+            recordHumanPromptInput: true
+        )
+
+        #expect(result.accepted)
+        if result == .queued {
+            #expect(
+                panel.surface.pendingSocketInputQueue.first?.isHumanInput == true
+            )
+        } else {
+            #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+            #expect(
+                panel.surface.confirmPromptSubmission(message: "mobile draft")
+                    == .human
+            )
+        }
+    }
+
+    @MainActor
     @Test func rawMobileDraftBlocksExactMobileAndAgentSubmissions() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = previousAppDelegate ?? AppDelegate()

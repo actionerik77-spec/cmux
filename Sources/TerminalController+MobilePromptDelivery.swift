@@ -5,7 +5,8 @@ extension TerminalController {
     /// primitive, or stages it without submitting when `submit_key=none`.
     func v2MobileTerminalPaste(
         params: [String: Any],
-        rejectIfHumanComposerBusy: Bool = false
+        rejectIfHumanComposerBusy: Bool = false,
+        recordHumanPromptInput: Bool = true
     ) -> V2CallResult {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(
@@ -110,7 +111,8 @@ extension TerminalController {
                 hookConfirmsHumanInput:
                     TextBoxAgentDetection.supportsActiveAgentPrefixes(
                         context: agentContext
-                    )
+                    ),
+                recordHumanPromptInput: recordHumanPromptInput
             )
             switch result {
             case .sent:

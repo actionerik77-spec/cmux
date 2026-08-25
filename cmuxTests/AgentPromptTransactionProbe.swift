@@ -187,7 +187,7 @@ extension TerminalSurface {
                 counts.keyEvents += 1
             case .pasteText:
                 counts.pasteTextItems += 1
-            case .promptSubmission:
+            case .promptSubmission, .humanPromptSubmission:
                 counts.promptSubmissionItems += 1
             case .inputText, .appOwnedInputText:
                 counts.inputTextItems += 1

@@ -387,7 +387,8 @@ extension TerminalController {
         let submittedPrompt = promptComponents.joined(separator: " ")
         let result = v2MobileTerminalPaste(
             params: pasteParams,
-            rejectIfHumanComposerBusy: true
+            rejectIfHumanComposerBusy: true,
+            recordHumanPromptInput: false
         )
         if case .ok = result,
            let attachmentService {

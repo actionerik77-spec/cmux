@@ -546,7 +546,8 @@ extension TerminalSurface {
         preparationKeys: [String] = [],
         rejectIfHumanComposerBusy: Bool = true,
         hookRecordingSource: String? = nil,
-        hookConfirmsHumanInput: Bool = false
+        hookConfirmsHumanInput: Bool = false,
+        recordHumanPromptInput: Bool = false
     ) -> PromptSubmissionSendResult {
         let data = Data(text.utf8)
         guard let submitEvent = pendingKeyEvent(for: submitKey) else {
@@ -566,7 +567,8 @@ extension TerminalSurface {
            surfaceView.hasDeferredHumanInputDuringClipboardRead() {
             return .composerBusy
         }
-        let hookConfirmedHumanInputSnapshot = hookConfirmsHumanInput
+        let hookConfirmedHumanInputSnapshot = !recordHumanPromptInput
+            && hookConfirmsHumanInput
             ? promptInputLedger.humanInputSnapshot
             : nil
         let estimatedBytes = preparationEvents.reduce(
@@ -581,7 +583,7 @@ extension TerminalSurface {
         // it cannot recapture a newer generation or split the transaction.
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: estimatedBytes,
-            isHumanInput: false,
+            isHumanInput: recordHumanPromptInput,
             replay: { [weak self] in
                 _ = self?.sendPromptSubmissionAfterAdmission(
                     text,
@@ -589,6 +591,7 @@ extension TerminalSurface {
                     preparationEvents: preparationEvents,
                     submitEvent: submitEvent,
                     hookRecordingSource: hookRecordingSource,
+                    recordHumanPromptInput: recordHumanPromptInput,
                     hookConfirmedHumanInputSnapshot:
                         hookConfirmedHumanInputSnapshot
                 )
@@ -607,6 +610,7 @@ extension TerminalSurface {
             preparationEvents: preparationEvents,
             submitEvent: submitEvent,
             hookRecordingSource: hookRecordingSource,
+            recordHumanPromptInput: recordHumanPromptInput,
             hookConfirmedHumanInputSnapshot:
                 hookConfirmedHumanInputSnapshot
         )
@@ -627,6 +631,7 @@ extension TerminalSurface {
         preparationEvents: [PendingKeyEvent],
         submitEvent: PendingKeyEvent,
         hookRecordingSource: String?,
+        recordHumanPromptInput: Bool,
         hookConfirmedHumanInputSnapshot:
             TerminalPromptInputLedger.HumanInputSnapshot?
     ) -> PromptSubmissionSendResult {
@@ -634,8 +639,13 @@ extension TerminalSurface {
             guard allowsRuntimeSurfaceCreation() else {
                 return .surfaceUnavailable
             }
-            guard enqueuePendingSocketInput(
-                .promptSubmission(
+            let pendingInput: PendingSocketInput = recordHumanPromptInput
+                ? .humanPromptSubmission(
+                    preparationKeys: preparationEvents,
+                    text: data,
+                    submitKey: submitEvent
+                )
+                : .promptSubmission(
                     preparationKeys: preparationEvents,
                     text: data,
                     submitKey: submitEvent,
@@ -643,7 +653,7 @@ extension TerminalSurface {
                     hookConfirmedHumanInputSnapshot:
                         hookConfirmedHumanInputSnapshot
                 )
-            ) else {
+            guard enqueuePendingSocketInput(pendingInput) else {
                 return .inputQueueFull
             }
             didReceiveExplicitInput()
@@ -674,14 +684,39 @@ extension TerminalSurface {
             keycode: submitEvent.keycode,
             mods: submitEvent.mods
         )
-        promptInputLedger.recordProgrammaticSubmission(
-            message: text,
-            source: hookRecordingSource,
-            confirmsHumanInputSnapshot:
-                hookConfirmedHumanInputSnapshot
-        )
+        if recordHumanPromptInput {
+            recordHumanPromptSubmissionInput(
+                preparationEvents: preparationEvents,
+                text: data,
+                submitEvent: submitEvent
+            )
+        } else {
+            promptInputLedger.recordProgrammaticSubmission(
+                message: text,
+                source: hookRecordingSource,
+                confirmsHumanInputSnapshot:
+                    hookConfirmedHumanInputSnapshot
+            )
+        }
         didAcceptExplicitInput()
         return .sent
+    }
+
+    @MainActor
+    private func recordHumanPromptSubmissionInput(
+        preparationEvents: [PendingKeyEvent],
+        text: Data,
+        submitEvent: PendingKeyEvent
+    ) {
+        for _ in preparationEvents {
+            promptInputLedger.recordHumanInput(.unknown)
+        }
+        if !text.isEmpty {
+            promptInputLedger.recordHumanInput(.unknown)
+        }
+        promptInputLedger.recordHumanInput(
+            promptInputMutation(for: submitEvent)
+        )
     }
 
     @MainActor
@@ -1469,6 +1504,29 @@ extension TerminalSurface {
                 source: hookRecordingSource,
                 confirmsHumanInputSnapshot:
                     hookConfirmedHumanInputSnapshot
+            )
+        case .humanPromptSubmission(
+            let preparationKeys,
+            let text,
+            let submitKey
+        ):
+            for preparationKey in preparationKeys {
+                sendKeyEvent(
+                    surface: surface,
+                    keycode: preparationKey.keycode,
+                    mods: preparationKey.mods
+                )
+            }
+            writeTextData(text, to: surface)
+            sendKeyEvent(
+                surface: surface,
+                keycode: submitKey.keycode,
+                mods: submitKey.mods
+            )
+            recordHumanPromptSubmissionInput(
+                preparationEvents: preparationKeys,
+                text: text,
+                submitEvent: submitKey
             )
         }
         return false

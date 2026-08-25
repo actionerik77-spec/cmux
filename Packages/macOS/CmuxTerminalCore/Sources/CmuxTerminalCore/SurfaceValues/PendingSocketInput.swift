@@ -27,6 +27,12 @@ public enum PendingSocketInput: Sendable {
         hookConfirmedHumanInputSnapshot:
             TerminalPromptInputLedger.HumanInputSnapshot?
     )
+    /// One indivisible prompt submitted by a human-owned mobile composer.
+    case humanPromptSubmission(
+        preparationKeys: [PendingKeyEvent],
+        text: Data,
+        submitKey: PendingKeyEvent
+    )
 
     /// The byte cost this entry contributes to the pending-input budget.
     public var estimatedBytes: Int {
@@ -50,6 +56,16 @@ public enum PendingSocketInput: Sendable {
             ) { byteCount, event in
                 byteCount + event.queuedByteCost
             }
+        case .humanPromptSubmission(
+            let preparationKeys,
+            let text,
+            let submitKey
+        ):
+            return preparationKeys.reduce(
+                text.count + submitKey.queuedByteCost
+            ) { byteCount, event in
+                byteCount + event.queuedByteCost
+            }
         }
     }
 
@@ -67,6 +83,8 @@ public enum PendingSocketInput: Sendable {
              .processOutput,
              .promptSubmission:
             false
+        case .humanPromptSubmission:
+            true
         }
     }
 }
