@@ -205,7 +205,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
-        let command = SSHPTYAttachStartupCommandBuilder.command(
+        let generatedCommand = SSHPTYAttachStartupCommandBuilder.command(
             sessionID: "ssh-test-session",
             foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
                 destination: "user@example.test",
@@ -216,6 +216,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ),
             sshExecutable: fakeSSH.path
         )
+        let command = generatedCommand
         let result = runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", command],
