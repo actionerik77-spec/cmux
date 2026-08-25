@@ -95,7 +95,9 @@ enum ClaudeHookLiveDeliveryHarness {
         resumeClearSucceeds: Bool = true,
         resumeClearOwnsCheckpoint: Bool? = true,
         feedAttentionBeginSucceeds: Bool = true,
+        feedAttentionBeginActive: Bool = true,
         feedAttentionEndSucceeds: Bool = true,
+        feedAttentionEndResult: Bool? = nil,
         feedAttentionEndGate: DispatchSemaphore? = nil,
         purgeSessionStoreOnFeedAttentionEnd: Bool = false,
         beforeSurfaceResolutionResponse: (@Sendable () -> Void)? = nil,
@@ -186,7 +188,11 @@ enum ClaudeHookLiveDeliveryHarness {
                         error: ["code": "unrecognized_method", "message": "unknown method"]
                     )
                 }
-                return v2Response(id: id, ok: true, result: [:])
+                return v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["active": feedAttentionBeginActive]
+                )
             case "feed.attention.end":
                 if let feedAttentionEndGate {
                     _ = feedAttentionEndGate.wait(timeout: .now() + 30)
@@ -196,7 +202,11 @@ enum ClaudeHookLiveDeliveryHarness {
                         .write(to: context.storeURL, options: .atomic)
                 }
                 if feedAttentionEndSucceeds {
-                    return v2Response(id: id, ok: true, result: [:])
+                    return v2Response(
+                        id: id,
+                        ok: true,
+                        result: feedAttentionEndResult.map { ["ended": $0] } ?? [:]
+                    )
                 }
                 return v2Response(
                     id: id,

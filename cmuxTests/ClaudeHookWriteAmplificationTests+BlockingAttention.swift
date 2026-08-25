@@ -7,6 +7,68 @@ import Testing
 #endif
 
 extension ClaudeHookWriteAmplificationTests {
+    @Test func failedAttentionEndKeepsDurableCorrelation() throws {
+        let context = try AttentionHarness.makeContext(name: "attention-end-negative-ack")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "attention-end-negative-session"
+        let processIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        try AttentionHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            processIdentity: processIdentity
+        )
+        let storeData = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": [sessionId: [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId,
+                "surfaceId": surfaceId,
+                "cwd": context.root.path,
+                "pid": Int(processIdentity.pid),
+                "pidStartSeconds": processIdentity.startSeconds,
+                "pidStartMicroseconds": processIdentity.startMicroseconds,
+                "agentLifecycle": "needsInput",
+                "pendingBlockingToolUseIds": ["negative-ack-tool"],
+                "startedAt": 4_102_444_800,
+                "updatedAt": 4_102_444_800,
+            ]],
+        ])
+        try storeData.write(to: context.storeURL)
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId],
+            feedAttentionEndResult: false
+        )
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLAUDE_PID"] = String(processIdentity.pid)
+
+        let result = AttentionHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "input-resolved"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","tool_use_id":"negative-ack-tool","permission_mode":"bypassPermissions","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["pendingBlockingToolUseIds"] as? [String] == ["negative-ack-tool"])
+        #expect(!context.state.snapshot().contains { $0.hasPrefix("clear_notifications ") })
+    }
+
     private typealias AttentionHarness = ClaudeHookLiveDeliveryHarness
 
     @Test func blockingCorrelationCapRejectsOverflowWithoutEvictingAttention() throws {
