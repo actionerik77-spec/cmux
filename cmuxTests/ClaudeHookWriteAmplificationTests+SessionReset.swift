@@ -9,6 +9,13 @@ import Testing
 extension ClaudeHookWriteAmplificationTests {
     private typealias SessionResetHarness = ClaudeHookLiveDeliveryHarness
 
+    @Test func fallbackAttentionTextStaysWithinV2BodyLimit() {
+        let bounded = CMUXCLI(args: []).boundedClaudeBlockingAttentionText(
+            String(repeating: "é", count: 4_096)
+        )
+        #expect(bounded.utf8.count <= 4_096)
+    }
+
     @Test func clearSessionStartReleasesDisplacedBlockingAttention() throws {
         let context = try SessionResetHarness.makeContext(name: "clear-blocking-attention")
         defer { context.cleanup() }

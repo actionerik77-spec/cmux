@@ -360,6 +360,16 @@ extension AgentNotificationRegressionTests {
         #expect(panelSnapshot.hasUnreadIndicator != true)
         #expect(snapshot.hasUnreadIndicator != true)
 
+        fixture.store.addNotification(
+            tabId: fixture.owningWorkspace.id,
+            surfaceId: fixture.panelId,
+            title: "Persistent follow-up",
+            subtitle: "Completed",
+            body: "A later durable event"
+        )
+        #expect(fixture.store.notifications.contains { $0.id == notification.id })
+        #expect(fixture.store.notifications.contains { $0.title == "Persistent follow-up" })
+
         #expect(
             fixture.owningWorkspace.markRemoteTerminalSessionEnded(
                 surfaceId: fixture.panelId,
