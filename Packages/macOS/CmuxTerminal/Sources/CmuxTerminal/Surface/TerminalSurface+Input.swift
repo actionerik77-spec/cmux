@@ -294,9 +294,35 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
+        sendNamedKeyWithOwnership(keyName, recordPromptInput: true)
+    }
+
+    /// Sends a named key owned by an app control without recording it as human
+    /// composer input.
+    ///
+    /// Mobile chat interrupts use this path for Esc and Ctrl-C. The key still
+    /// follows the normal runtime and clipboard sequencing rules, but it does
+    /// not create an unconfirmed human composer mutation.
+    @MainActor
+    @discardableResult
+    public func sendAppOwnedNamedKeyResult(
+        _ keyName: String
+    ) -> NamedKeySendResult {
+        sendNamedKeyWithOwnership(keyName, recordPromptInput: false)
+    }
+
+    @MainActor
+    @discardableResult
+    private func sendNamedKeyWithOwnership(
+        _ keyName: String,
+        recordPromptInput: Bool
+    ) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
         didReceiveExplicitInput()
-        let result = sendNamedKeyAfterExplicitInput(event)
+        let result = sendNamedKeyAfterExplicitInput(
+            event,
+            recordPromptInput: recordPromptInput
+        )
         if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
@@ -308,12 +334,16 @@ extension TerminalSurface {
 
     @MainActor
     private func sendNamedKeyAfterExplicitInput(
-        _ event: PendingKeyEvent
+        _ event: PendingKeyEvent,
+        recordPromptInput: Bool
     ) -> NamedKeySendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: PendingSocketInput.key(event).estimatedBytes,
             replay: { [weak self] in
-                _ = self?.sendNamedKeyAfterExplicitInput(event)
+                _ = self?.sendNamedKeyAfterExplicitInput(
+                    event,
+                    recordPromptInput: recordPromptInput
+                )
             }
         ) {
             return .queued
@@ -321,9 +351,11 @@ extension TerminalSurface {
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
-            promptInputLedger.recordHumanInput(
-                promptInputMutation(for: event)
-            )
+            if recordPromptInput {
+                promptInputLedger.recordHumanInput(
+                    promptInputMutation(for: event)
+                )
+            }
             requestInputDemandSurfaceStartIfNeeded()
             didAcceptExplicitInput()
             return .queued
@@ -333,9 +365,11 @@ extension TerminalSurface {
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
-        promptInputLedger.recordHumanInput(
-            promptInputMutation(for: event)
-        )
+        if recordPromptInput {
+            promptInputLedger.recordHumanInput(
+                promptInputMutation(for: event)
+            )
+        }
         didAcceptExplicitInput()
         return .sent
     }
@@ -381,9 +415,34 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func sendInputResult(_ text: String) -> InputSendResult {
+        sendInputResultWithOwnership(text, recordPromptInput: true)
+    }
+
+    /// Sends input owned by an app control without recording it as human
+    /// composer input.
+    ///
+    /// Mobile chat answers are terminal control actions, not text typed into
+    /// the agent composer. They still use the normal explicit-input and
+    /// clipboard sequencing paths, but cannot make a later automation prompt
+    /// fail closed as if a human had started a draft.
+    @MainActor
+    @discardableResult
+    public func sendAppOwnedInputResult(_ text: String) -> InputSendResult {
+        sendInputResultWithOwnership(text, recordPromptInput: false)
+    }
+
+    @MainActor
+    @discardableResult
+    private func sendInputResultWithOwnership(
+        _ text: String,
+        recordPromptInput: Bool
+    ) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
         didReceiveExplicitInput()
-        let result = sendInputAfterExplicitInput(text)
+        let result = sendInputAfterExplicitInput(
+            text,
+            recordPromptInput: recordPromptInput
+        )
         if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
@@ -394,12 +453,18 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func sendInputAfterExplicitInput(_ text: String) -> InputSendResult {
+    private func sendInputAfterExplicitInput(
+        _ text: String,
+        recordPromptInput: Bool
+    ) -> InputSendResult {
         let events = Self.parsedSocketInputEvents(for: text)
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: text.utf8.count,
             replay: { [weak self] in
-                _ = self?.sendInputAfterExplicitInput(text)
+                _ = self?.sendInputAfterExplicitInput(
+                    text,
+                    recordPromptInput: recordPromptInput
+                )
             }
         ) {
             return .queued
@@ -408,7 +473,9 @@ extension TerminalSurface {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(events)
             if queued {
-                recordPromptInputMutations(for: events)
+                if recordPromptInput {
+                    recordPromptInputMutations(for: events)
+                }
                 requestInputDemandSurfaceStartIfNeeded()
                 didAcceptExplicitInput()
             }
@@ -428,7 +495,9 @@ extension TerminalSurface {
                 validatedGeneration: &validatedGeneration
             ) || queuedInput
         }
-        recordPromptInputMutations(for: events)
+        if recordPromptInput {
+            recordPromptInputMutations(for: events)
+        }
         didAcceptExplicitInput()
         return queuedInput ? .queued : .sent
     }
@@ -463,6 +532,66 @@ extension TerminalSurface {
         let hookConfirmedHumanInputSnapshot = hookConfirmsHumanInput
             ? promptInputLedger.humanInputSnapshot
             : nil
+        let estimatedBytes = preparationEvents.reduce(
+            data.count + submitEvent.queuedByteCost
+        ) { byteCount, event in
+            byteCount + event.queuedByteCost
+        }
+
+        // Admission captures the human-input generation before the compound
+        // transaction can wait behind a runtime clipboard read. The replay
+        // closure intentionally calls the post-admission helper directly so
+        // it cannot recapture a newer generation or split the transaction.
+        if deferInputDuringRuntimeClipboardRead(
+            estimatedBytes: estimatedBytes,
+            replay: { [weak self] in
+                _ = self?.sendPromptSubmissionAfterAdmission(
+                    text,
+                    data: data,
+                    preparationEvents: preparationEvents,
+                    submitEvent: submitEvent,
+                    hookRecordingSource: hookRecordingSource,
+                    hookConfirmedHumanInputSnapshot:
+                        hookConfirmedHumanInputSnapshot
+                )
+            }
+        ) {
+            hibernationRecorder.recordTerminalInput(
+                workspaceId: tabId,
+                panelId: id
+            )
+            return .queued
+        }
+
+        let result = sendPromptSubmissionAfterAdmission(
+            text,
+            data: data,
+            preparationEvents: preparationEvents,
+            submitEvent: submitEvent,
+            hookRecordingSource: hookRecordingSource,
+            hookConfirmedHumanInputSnapshot:
+                hookConfirmedHumanInputSnapshot
+        )
+        if result.accepted {
+            hibernationRecorder.recordTerminalInput(
+                workspaceId: tabId,
+                panelId: id
+            )
+        }
+        return result
+    }
+
+    @MainActor
+    @discardableResult
+    private func sendPromptSubmissionAfterAdmission(
+        _ text: String,
+        data: Data,
+        preparationEvents: [PendingKeyEvent],
+        submitEvent: PendingKeyEvent,
+        hookRecordingSource: String?,
+        hookConfirmedHumanInputSnapshot:
+            TerminalPromptInputLedger.HumanInputSnapshot?
+    ) -> PromptSubmissionSendResult {
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else {
                 return .surfaceUnavailable
@@ -480,7 +609,6 @@ extension TerminalSurface {
                 return .inputQueueFull
             }
             didReceiveExplicitInput()
-            hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
             didAcceptExplicitInput()
             requestInputDemandSurfaceStartIfNeeded()
             return .queued
@@ -495,7 +623,6 @@ extension TerminalSurface {
         }
 
         didReceiveExplicitInput()
-        hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
         for preparationEvent in preparationEvents {
             sendKeyEvent(
                 surface: liveSurface,

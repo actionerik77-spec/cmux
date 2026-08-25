@@ -710,10 +710,27 @@ final class TerminalPanel: Panel, ObservableObject {
         return surface.sendInputResult(text)
     }
 
+    /// Sends app-owned input without attributing it to the terminal composer.
+    @discardableResult
+    func sendAppOwnedInputResult(_ text: String) -> TerminalSurface.InputSendResult {
+        resumeForExplicitInputIfNeeded()
+        return surface.sendAppOwnedInputResult(text)
+    }
+
     @discardableResult
     func sendNamedKeyResult(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
         resumeForExplicitInputIfNeeded()
         return surface.sendNamedKey(keyName)
+    }
+
+    /// Sends an app-owned named key without attributing it to the terminal
+    /// composer.
+    @discardableResult
+    func sendAppOwnedNamedKeyResult(
+        _ keyName: String
+    ) -> TerminalSurface.NamedKeySendResult {
+        resumeForExplicitInputIfNeeded()
+        return surface.sendAppOwnedNamedKeyResult(keyName)
     }
 
     /// Delivers one complete agent prompt transaction, including any app-owned

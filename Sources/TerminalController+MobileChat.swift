@@ -412,7 +412,9 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        let keyResult = terminalPanel.sendNamedKeyResult(hard ? "ctrl+c" : "escape")
+        let keyResult = terminalPanel.sendAppOwnedNamedKeyResult(
+            hard ? "ctrl+c" : "escape"
+        )
         guard keyResult.accepted else {
             return .err(code: "surface_unavailable", message: String(
                 localized: "mobile.chat.error.interruptNotAccepted",
@@ -441,7 +443,7 @@ extension TerminalController {
         let digit = String(optionIndex + 1)
         let isCodex = agentChatTranscriptService?.sessionRecord(sessionID: sessionID)?.agentKind == .codex
         let answerKeys = isCodex ? "\(digit)\r" : digit
-        let sendResult = terminalPanel.surface.sendInputResult(answerKeys)
+        let sendResult = terminalPanel.sendAppOwnedInputResult(answerKeys)
         switch sendResult {
         case .sent, .queued:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.chatAnswer")
