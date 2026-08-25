@@ -150,7 +150,9 @@ extension Workspace {
         for key in agentPIDKeysByPanelId[panelId] ?? [] {
             let context = "agentPIDKey:\(key)"
             guard isPromptCapableAgentPIDKey(key),
-                  let identity = agentPIDProcessIdentitiesByKey[key] else {
+                  let pid = agentPIDs[key],
+                  let identity = agentPIDProcessIdentitiesByKey[key],
+                  Self.agentPIDProcessIdentity(pid: pid) == identity else {
                 continue
             }
             let scope = [

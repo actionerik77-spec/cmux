@@ -106,12 +106,12 @@ extension TerminalController {
                       workspace: workspace
                   ),
                   knownTarget.agentInputScope != nil,
-                  let sessionPanel = agentPromptHookSessionPanel(
+                  agentPromptHookMatchesPanel(
                       in: workspace,
+                      panelID: knownTarget.panel.id,
                       hookSource: event.source,
                       hookSessionID: event.sessionId
-                  ),
-                  sessionPanel.id == knownTarget.panel.id else {
+                  ) else {
                 return nil
             }
             return knownTarget.panel
@@ -142,11 +142,10 @@ extension TerminalController {
         let normalizedSource = hookSource.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-        let normalizedSessionID = hookSessionID.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        guard !normalizedSource.isEmpty,
-              !normalizedSessionID.isEmpty else {
+        guard let normalizedSessionID = normalizedHookSessionID(
+            hookSessionID,
+            source: normalizedSource
+        ) else {
             return nil
         }
         let sourceContext = "agentPIDKey:\(normalizedSource)"
@@ -154,19 +153,11 @@ extension TerminalController {
         var seenPanelIDs: Set<UUID> = []
 
         for (panelID, keys) in workspace.agentPIDKeysByPanelId {
-            let matchesSession = keys.contains { key in
-                guard let separator = key.firstIndex(of: ".") else {
-                    return false
-                }
-                let sessionID = key[key.index(after: separator)...]
-                guard sessionID == normalizedSessionID else {
-                    return false
-                }
-                return TextBoxAgentDetection.representsSameAgentKind(
-                    "agentPIDKey:\(key)",
-                    sourceContext
-                )
-            }
+            let matchesSession = agentPromptHookMatchesKeys(
+                keys,
+                sourceContext: sourceContext,
+                sessionID: normalizedSessionID
+            )
             guard matchesSession,
                   seenPanelIDs.insert(panelID).inserted,
                   workspace.agentPromptInputScope(
@@ -180,6 +171,67 @@ extension TerminalController {
             matchedPanels.append(panel)
         }
         return matchedPanels.count == 1 ? matchedPanels[0] : nil
+    }
+
+    /// Matches a surface-scoped hook without scanning unrelated workspace panels.
+    private func agentPromptHookMatchesPanel(
+        in workspace: Workspace,
+        panelID: UUID,
+        hookSource: String,
+        hookSessionID: String
+    ) -> Bool {
+        let normalizedSource = hookSource.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard let normalizedSessionID = normalizedHookSessionID(
+            hookSessionID,
+            source: normalizedSource
+        ) else {
+            return false
+        }
+        return agentPromptHookMatchesKeys(
+            workspace.agentPIDKeysByPanelId[panelID] ?? [],
+            sourceContext: "agentPIDKey:\(normalizedSource)",
+            sessionID: normalizedSessionID
+        )
+    }
+
+    private func agentPromptHookMatchesKeys(
+        _ keys: Set<String>,
+        sourceContext: String,
+        sessionID: String
+    ) -> Bool {
+        keys.contains { key in
+            guard TextBoxAgentDetection.representsSameAgentKind(
+                "agentPIDKey:\(key)",
+                sourceContext
+            ) else {
+                return false
+            }
+            guard let separator = key.firstIndex(of: ".") else {
+                // Claude's historical `claude_code` key is panel-scoped and
+                // has no session suffix; an explicit surface ID is the
+                // deterministic owner for that legacy registration.
+                return key == "claude_code"
+            }
+            return key[key.index(after: separator)...] == sessionID
+        }
+    }
+
+    private func normalizedHookSessionID(
+        _ hookSessionID: String,
+        source: String
+    ) -> String? {
+        let normalized = hookSessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !source.isEmpty, !normalized.isEmpty else { return nil }
+        let prefix = "\(source)-"
+        if normalized.hasPrefix(prefix) {
+            let rawSession = String(normalized.dropFirst(prefix.count))
+            return rawSession.isEmpty ? nil : rawSession
+        }
+        return normalized
     }
 
     private func agentPromptTerminalTarget(
