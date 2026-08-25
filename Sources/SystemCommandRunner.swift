@@ -122,7 +122,7 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             lockNotifications.continuation.finish()
             return true
         }
-        let confirmed = await Self.waitForLockNotification(
+        let confirmed = await Self.waitForLockConfirmation(
             lockNotifications.stream,
             clock: clock,
             timeout: timeout
@@ -151,7 +151,7 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         return (stream, continuation)
     }
 
-    private static func waitForLockNotification(
+    private static func waitForLockConfirmation(
         _ notifications: AsyncStream<Void>,
         clock: any Clock<Duration>,
         timeout: Duration
@@ -159,23 +159,21 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 for await _ in notifications {
-                    switch Self.screenLockState() {
-                    case .some(true):
-                        // The notification is only a wake-up; the session bit
-                        // is the authoritative proof that this request locked.
+                    // The notification is only a wake-up; the session bit is
+                    // the authoritative proof. Keep waiting if the dictionary
+                    // has not caught up yet; the concurrent state poll below
+                    // covers hosts that drop this notification entirely.
+                    if Self.isScreenLocked() {
                         return true
-                    case .none:
-                        // Do not treat an unauthenticated distributed event as
-                        // proof when the public state cannot be read.
-                        return false
-                    case .some(false):
-                        // loginwindow can publish before the dictionary catches
-                        // up. Re-read on a bounded cadence until the outer
-                        // confirmation deadline wins.
-                        return await Self.waitForCurrentLockState(clock: clock)
                     }
                 }
                 return false
+            }
+            group.addTask {
+                // Poll the authoritative state concurrently with the event
+                // stream. Either source may be delayed or absent on a given
+                // macOS/session context, but a missing dictionary fails closed.
+                return await Self.waitForCurrentLockState(clock: clock)
             }
             group.addTask {
                 try? await clock.sleep(for: timeout)

@@ -10954,7 +10954,7 @@ struct CMUXCLI {
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
         )
-        var parts: [String] = [RemoteTmuxHost.defaultSSHExecutablePath()]
+        var parts: [String] = [CMUXSSHExecutablePathResolver().path]
         if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
             parts += ["-o", "ConnectTimeout=6"]
         }
