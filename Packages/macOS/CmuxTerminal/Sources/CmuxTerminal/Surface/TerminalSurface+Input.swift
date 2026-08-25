@@ -353,7 +353,12 @@ extension TerminalSurface {
         }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
-            guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
+            let pendingInput: PendingSocketInput = recordPromptInput
+                ? .key(event)
+                : .appOwnedKey(event)
+            guard enqueuePendingSocketInput(pendingInput) else {
+                return .inputQueueFull
+            }
             if recordPromptInput {
                 promptInputLedger.recordHumanInput(
                     promptInputMutation(for: event)
@@ -475,7 +480,10 @@ extension TerminalSurface {
         }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
-            let queued = enqueuePendingSocketInput(events)
+            let queued = enqueuePendingSocketInput(
+                events,
+                isHumanInput: recordPromptInput
+            )
             if queued {
                 if recordPromptInput {
                     recordPromptInputMutations(for: events)
@@ -492,7 +500,10 @@ extension TerminalSurface {
         var validatedSurface: ghostty_surface_t? = liveSurface
         var validatedGeneration: UInt64? = runtimeSurfaceGeneration
         var queuedInput = false
-        for input in Self.pendingSocketInputs(for: events) {
+        for input in Self.pendingSocketInputs(
+            for: events,
+            isHumanInput: recordPromptInput
+        ) {
             queuedInput = deliverPendingSocketInput(
                 input,
                 validatedSurface: &validatedSurface,
@@ -662,28 +673,42 @@ extension TerminalSurface {
 
     @MainActor
     private func enqueuePendingSocketInput(
-        _ events: [ParsedSocketInput]
+        _ events: [ParsedSocketInput],
+        isHumanInput: Bool = true
     ) -> Bool {
-        enqueuePendingSocketInputs(Self.pendingSocketInputs(for: events))
+        enqueuePendingSocketInputs(
+            Self.pendingSocketInputs(
+                for: events,
+                isHumanInput: isHumanInput
+            )
+        )
     }
 
     private static func pendingSocketInputs(
-        for text: String
+        for text: String,
+        isHumanInput: Bool = true
     ) -> [PendingSocketInput] {
-        pendingSocketInputs(for: parsedSocketInputEvents(for: text))
+        pendingSocketInputs(
+            for: parsedSocketInputEvents(for: text),
+            isHumanInput: isHumanInput
+        )
     }
 
     private static func pendingSocketInputs(
-        for events: [ParsedSocketInput]
+        for events: [ParsedSocketInput],
+        isHumanInput: Bool = true
     ) -> [PendingSocketInput] {
         events.compactMap { event in
             switch event {
             case .rawBytes(let data):
-                return data.isEmpty ? nil : .inputText(data)
+                guard !data.isEmpty else { return nil }
+                return isHumanInput
+                    ? .inputText(data)
+                    : .appOwnedInputText(data)
             case .terminalBytes(let data):
                 return data.isEmpty ? nil : .processOutput(data)
             case .key(let event):
-                return .key(event)
+                return isHumanInput ? .key(event) : .appOwnedKey(event)
             }
         }
     }
@@ -1286,6 +1311,8 @@ extension TerminalSurface {
         let pendingKeys = pendingSocketInputQueue.reduce(into: 0) { count, item in
             if case .key = item {
                 count += 1
+            } else if case .appOwnedKey = item {
+                count += 1
             }
         }
         logDebugEvent(
@@ -1314,6 +1341,8 @@ extension TerminalSurface {
         var queuedKeys = 0
         for item in queued {
             if case .key = item {
+                queuedKeys += 1
+            } else if case .appOwnedKey = item {
                 queuedKeys += 1
             }
             _ = deliverPendingSocketInput(
@@ -1381,9 +1410,17 @@ extension TerminalSurface {
             writeTextData(chunk, to: surface)
         case .inputText(let chunk):
             writeInputTextData(chunk, to: surface)
+        case .appOwnedInputText(let chunk):
+            writeInputTextData(chunk, to: surface)
         case .processOutput(let chunk):
             writeProcessOutputData(chunk, to: surface)
         case .key(let event):
+            sendKeyEvent(
+                surface: surface,
+                keycode: event.keycode,
+                mods: event.mods
+            )
+        case .appOwnedKey(let event):
             sendKeyEvent(
                 surface: surface,
                 keycode: event.keycode,

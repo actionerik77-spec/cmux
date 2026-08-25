@@ -36,9 +36,11 @@ import GhosttyKit
         let data = Data("hello".utf8)
         #expect(PendingSocketInput.pasteText(data).estimatedBytes == 5)
         #expect(PendingSocketInput.inputText(data).estimatedBytes == 5)
+        #expect(PendingSocketInput.appOwnedInputText(data).estimatedBytes == 5)
         #expect(PendingSocketInput.processOutput(data).estimatedBytes == 5)
         let key = PendingKeyEvent(keycode: 53, mods: GHOSTTY_MODS_NONE, label: "escape")
         #expect(PendingSocketInput.key(key).estimatedBytes == 6)
+        #expect(PendingSocketInput.appOwnedKey(key).estimatedBytes == 6)
         let preparationKeys = ["ctrl+a", "ctrl+k", "ctrl+u"].map {
             PendingKeyEvent(
                 keycode: 0,
@@ -55,6 +57,20 @@ import GhosttyKit
                 hookConfirmedHumanInputSnapshot: nil
             ).estimatedBytes == 29
         )
+    }
+
+    @Test func appOwnedPendingInputDoesNotLookHumanDuringReplay() {
+        let data = Data("answer".utf8)
+        let key = PendingKeyEvent(
+            keycode: 53,
+            mods: GHOSTTY_MODS_NONE,
+            label: "escape"
+        )
+
+        #expect(!PendingSocketInput.appOwnedInputText(data).isHumanInput)
+        #expect(!PendingSocketInput.appOwnedKey(key).isHumanInput)
+        #expect(PendingSocketInput.inputText(data).isHumanInput)
+        #expect(PendingSocketInput.key(key).isHumanInput)
     }
 
     @Test func queuedPromptCarriesAdmissionTimeHumanSnapshot() {

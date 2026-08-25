@@ -6,10 +6,15 @@ public enum PendingSocketInput: Sendable {
     case pasteText(Data)
     /// Text delivered through the committed-text input path.
     case inputText(Data)
+    /// Text delivered through the committed-text input path on behalf of an
+    /// app-owned control, without human composer ownership.
+    case appOwnedInputText(Data)
     /// Bytes that must be processed as terminal output, not user input.
     case processOutput(Data)
     /// A named-key press to replay.
     case key(PendingKeyEvent)
+    /// A named-key press owned by an app control, not a human composer.
+    case appOwnedKey(PendingKeyEvent)
     /// One indivisible composed prompt: app-owned preparation keys followed by
     /// bracketed-paste text and its agent-aware submit key. Hook attribution is
     /// carried with the queued transaction but is not recorded until the item
@@ -26,9 +31,12 @@ public enum PendingSocketInput: Sendable {
     /// The byte cost this entry contributes to the pending-input budget.
     public var estimatedBytes: Int {
         switch self {
-        case .pasteText(let data), .inputText(let data), .processOutput(let data):
+        case .pasteText(let data),
+             .inputText(let data),
+             .appOwnedInputText(let data),
+             .processOutput(let data):
             return data.count
-        case .key(let event):
+        case .key(let event), .appOwnedKey(let event):
             return event.queuedByteCost
         case .promptSubmission(
             let preparationKeys,
@@ -54,7 +62,10 @@ public enum PendingSocketInput: Sendable {
         switch self {
         case .pasteText, .inputText, .key:
             true
-        case .processOutput, .promptSubmission:
+        case .appOwnedInputText,
+             .appOwnedKey,
+             .processOutput,
+             .promptSubmission:
             false
         }
     }
