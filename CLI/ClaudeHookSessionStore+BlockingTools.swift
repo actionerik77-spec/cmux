@@ -32,6 +32,7 @@ extension ClaudeHookSessionStore {
     private static let maximumBlockingToolPayloadSignatureCollectionCount = 16
     private static let maximumBlockingToolPayloadSignatureStringBytes = 512
     private static let maximumBlockingToolPayloadSignatureKeyBytes = 128
+    private static let maximumBlockingToolTurnIdBytes = 256
 
     /// Returns the session displaced by a pane-scoped active-session boundary.
     /// Legacy workspace-only slots are accepted only when their recorded pane
@@ -112,7 +113,7 @@ extension ClaudeHookSessionStore {
                 correlations.append(BlockingToolCorrelation(
                     payloadSignature: payloadSignature,
                     toolUseId: requestId,
-                    turnId: normalizedBlockingToolIdentifier(turnId)
+                    turnId: boundedBlockingToolTurnIdentifier(turnId)
                 ))
                 if correlations.count > Self.maximumBlockingToolCorrelationCount {
                     let overflowCount =
@@ -288,6 +289,10 @@ extension ClaudeHookSessionStore {
                 (record.pendingBlockingToolCorrelations ?? [])
                 .filter { $0.toolUseId != toolUseId }
             record.agentLifecycle = remaining.isEmpty ? .running : .needsInput
+            if remaining.isEmpty {
+                record.lastSubtitle = nil
+                record.lastBody = nil
+            }
             record.updatedAt = now
             return .resolved
         }
@@ -296,6 +301,8 @@ extension ClaudeHookSessionStore {
         // session-wide resolution. New correlated records never return to nil.
         record.pendingBlockingToolCorrelations = nil
         record.agentLifecycle = .running
+        record.lastSubtitle = nil
+        record.lastBody = nil
         record.updatedAt = now
         return .resolved
     }
@@ -373,13 +380,25 @@ extension ClaudeHookSessionStore {
         storedTurnId: String?,
         incomingTurnId: String?
     ) -> Bool {
+        if let incomingTurnId,
+           boundedBlockingToolTurnIdentifier(incomingTurnId) == nil {
+            return false
+        }
         guard let storedTurnId = normalizedBlockingToolIdentifier(storedTurnId) else {
             return true
         }
-        guard let incomingTurnId = normalizedBlockingToolIdentifier(incomingTurnId) else {
+        guard let incomingTurnId = boundedBlockingToolTurnIdentifier(incomingTurnId) else {
             return false
         }
         return storedTurnId == incomingTurnId
+    }
+
+    private func boundedBlockingToolTurnIdentifier(_ value: String?) -> String? {
+        guard let normalized = normalizedBlockingToolIdentifier(value),
+              normalized.utf8.count <= Self.maximumBlockingToolTurnIdBytes else {
+            return nil
+        }
+        return normalized
     }
 
     private func blockingToolPayloadSignature(

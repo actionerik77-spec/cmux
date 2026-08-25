@@ -25431,6 +25431,24 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            let didReleaseBlockingAttention: Bool
+            if let sessionId = parsedInput.sessionId {
+                didReleaseBlockingAttention = endClaudeBlockingAttentionForTurnBoundary(
+                    client: client,
+                    sessionId: sessionId,
+                    owner: mappedSession
+                )
+            } else {
+                didReleaseBlockingAttention = true
+            }
+            guard didReleaseBlockingAttention else {
+                // Keep the durable record so a later hook/turn boundary can
+                // retry an authenticated release after a relay reconnect.
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-end.attention-release-pending")
+                printClaudeHookAck()
+                return
+            }
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: liveEndTarget.workspaceId,
@@ -25441,11 +25459,6 @@ struct CMUXCLI {
             // consumedSession, so isCurrent can treat consumedSession.sessionId
             // as current only when the consumed session was the active one.
             if let consumedSession {
-                endClaudeBlockingAttentionForTurnBoundary(
-                    client: client,
-                    sessionId: consumedSession.sessionId,
-                    owner: consumedSession
-                )
                 // App-visible cleanup targets the live owner of the session's
                 // pane when the resolver answered authoritatively; the
                 // consumed record's address is the fallback. Store-side calls

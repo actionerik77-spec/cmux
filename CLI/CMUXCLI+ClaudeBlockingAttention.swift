@@ -98,11 +98,12 @@ extension CMUXCLI {
     /// example after native permission denial or interruption). Feed-owned
     /// requests are harmless no-ops here; bypass-mode requests release every
     /// transient request in this session without clearing pane-wide attention.
+    @discardableResult
     func endClaudeBlockingAttentionForTurnBoundary(
         client: SocketClient,
         sessionId: String,
         owner: ClaudeHookSessionRecord? = nil
-    ) {
+    ) -> Bool {
         // Send a session-scoped release even after an earlier boundary cleared
         // durable blocker IDs. If its first transport attempt failed, the next
         // current turn boundary can still reconcile app-owned attention.
@@ -116,13 +117,21 @@ extension CMUXCLI {
             owner: owner,
             client: client
         ) else {
-            return
+            return false
         }
-        _ = try? client.sendV2(
-            method: "feed.attention.end",
-            params: params,
-            responseTimeout: Self.claudeBlockingAttentionTurnBoundaryTimeout
-        )
+        do {
+            _ = try client.sendV2(
+                method: "feed.attention.end",
+                params: params,
+                responseTimeout: Self.claudeBlockingAttentionTurnBoundaryTimeout
+            )
+            return true
+        } catch let error as CLIError where error.v2Code == "method_not_found"
+                || error.v2Code == "unrecognized_method" {
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func appendLocalAttentionOwnerParams(
