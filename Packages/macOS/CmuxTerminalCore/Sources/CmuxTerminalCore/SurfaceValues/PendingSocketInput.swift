@@ -44,4 +44,18 @@ public enum PendingSocketInput: Sendable {
             }
         }
     }
+
+    /// Whether replaying this item can mutate a human-owned composer.
+    ///
+    /// Compound prompt submissions and terminal-output bytes are app-owned;
+    /// the ordinary text/key cases retain the conservative human ownership
+    /// policy used by the prompt ledger.
+    public var isHumanInput: Bool {
+        switch self {
+        case .pasteText, .inputText, .key:
+            true
+        case .processOutput, .promptSubmission:
+            false
+        }
+    }
 }

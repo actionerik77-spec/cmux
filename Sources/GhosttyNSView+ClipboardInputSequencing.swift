@@ -4,7 +4,16 @@ import CmuxTerminalCore
 extension GhosttyNSView {
     enum ClipboardDeferredInput {
         case appKitEvent(NSEvent)
-        case runtimeMutation(() -> Void)
+        case runtimeMutation(() -> Void, isHumanInput: Bool)
+
+        var isHumanInput: Bool {
+            switch self {
+            case .appKitEvent(let event):
+                !event.cmuxCanDiscardDuringClipboardRead
+            case .runtimeMutation(_, let isHumanInput):
+                isHumanInput
+            }
+        }
     }
 
     func beginClipboardRead(
@@ -110,12 +119,31 @@ extension GhosttyNSView {
 
     func deferRuntimeInputDuringClipboardRead(
         estimatedBytes: Int,
+        isHumanInput: Bool,
         replay: @escaping () -> Void
     ) -> Bool {
         terminalClipboardInputSequencer.shouldDefer(
-            .runtimeMutation(replay),
+            .runtimeMutation(replay, isHumanInput: isHumanInput),
             epoch: terminalSurface?.runtimeSurfaceGeneration ?? .max,
             estimatedCost: estimatedBytes
+        )
+    }
+
+    func deferRuntimeInputDuringClipboardRead(
+        estimatedBytes: Int,
+        replay: @escaping () -> Void
+    ) -> Bool {
+        deferRuntimeInputDuringClipboardRead(
+            estimatedBytes: estimatedBytes,
+            isHumanInput: true,
+            replay: replay
+        )
+    }
+
+    func hasDeferredHumanInputDuringClipboardRead() -> Bool {
+        terminalClipboardInputSequencer.hasBufferedEvent(
+            for: terminalSurface?.runtimeSurfaceGeneration ?? .max,
+            where: { $0.isHumanInput }
         )
     }
 
@@ -132,7 +160,7 @@ extension GhosttyNSView {
         switch deferredInput {
         case .appKitEvent(let event):
             replayClipboardDeferredEvent(event)
-        case .runtimeMutation(let replay):
+        case .runtimeMutation(let replay, _):
             replay()
         }
     }

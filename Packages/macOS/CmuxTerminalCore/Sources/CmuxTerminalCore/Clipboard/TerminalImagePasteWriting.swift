@@ -52,3 +52,15 @@ public protocol TerminalImagePasteWriting: AnyObject, Sendable {
     /// Deletes every temporary image file this service still owns.
     func cleanupAllOwnedTemporaryImageFiles()
 }
+
+public extension TerminalImagePasteWriting {
+    /// Legacy conformers may not support URL-returning image materialization.
+    /// The shell-escaped ``saveImageData(_:fileExtension:)`` requirement
+    /// remains available, while callers that need ownership-aware URL cleanup
+    /// receive `nil` and can take their existing fallback path.
+    func saveImageDataFileURL(_ data: Data, fileExtension: String) -> URL? {
+        _ = data
+        _ = fileExtension
+        return nil
+    }
+}

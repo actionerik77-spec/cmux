@@ -199,6 +199,19 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         return true
     }
 
+    /// Whether a buffered event in an epoch satisfies the caller's ownership
+    /// predicate. This lets an atomic app transaction reject synchronously
+    /// when an earlier human event is already waiting ahead of it.
+    func hasBufferedEvent(
+        for epoch: UInt64,
+        where predicate: (Event) -> Bool
+    ) -> Bool {
+        guard let buffer = buffersByEpoch[epoch] else { return false }
+        return buffer.events
+            .dropFirst(buffer.nextEventIndex)
+            .contains { predicate($0.event) }
+    }
+
     /// Cancels a request whose native surface lifetime ended. Deferred input
     /// from that epoch is discarded without touching replacement-surface input.
     func cancelRequest(

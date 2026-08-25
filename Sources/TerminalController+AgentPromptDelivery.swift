@@ -149,9 +149,13 @@ extension TerminalController {
         var matchedPanels: [TerminalPanel] = []
         var seenPanelIDs: Set<UUID> = []
 
-        for (panelID, keys) in workspace.agentPIDKeysByPanelId {
+        // Start from the key→panel index so a surface-less hook does not
+        // perform a process-identity lookup for every panel in a busy
+        // workspace. Only exact source/session candidates reach the live
+        // scope validation below.
+        for (key, panelID) in workspace.agentPIDPanelIdsByKey {
             let matchesSession = agentPromptHookMatchesKeys(
-                keys,
+                Set([key]),
                 sourceContext: sourceContext,
                 sessionID: normalizedSessionID,
                 allowSessionlessKey: false

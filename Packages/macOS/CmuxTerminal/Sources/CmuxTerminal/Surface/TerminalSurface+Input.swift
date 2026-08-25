@@ -40,10 +40,12 @@ extension TerminalSurface {
     @MainActor
     func deferInputDuringRuntimeClipboardRead(
         estimatedBytes: Int,
+        isHumanInput: Bool = true,
         replay: @escaping () -> Void
     ) -> Bool {
         surfaceView.deferRuntimeInputDuringClipboardRead(
             estimatedBytes: estimatedBytes,
+            isHumanInput: isHumanInput,
             replay: replay
         )
     }
@@ -339,6 +341,7 @@ extension TerminalSurface {
     ) -> NamedKeySendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: PendingSocketInput.key(event).estimatedBytes,
+            isHumanInput: recordPromptInput,
             replay: { [weak self] in
                 _ = self?.sendNamedKeyAfterExplicitInput(
                     event,
@@ -460,6 +463,7 @@ extension TerminalSurface {
         let events = Self.parsedSocketInputEvents(for: text)
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: text.utf8.count,
+            isHumanInput: recordPromptInput,
             replay: { [weak self] in
                 _ = self?.sendInputAfterExplicitInput(
                     text,
@@ -529,6 +533,10 @@ extension TerminalSurface {
            promptInputLedger.hasUnconfirmedHumanInput {
             return .composerBusy
         }
+        if rejectIfHumanComposerBusy,
+           surfaceView.hasDeferredHumanInputDuringClipboardRead() {
+            return .composerBusy
+        }
         let hookConfirmedHumanInputSnapshot = hookConfirmsHumanInput
             ? promptInputLedger.humanInputSnapshot
             : nil
@@ -544,13 +552,13 @@ extension TerminalSurface {
         // it cannot recapture a newer generation or split the transaction.
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: estimatedBytes,
+            isHumanInput: false,
             replay: { [weak self] in
                 _ = self?.sendPromptSubmissionAfterAdmission(
                     text,
                     data: data,
                     preparationEvents: preparationEvents,
                     submitEvent: submitEvent,
-                    rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
                     hookRecordingSource: hookRecordingSource,
                     hookConfirmedHumanInputSnapshot:
                         hookConfirmedHumanInputSnapshot
@@ -569,7 +577,6 @@ extension TerminalSurface {
             data: data,
             preparationEvents: preparationEvents,
             submitEvent: submitEvent,
-            rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
             hookRecordingSource: hookRecordingSource,
             hookConfirmedHumanInputSnapshot:
                 hookConfirmedHumanInputSnapshot
@@ -590,20 +597,10 @@ extension TerminalSurface {
         data: Data,
         preparationEvents: [PendingKeyEvent],
         submitEvent: PendingKeyEvent,
-        rejectIfHumanComposerBusy: Bool,
         hookRecordingSource: String?,
         hookConfirmedHumanInputSnapshot:
             TerminalPromptInputLedger.HumanInputSnapshot?
     ) -> PromptSubmissionSendResult {
-        // A human input admitted earlier in the same clipboard epoch may only
-        // reach the ledger when its deferred replay runs. Re-check ownership
-        // immediately before writing so that replay order cannot merge that
-        // draft with this already-admitted automation transaction. The
-        // admission snapshot is deliberately not recaptured here.
-        if rejectIfHumanComposerBusy,
-           promptInputLedger.hasUnconfirmedHumanInput {
-            return .composerBusy
-        }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else {
                 return .surfaceUnavailable
@@ -1354,6 +1351,7 @@ extension TerminalSurface {
     ) -> Bool {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: input.estimatedBytes,
+            isHumanInput: input.isHumanInput,
             replay: { [weak self] in
                 _ = self?.deliverPendingSocketInput(input)
             }
