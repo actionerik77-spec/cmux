@@ -567,14 +567,18 @@ extension Workspace {
                         processPresence: agentProcessPresence
                     )
             }()
-            // A newly captured agent with inconclusive liveness must not use the
-            // legacy nil-as-running fallback. Keep nil only for ordinary
-            // non-agent terminals; old snapshots still decode nil and retain
-            // their backwards-compatible restore behavior.
+            // A retained structured agent with inconclusive liveness must not
+            // use the legacy nil-as-running fallback. A binding-only terminal
+            // has no process observation to contradict its authoritative hook
+            // checkpoint, so keep that binding eligible for restore.
             let persistedAgentWasRunning: Bool? =
-                effectiveRestorableAgent != nil || effectiveResumeBinding != nil
-                    ? (agentWasRunning ?? false)
-                    : nil
+                if effectiveRestorableAgent != nil {
+                    agentWasRunning ?? false
+                } else if effectiveResumeBinding != nil {
+                    true
+                } else {
+                    nil
+                }
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
                 effectiveResumeBinding,
                 autoResumeAgentSessions:
