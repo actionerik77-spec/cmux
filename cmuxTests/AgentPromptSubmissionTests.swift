@@ -493,6 +493,66 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func legacyClaudeHookCannotConfirmAnUnboundSession() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        var workspaceForCleanup: Workspace?
+        var panelForCleanup: TerminalPanel?
+        defer {
+            panelForCleanup?.surface.releaseSurfaceForTesting()
+            if let workspace = workspaceForCleanup,
+               tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+        let workspace = tabManager.addWorkspace(select: true)
+        workspaceForCleanup = workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        panelForCleanup = panel
+
+        workspace.recordAgentPID(
+            key: "claude_code",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        panel.surface.recordHumanPromptInput(.unknown)
+        panel.surface.recordHumanPromptInput(.submissionBoundary)
+
+        let event = WorkstreamEvent(
+            sessionId: "restarted-claude-session",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: workspace.id.uuidString,
+            surfaceId: panelID.uuidString,
+            toolInputJSON: #"{"prompt":"stale hook"}"#
+        )
+        TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
+
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func livePromptScopeOverridesStaleLaunchHintsForSubmitKey() {
+        let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(
+            containsNewline: true,
+            context: "initialCommand:claude\nagentPIDKey:codex.current",
+            agentInputScope:
+                "agentPIDKey:codex.current|pid:123|start:1.0"
+        )
+
+        #expect(submitKey == "return")
+    }
+
+    @MainActor
     @Test func staleCachedAgentIdentityCannotProvidePromptScope() throws {
         let workspace = Workspace()
         let panelID = try #require(workspace.focusedPanelId)

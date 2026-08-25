@@ -209,6 +209,41 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(replaySnapshot == admissionSnapshot)
     }
 
+    @Test func deferredPromptRejectsHumanInputThatReplaysBeforeAutomation() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.clipboard-order"
+        )
+        fixture.nativeView.shouldDeferRuntimeInput = true
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "automation prompt",
+                submitKey: "return",
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .queued
+        )
+        #expect(fixture.surface.sendInputResult("human draft") == .queued)
+        #expect(fixture.nativeView.deferredRuntimeInputs.count == 2)
+
+        // The real clipboard sequencer replays in admission order. Simulate a
+        // human event admitted before the automation transaction so the
+        // replay-time ownership guard must reject the automation write.
+        let humanReplay = fixture.nativeView.deferredRuntimeInputs.remove(at: 1)
+        let promptReplay = fixture.nativeView.deferredRuntimeInputs.removeFirst()
+        fixture.nativeView.shouldDeferRuntimeInput = false
+        humanReplay()
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        promptReplay()
+
+        #expect(
+            fixture.surface.pendingSocketInputSnapshotForTests
+                .promptSubmissionItems == 0
+        )
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
     @Test func rejectedParsedInputDoesNotNotifyItsOwner() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
