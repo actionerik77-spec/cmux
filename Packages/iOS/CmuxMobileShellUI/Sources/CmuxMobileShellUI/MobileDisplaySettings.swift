@@ -27,7 +27,6 @@ public final class MobileDisplaySettings {
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
-    private static let taskComposerEnabledKey = "cmux.mobile.taskComposerEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     #if DEBUG
@@ -82,15 +81,6 @@ public final class MobileDisplaySettings {
         }
     }
 
-    /// Whether the beta New Task composer is available from the workspace list.
-    /// Defaults to `false`. Mutating this writes through to the injected
-    /// ``UserDefaults``.
-    public var taskComposerEnabled: Bool {
-        didSet {
-            defaults.set(taskComposerEnabled, forKey: Self.taskComposerEnabledKey)
-        }
-    }
-
     /// History rows the terminal mirror hydrates when it connects (deeper
     /// values scroll further back; larger one-time download at connect).
     /// Defaults to ``MobileTerminalScrollbackPreference/defaultRows``.
@@ -137,6 +127,22 @@ public final class MobileDisplaySettings {
             )
         }
     }
+
+    /// DEBUG-only override forcing the rebuilt keyboard dock path on this
+    /// device (iOS ≤26; legacy is the shipping default), exposed in
+    /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
+    /// snapshot the flag when they mount, so a change applies after the
+    /// workspace is reopened. Writes through to the shared
+    /// `UserDefaults.cmuxForceRebuildKeyboardDockKey` that
+    /// `GhosttySurfaceHostView` reads.
+    public var forceRebuildKeyboardDock: Bool {
+        didSet {
+            defaults.set(
+                forceRebuildKeyboardDock,
+                forKey: UserDefaults.cmuxForceRebuildKeyboardDockKey
+            )
+        }
+    }
     #else
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
@@ -157,7 +163,6 @@ public final class MobileDisplaySettings {
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.hapticFeedbackEnabled = haptics.isEnabled
-        self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
@@ -172,6 +177,7 @@ public final class MobileDisplaySettings {
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }
 
