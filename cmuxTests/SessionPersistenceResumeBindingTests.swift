@@ -10,6 +10,25 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
+    @Test
+    func piPathSnapshotRetainsAuthoritativeHookCheckpointForRestoreSelectors() {
+        let sessionID = "019fbf0f-7fcd-70aa-9388-f44c4e27fa0c"
+        let sessionPath = "/tmp/pi/2026-08-01T18-39-09-000Z_\(sessionID).jsonl"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("pi"),
+            sessionId: sessionPath
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "pi",
+            command: "pi --session \(sessionID)",
+            checkpointId: sessionID,
+            source: "agent-hook"
+        )
+
+        let retargeted = agent.retargetedForResumeBinding(binding)
+        #expect(retargeted.sessionId == sessionID)
+    }
+
     @Test @MainActor func liveRestoredAgentWithoutBindingGetsBackfilledAtSave() throws {
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-resume-backfill-\(UUID().uuidString)", isDirectory: true)

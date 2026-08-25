@@ -289,7 +289,8 @@ extension TerminalController {
             } else {
                 nil
             }
-        if let agent = compatibleAgent {
+        if let compatibleAgent {
+            let agent = compatibleAgent.retargetedForResumeBinding(binding)
             let launchCommand = binding?.launchCommand ?? agent.launchCommand
             let workingDirectory = target.restoredResumeWorkingDirectory
                 ?? binding?.cwd
