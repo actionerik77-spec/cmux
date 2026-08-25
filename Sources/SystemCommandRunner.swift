@@ -173,11 +173,7 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
                         // state catches up; re-read on a bounded cadence until
                         // the confirmation deadline instead of waiting for a
                         // second lock notification that will never arrive.
-                        do {
-                            try await clock.sleep(for: .milliseconds(50))
-                        } catch {
-                            return false
-                        }
+                        return await Self.waitForCurrentLockState(clock: clock)
                     }
                 }
                 return false
@@ -194,6 +190,22 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             guard result else { return false }
             return Self.screenLockState() ?? result
         }
+    }
+
+    private static func waitForCurrentLockState(clock: any Clock<Duration>) async -> Bool {
+        while !Task.isCancelled {
+            switch screenLockState() {
+            case .some(true), .none:
+                return true
+            case .some(false):
+                do {
+                    try await clock.sleep(for: .milliseconds(50))
+                } catch {
+                    return false
+                }
+            }
+        }
+        return false
     }
 
     private static func screenLockState() -> Bool? {
