@@ -368,7 +368,7 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(record?["pendingBlockingToolUseIds"] as? [String] == [toolUseId])
     }
 
-    @Test func timedOutPermissionRequestRetiresItsCorrelatedBlocker() throws {
+    @Test func timedOutPermissionRequestKeepsBlockerForNativeFallback() throws {
         let context = try AttentionHarness.makeContext(name: "timed-out-plan-blocker")
         defer { context.cleanup() }
 
@@ -415,8 +415,8 @@ extension ClaudeHookWriteAmplificationTests {
         }
 
         let record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
-        #expect(record?["agentLifecycle"] as? String == "running")
-        #expect(record?["pendingBlockingToolUseIds"] as? [String] == [])
+        #expect(record?["agentLifecycle"] as? String == "needsInput")
+        #expect(record?["pendingBlockingToolUseIds"] as? [String] == [toolUseId])
     }
 
     @Test func permissionRequestsCorrelateByToolPayloadWithoutToolUseId() throws {

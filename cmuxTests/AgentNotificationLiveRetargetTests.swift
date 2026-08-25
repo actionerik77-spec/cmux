@@ -286,6 +286,24 @@ extension AgentNotificationRegressionTests {
             snapshot.panels.first { $0.id == fixture.panelId }
         )
         #expect(panelSnapshot.notifications?.isEmpty ?? true)
+        #expect(panelSnapshot.hasUnreadIndicator != true)
+        #expect(snapshot.hasUnreadIndicator != true)
+
+        var preservedConfiguration = remoteConfiguration
+        preservedConfiguration.preserveAfterTerminalExit = true
+        fixture.owningWorkspace.remoteConfiguration = preservedConfiguration
+        #expect(
+            fixture.owningWorkspace.markRemoteTerminalSessionEnded(
+                surfaceId: fixture.panelId,
+                relayPort: nil,
+                allowUntracked: true
+            )
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(
+            fixture.store.notifications.contains { $0.id == notification.id },
+            "A recoverable remote PTY disconnect must not clear live transient attention"
+        )
 
         let wrongOwnerResult = TerminalController.shared.v2FeedTransientAttentionEnd(params: [
             "source": "claude",
