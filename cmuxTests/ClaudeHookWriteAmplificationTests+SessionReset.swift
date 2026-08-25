@@ -1,6 +1,8 @@
 import Foundation
 import Testing
-#if canImport(cmux_DEV)
+#if canImport(cmux_cli)
+@testable import cmux_cli
+#elseif canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
