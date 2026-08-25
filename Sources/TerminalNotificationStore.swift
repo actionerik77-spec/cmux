@@ -1509,7 +1509,7 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         var idsToClear: [String] = []
         let isTransientAttention = notification.isTransientAgentAttention
-        if !isTransientAttention {
+        if !isTransientAttention && !notification.preservesSiblingNotifications {
             updated.removeAll { existing in
                 guard existing.tabId == notification.tabId,
                       existing.surfaceId == notification.surfaceId,
@@ -2011,8 +2011,14 @@ final class TerminalNotificationStore: ObservableObject {
                 )
             )
         } ?? []
+        let dismissedIDs: [String]
+        if let removed {
+            dismissedIDs = persistentNotificationIDs([removed])
+        } else {
+            dismissedIDs = []
+        }
         emitNotificationsDismissed(
-            ids: removed.map { persistentNotificationIDs([$0]) } ?? [],
+            ids: dismissedIDs,
             drainedSuperseded: supersededDrained
         )
     }

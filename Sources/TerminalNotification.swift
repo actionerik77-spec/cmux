@@ -3,6 +3,7 @@ import Foundation
 
 struct TerminalNotification: Identifiable, Hashable, Sendable {
     static let transientAgentAttentionCorrelationPrefix = "transient-agent-attention:"
+    static let scopedAgentPermissionCorrelationPrefix = "claude-permission:"
 
     let id: UUID
     let tabId: UUID
@@ -67,6 +68,12 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     /// them by correlation, but must not contribute to unread/mobile state.
     var isTransientAgentAttention: Bool {
         correlationKey?.hasPrefix(Self.transientAgentAttentionCorrelationPrefix) == true
+    }
+
+    /// Whether this row intentionally coexists with another notification on
+    /// the same surface until its exact correlation key is cleared.
+    var preservesSiblingNotifications: Bool {
+        correlationKey?.hasPrefix(Self.scopedAgentPermissionCorrelationPrefix) == true
     }
 
     /// Transient blocker ownership lives only in FeedCoordinator memory and
