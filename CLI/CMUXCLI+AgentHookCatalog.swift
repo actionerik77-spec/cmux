@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -49,6 +50,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            dispatch: .pinned(marker: "cmux-grok-hook-v2"),
             publishesStopNotification: false,
             sessionEndIsTurnBoundary: true,
             feedHookEvents: ["PreToolUse"]
@@ -166,6 +168,7 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             aliases: ["agy"],
+            dispatch: .pinned(marker: "cmux-antigravity-hook-v2"),
             sessionEndIsTurnBoundary: true
         )
         case .rovodev:
@@ -185,6 +188,7 @@ extension CMUXCLI {
             AgentHookDef(
             integration: .hermesAgent,
             configDir: ".hermes", configFile: "config.yaml", configDirEnvOverride: "HERMES_HOME",
+            createConfigDirIfMissing: true,
             binaryName: "hermes",
             sessionStoreSuffix: "hermes-agent", disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
             hookMarker: "cmux hooks hermes-agent", format: .hermesAgentYAML,
@@ -259,8 +263,11 @@ extension CMUXCLI {
         case .kimi:
             AgentHookDef(
             integration: .kimi,
-            configDir: ".kimi", configFile: "config.toml", configDirEnvOverride: "KIMI_SHARE_DIR",
-            createConfigDirIfMissing: true, binaryName: "kimi",
+            configDir: KimiConfigLocationResolver.kimiCodeConfigDirectory,
+            configFile: KimiConfigLocationResolver.configFileName,
+            createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.resolvedKimiConfigDirectory().path },
+            binaryName: "kimi",
             sessionStoreSuffix: "kimi", disableEnvVar: "CMUX_KIMI_HOOKS_DISABLED",
             hookMarker: "cmux hooks kimi", format: .tomlArrayTable,
             events: [

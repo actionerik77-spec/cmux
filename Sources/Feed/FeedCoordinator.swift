@@ -301,8 +301,8 @@ final class FeedCoordinator: @unchecked Sendable {
                     guard case .accepted(let acceptedEvent, _) = acceptance else {
                         return nil
                     }
-                    // Surface in-app attention (needs-input status + bell +
-                    // workspace elevation) for the blocking decision. This fires
+                    // Surface in-app attention (needs-input status + workspace
+                    // elevation) for the blocking decision. This fires
                     // regardless of app focus, unlike the desktop banner below,
                     // so the pending decision is visible in the sidebar even
                     // while the user is in another workspace of the same window.
@@ -313,18 +313,23 @@ final class FeedCoordinator: @unchecked Sendable {
                     // Publication intentionally follows the committed mutation:
                     // a stalled callback cannot hold the synchronous result lock
                     // past the socket caller's deadline.
-                    let liveWorkspaceId = acceptedEvent.workspaceId.flatMap {
+                    let liveOwnerId = acceptedEvent.workspaceId.flatMap {
                         UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                     let liveSurfaceId = acceptedEvent.surfaceId.flatMap {
                         UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
-                    let attentionTarget = liveWorkspaceId.map {
-                        (workspaceId: $0, surfaceId: liveSurfaceId)
+                    let attentionTarget = liveOwnerId.map {
+                        (ownerId: $0, surfaceId: liveSurfaceId)
                     } ?? resolvedAttentionTarget
+                    let attentionTabManager = attentionTarget.flatMap {
+                        AppDelegate.shared?.tabManagerFor(tabId: $0.ownerId)
+                            ?? AppDelegate.shared?.tabManagerFor(windowId: $0.ownerId)
+                    }
                     if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
                         event: acceptedEvent,
-                        resolved: attentionTarget
+                        resolved: attentionTarget,
+                        tabManager: attentionTabManager
                     ) {
                         var shouldConcludeImmediately = false
                         FeedCoordinator.shared.waiterLock.lock()
@@ -609,15 +614,23 @@ extension FeedCoordinator {
         BuiltInAgentIntegration(feedSourceName: source)?.statusKey ?? source
     }
 
+    /// Returns the Feed-owned status/lifecycle slot for one agent source.
+    /// Keeping this transient overlay separate from the agent's own slot makes
+    /// concurrent hook updates and overlapping Feed decisions independent.
+    static func attentionStatusKey(forSource source: String) -> String {
+        "cmux.feed.attention:\(lifecycleStatusKey(forSource: source))"
+    }
     /// The localized "Needs input" sidebar status the overlay sets.
     static var needsInputStatusValue: String {
         String(localized: "feed.status.needsInput", defaultValue: "Needs input")
     }
 
-    /// Surfaces in-app attention for a blocking feed decision: flips the
-    /// owning workspace's agent lifecycle to `.needsInput`, sets the
-    /// "Needs input" sidebar status, elevates the workspace when
-    /// *Reorder on Notification* is enabled, and rings the bell.
+    /// Surfaces in-app attention for a blocking feed decision: flips the exact
+    /// panel owner's Feed-owned lifecycle to `.needsInput`, sets its
+    /// Feed-owned "Needs input" status, and elevates workspace owners when
+    /// *Reorder on Notification* is enabled. The agent's own lifecycle and
+    /// status slots remain authoritative and untouched. Window-Dock owners
+    /// retain their own runtime instead of being reinterpreted as workspaces.
     ///
     /// This is the convergence point the PreToolUse→PermissionRequest
     /// migration left behind: the `feed.push` bridge ingested the card and
@@ -626,6 +639,10 @@ extension FeedCoordinator {
     /// it here — once, for every blocking decision — keeps a new event type
     /// from silently swallowing.
     ///
+    /// Process-level AppKit attention is intentionally excluded: Stage Manager
+    /// can promote the entire cmux window set even though no user action targeted
+    /// cmux. The lifecycle and status mutations below are the attention surface.
+    ///
     /// The overlay is cleared by ``concludeBlockingDecisionAttention(_:)``
     /// when the decision resolves or times out. Each decision owns one
     /// generation-scoped token, so overlapping decisions keep the badge lit
@@ -633,8 +650,10 @@ extension FeedCoordinator {
     ///
     /// - Parameter resolved: the target resolved off the main actor before UI
     ///   mutation, since hook-session lookup may read from disk.
+    /// - Parameter tabManager: the window-local manager that owns a workspace
+    ///   target or the window containing a Dock target.
     /// - Returns: the target to conclude once the decision ends, or `nil` if
-    ///   nothing was surfaced (no resolvable workspace).
+    ///   nothing was surfaced (no resolvable owner).
     @MainActor
     func surfaceBlockingDecisionAttention(
         event: WorkstreamEvent,
@@ -688,6 +707,136 @@ extension FeedCoordinator {
             }
         }
         return surfaced.target
+    }
+
+    /// Main-window compatibility entry point. Newer callers pass the owning
+    /// workspace or window id together with its manager; keep this path
+    /// Feed-owned so an in-app card cannot overwrite the agent's own status
+    /// slot. The legacy two-argument entry point above intentionally preserves
+    /// the agent-owned lifecycle contract used by hook/feed integrations.
+    @MainActor
+    func surfaceBlockingDecisionAttention(
+        event: WorkstreamEvent,
+        resolved: (ownerId: UUID, surfaceId: UUID?)?,
+        tabManager: TabManager?
+    ) -> FeedAttentionTarget? {
+        guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
+        guard pendingAttentionStates.count
+            < Self.maximumPendingBlockingAttentionStates else {
+            return nil
+        }
+        #if DEBUG
+        if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
+            observer(event)
+            return nil
+        }
+        #endif
+        guard let resolved else { return nil }
+
+        let owner: ControlSidebarPanelOwner
+        let panelId: UUID?
+        let reorderWorkspaceId: UUID?
+        if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: resolved.ownerId) {
+            guard let resolvedPanelId = resolved.surfaceId ?? dock.focusedPanelId,
+                  dock.containsPanel(resolvedPanelId) else {
+                return nil
+            }
+            owner = .dock(dock)
+            panelId = resolvedPanelId
+            reorderWorkspaceId = nil
+        } else {
+            guard let tabManager,
+                  let tab = tabManager.tabs.first(where: { $0.id == resolved.ownerId }) else {
+                return nil
+            }
+            reorderWorkspaceId = tab.id
+            if let surfaceId = resolved.surfaceId,
+               let target = tab.surfaceOwnershipTarget(for: surfaceId) {
+                owner = .workspace(tab)
+                panelId = target.containerPanelID
+            } else if let surfaceId = resolved.surfaceId,
+                      let dock = tab._dockSplit,
+                      dock.containsPanel(surfaceId) {
+                owner = .dock(dock)
+                panelId = surfaceId
+            } else {
+                owner = .workspace(tab)
+                panelId = resolved.surfaceId == nil ? tab.focusedPanelId : nil
+            }
+        }
+        guard let panelId else { return nil }
+        let statusKey = Self.attentionStatusKey(forSource: event.source)
+        let usesRemoteProcessNamespace = owner.usesRemoteAgentProcessNamespace(panelId: panelId)
+        let processGeneration: AgentPIDProcessIdentity? = {
+            guard let ppid = event.ppid,
+                  ppid > 0,
+                  !usesRemoteProcessNamespace else { return nil }
+            return Self.localProcessGeneration(pid: ppid)
+        }()
+        guard let token = owner.beginAgentFeedAttention(
+            key: statusKey,
+            panelId: panelId,
+            processGeneration: processGeneration
+        ) else {
+            return nil
+        }
+        let target = FeedAttentionTarget(
+            workspaceId: owner.id,
+            panelId: panelId,
+            statusKey: statusKey,
+            token: token
+        )
+        let statusIsPanelScoped: Bool
+        switch owner {
+        case .dock: statusIsPanelScoped = true
+        case .workspace: statusIsPanelScoped = false
+        }
+        let statusEntry = pendingAttentionStates.first { pendingTarget, state in
+            guard pendingTarget.statusKey == statusKey,
+                  state.statusOwnerId == owner.id else { return false }
+            return !statusIsPanelScoped || pendingTarget.panelId == panelId
+        }?.value.statusEntry ?? SidebarStatusEntry(
+            key: statusKey,
+            value: Self.needsInputStatusValue,
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            timestamp: Date()
+        )
+        let fallbackWorkspace: Workspace? = switch owner {
+        case .workspace(let workspace): workspace
+        case .dock: nil
+        }
+        pendingAttentionStates[target] = FeedPendingAttentionState(
+            fallbackWorkspace: fallbackWorkspace,
+            statusEntry: statusEntry,
+            statusOwnerId: owner.id,
+            statusIsPanelScoped: statusIsPanelScoped,
+            processExitMonitorKey: nil
+        )
+        owner.setStatusEntry(statusEntry, key: statusKey, panelId: panelId)
+        if let reorderWorkspaceId,
+           UserDefaultsSettingsClient(defaults: .standard).value(
+               for: SettingCatalog().app.reorderOnNotification
+           ) {
+            tabManager?.moveTabToTopForNotification(reorderWorkspaceId)
+        }
+        if !usesRemoteProcessNamespace, let processGeneration {
+            let monitorKey = Self.blockingAttentionProcessMonitorKey(
+                source: event.source,
+                generation: processGeneration
+            )
+            pendingAttentionStates[target]?.processExitMonitorKey = monitorKey
+            attentionExitMonitor.observe(
+                key: monitorKey,
+                generation: processGeneration
+            ) { [weak self] key, generation in
+                self?.concludeBlockingDecisionAttention(
+                    forProcessMonitorKey: key,
+                    processExitGeneration: generation
+                )
+            }
+        }
+        return target
     }
 
     /// Begins status-only attention from a trustworthy native approval
@@ -1134,8 +1283,12 @@ extension FeedCoordinator {
 
         // Elevate the workspace so it floats to the top of the sidebar,
         // honoring the user's Reorder on Notification preference.
-        if UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            tabManager.moveTabToTopForNotification(resolved.workspaceId)
+        if let reorderWorkspaceId,
+           let tabManager,
+           UserDefaultsSettingsClient(defaults: .standard).value(
+               for: SettingCatalog().app.reorderOnNotification
+           ) {
+            tabManager.moveTabToTopForNotification(reorderWorkspaceId)
         }
 
         // Ring the bell (dock bounce while the app is in the background).
@@ -1369,7 +1522,7 @@ enum FeedCoordinatorTestHooks {
     static var isAppActiveOverride: (@Sendable () -> Bool)?
     static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
     /// Fires when a blocking decision event requests in-app attention
-    /// surfacing (needs-input status + bell + elevation). When set, the
+    /// surfacing (needs-input status + elevation). When set, the
     /// production surfacing is short-circuited so tests can assert the
     /// request without a live `TabManager`.
     static var attentionSurfaceObserver: (@Sendable (WorkstreamEvent) -> Void)?
