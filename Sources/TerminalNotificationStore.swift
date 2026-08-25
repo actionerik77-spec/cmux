@@ -268,7 +268,12 @@ final class TerminalNotificationStore: ObservableObject {
         var knownIDs = Set<UUID>()
         for notification in notifications {
             knownIDs.insert(notification.id)
-            if notification.isRead { readIDs.insert(notification.id) }
+            // A transient row must never remain on a phone from an older
+            // build that forwarded it. Treat it as handled even while its
+            // live Mac overlay is still waiting for input.
+            if notification.isRead || notification.isTransientAgentAttention {
+                readIDs.insert(notification.id)
+            }
         }
         return deliveredIDs
             .filter { id in
@@ -1038,7 +1043,8 @@ final class TerminalNotificationStore: ObservableObject {
 
     func hasUnreadNotificationRequiringPaneFlash(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         notifications.contains { notification in
-            notification.matches(tabId: tabId, surfaceId: surfaceId) &&
+            !notification.isTransientAgentAttention &&
+                notification.matches(tabId: tabId, surfaceId: surfaceId) &&
                 !notification.isRead &&
                 notification.paneFlash
         }
@@ -1474,9 +1480,7 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         var updated = notifications
         var idsToClear: [String] = []
-        let isTransientAttention = notification.correlationKey?.hasPrefix(
-            TerminalNotification.transientAgentAttentionCorrelationPrefix
-        ) == true
+        let isTransientAttention = notification.isTransientAgentAttention
         if !isTransientAttention {
             updated.removeAll { existing in
                 guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
@@ -1516,9 +1520,7 @@ final class TerminalNotificationStore: ObservableObject {
         // Bypass-permissions attention is intentionally ephemeral. Its active
         // row is cleared by correlation key and must not leak model-controlled
         // prompt text into the durable history/feed that survives restart.
-        if notification.correlationKey?.hasPrefix(
-            TerminalNotification.transientAgentAttentionCorrelationPrefix
-        ) != true {
+        if !notification.isTransientAgentAttention {
             notificationFeedHistory.record(
                 notification,
                 supersededIDs: Set(idsToClear.compactMap { UUID(uuidString: $0) })
@@ -1587,7 +1589,8 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: notification.tabId,
             surfaceId: notification.surfaceId
         )
-        let shouldAttemptPhone = !shouldSuppressExternalDelivery
+        let shouldAttemptPhone = !notification.isTransientAgentAttention
+            && !shouldSuppressExternalDelivery
             && Self.shouldAttemptPhoneForward(
                 effects: effects,
                 phoneForwardingEnabled: PhonePushClient.shared
@@ -2553,6 +2556,7 @@ final class TerminalNotificationStore: ObservableObject {
     private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
         var indexes = NotificationIndexes()
         for notification in notifications {
+            guard !notification.isTransientAgentAttention else { continue }
             if indexes.latestByTabId[notification.tabId] == nil {
                 indexes.latestByTabId[notification.tabId] = notification
             }

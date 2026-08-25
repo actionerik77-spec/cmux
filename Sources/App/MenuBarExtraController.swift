@@ -345,7 +345,10 @@ enum NotificationMenuSnapshotBuilder {
         workspaceUnreadIndicatorCount: Int = 0,
         maxInlineNotificationItems: Int = defaultInlineNotificationLimit
     ) -> NotificationMenuSnapshot {
-        let unreadCount = notifications.reduce(into: 0) { count, notification in
+        let persistentNotifications = notifications.filter {
+            !$0.isTransientAgentAttention
+        }
+        let unreadCount = persistentNotifications.reduce(into: 0) { count, notification in
             if !notification.isRead {
                 count += 1
             }
@@ -354,8 +357,8 @@ enum NotificationMenuSnapshotBuilder {
         let inlineLimit = max(0, maxInlineNotificationItems)
         return NotificationMenuSnapshot(
             unreadCount: unreadCount,
-            hasNotifications: !notifications.isEmpty || workspaceUnreadIndicatorCount > 0,
-            recentNotifications: Array(notifications.prefix(inlineLimit))
+            hasNotifications: !persistentNotifications.isEmpty || workspaceUnreadIndicatorCount > 0,
+            recentNotifications: Array(persistentNotifications.prefix(inlineLimit))
         )
     }
 

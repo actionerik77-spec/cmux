@@ -160,6 +160,7 @@ extension FeedCoordinator {
         workspaceId: UUID,
         surfaceId: UUID,
         owner: FeedTransientAttentionStore.Owner,
+        authenticatedRemoteWorkspaceId: UUID? = nil,
         title: String,
         subtitle: String,
         body: String
@@ -171,6 +172,15 @@ extension FeedCoordinator {
         )
         if case .localProcess(let ownerProcessIdentity) = owner,
            AgentPIDProcessIdentity(pid: ownerProcessIdentity.pid) != ownerProcessIdentity {
+            return false
+        }
+        if let authenticatedRemoteWorkspaceId,
+           case .remoteWorkspace = owner,
+           AppDelegate.shared?.isRemoteTransientAttentionSurfaceAuthorized(
+               remoteWorkspaceID: authenticatedRemoteWorkspaceId,
+               claimedWorkspaceID: workspaceId,
+               surfaceID: surfaceId
+           ) != true {
             return false
         }
         if let existing = transientAttentionStore.entry(for: key) {

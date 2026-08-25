@@ -62,10 +62,17 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         return surfaceId == targetSurfaceId || panelId == targetSurfaceId
     }
 
+    /// Whether this row is a live-only agent blocker rather than a durable
+    /// notification. These rows remain in the Mac's active UI so Feed can clear
+    /// them by correlation, but must not contribute to unread/mobile state.
+    var isTransientAgentAttention: Bool {
+        correlationKey?.hasPrefix(Self.transientAgentAttentionCorrelationPrefix) == true
+    }
+
     /// Transient blocker ownership lives only in FeedCoordinator memory and
     /// cannot be reconstructed safely after an app restart.
     var persistsInSessionSnapshot: Bool {
-        correlationKey?.hasPrefix(Self.transientAgentAttentionCorrelationPrefix) != true
+        !isTransientAgentAttention
     }
 
     /// Matches a clear without letting live-owner expansion cross a confined notification's workspace boundary.

@@ -2,6 +2,24 @@ import Darwin
 import Foundation
 
 extension TerminalController {
+    /// Adds the accepted socket peer identity to transient-attention calls.
+    /// The caller cannot forge this field: the dispatcher removes any
+    /// user-supplied value and re-injects the PID captured at accept time.
+    nonisolated func transientAttentionParams(
+        method: String,
+        params: [String: Any],
+        peerProcessID: pid_t?
+    ) -> [String: Any] {
+        var sanitized = params
+        sanitized.removeValue(forKey: "_cmux_peer_pid")
+        guard method == "feed.attention.begin" || method == "feed.attention.end",
+              let peerProcessID else {
+            return sanitized
+        }
+        sanitized["_cmux_peer_pid"] = Int(peerProcessID)
+        return sanitized
+    }
+
     /// Ephemeral attention is a UI mutation, so these methods intentionally run
     /// on the control socket's main-actor lane. They never activate or focus the
     /// app, and unlike `feed.push` they perform no durable Feed/event writes.
@@ -24,17 +42,34 @@ extension TerminalController {
         }
         let remoteWorkspaceRaw = params["_cmux_remote_workspace_id"]
         let owner: FeedTransientAttentionStore.Owner
+        let authenticatedRemoteWorkspaceId: UUID?
         if remoteWorkspaceRaw != nil {
             guard let remoteWorkspaceId = transientAttentionUUID(remoteWorkspaceRaw),
                   let remoteWorkspace = controlTabForSidebarMutation(id: remoteWorkspaceId),
-                  remoteWorkspace.isRemoteWorkspace else {
+                  remoteWorkspace.isRemoteWorkspace,
+                  AppDelegate.shared?.isRemoteTransientAttentionSurfaceAuthorized(
+                      remoteWorkspaceID: remoteWorkspaceId,
+                      claimedWorkspaceID: workspaceId,
+                      surfaceID: surfaceId
+                  ) == true else {
                 return invalidTransientAttentionOwnerResult()
             }
+            authenticatedRemoteWorkspaceId = remoteWorkspaceId
             owner = .remoteWorkspace(remoteWorkspaceId)
         } else {
             guard let ownerProcessIdentity = transientAttentionProcessIdentity(params) else {
                 return invalidTransientAttentionOwnerResult()
             }
+            if params["_cmux_peer_pid"] != nil {
+                guard let peerPID = transientAttentionPeerPID(params),
+                      transientAttentionPeerIsDescendant(
+                          peerPID,
+                          of: ownerProcessIdentity.pid
+                      ) else {
+                    return invalidTransientAttentionOwnerResult()
+                }
+            }
+            authenticatedRemoteWorkspaceId = nil
             owner = .localProcess(ownerProcessIdentity)
         }
         let subtitle = transientAttentionString(params["subtitle"], maxBytes: 512) ?? ""
@@ -46,6 +81,7 @@ extension TerminalController {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             owner: owner,
+            authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId,
             title: title,
             subtitle: subtitle,
             body: body
@@ -82,6 +118,16 @@ extension TerminalController {
         } else {
             guard isLegacyRelease || localProcessIdentity != nil else {
                 return invalidTransientAttentionOwnerResult()
+            }
+            if !isLegacyRelease, params["_cmux_peer_pid"] != nil {
+                guard let localProcessIdentity,
+                      let peerPID = transientAttentionPeerPID(params),
+                      transientAttentionPeerIsDescendant(
+                          peerPID,
+                          of: localProcessIdentity.pid
+                      ) else {
+                    return invalidTransientAttentionOwnerResult()
+                }
             }
             authenticatedRemoteWorkspaceId = nil
             authenticatedLocalProcessIdentity = localProcessIdentity
@@ -162,5 +208,38 @@ extension TerminalController {
             startSeconds: Int64(startSeconds),
             startMicroseconds: Int64(startMicroseconds)
         )
+    }
+
+    private func transientAttentionPeerPID(
+        _ params: [String: Any]
+    ) -> pid_t? {
+        guard let rawPID = v2StrictIntAny(params["_cmux_peer_pid"]),
+              rawPID > 0,
+              rawPID <= Int(Int32.max) else {
+            return nil
+        }
+        return pid_t(rawPID)
+    }
+
+    private func transientAttentionPeerIsDescendant(
+        _ peerPID: pid_t,
+        of ownerPID: pid_t
+    ) -> Bool {
+        guard peerPID > 0, ownerPID > 0 else { return false }
+        var current = peerPID
+        for _ in 0..<128 {
+            if current == ownerPID { return true }
+            if current <= 1 { return false }
+            var info = kinfo_proc()
+            var size = MemoryLayout<kinfo_proc>.stride
+            var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, current]
+            guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0 else {
+                return false
+            }
+            let parent = info.kp_eproc.e_ppid
+            guard parent > 0, parent != current else { return false }
+            current = parent
+        }
+        return false
     }
 }

@@ -270,15 +270,11 @@ extension AgentNotificationRegressionTests {
             "body": "Waiting for input",
             "_cmux_remote_workspace_id": fixture.claimedWorkspace.id.uuidString,
         ])
-        guard case .ok(let beginPayload) = beginResult,
-              let begin = beginPayload as? [String: Any] else {
-            Issue.record("Expected relay attention begin, got \(beginResult)")
+        guard case .err(let beginCode, _, _) = beginResult else {
+            Issue.record("Expected unauthorized relay attention error, got \(beginResult)")
             return
         }
-        #expect(
-            begin["active"] as? Bool == false,
-            "a relay cannot address an unrelated surface UUID outside its authenticated workspace"
-        )
+        #expect(beginCode == "invalid_params")
         #expect(fixture.store.notifications.allSatisfy { $0.title != "Remote Claude Code" })
 
         // A moved surface may still be addressed by its authenticated relay

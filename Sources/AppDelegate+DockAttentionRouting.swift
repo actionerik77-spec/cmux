@@ -95,6 +95,55 @@ extension AppDelegate {
         )
     }
 
+    /// Checks that a relay-addressed transient-attention surface belongs to the
+    /// authenticated remote workspace. Surface delivery normally follows a
+    /// UUID across workspace moves, but that retargeting is safe only when the
+    /// app retained structured remote-origin provenance for the surface.
+    func isRemoteTransientAttentionSurfaceAuthorized(
+        remoteWorkspaceID: UUID,
+        claimedWorkspaceID: UUID,
+        surfaceID: UUID
+    ) -> Bool {
+        guard let remoteWorkspace = workspaceFor(tabId: remoteWorkspaceID)
+                ?? tabManager?.tabs.first(where: { $0.id == remoteWorkspaceID }),
+              remoteWorkspace.isRemoteWorkspace else {
+            return false
+        }
+        let claimedWorkspaceMatchesAuthenticated = claimedWorkspaceID == remoteWorkspaceID
+
+        for manager in agentDeliveryTabManagers() {
+            for workspace in manager.tabs {
+                guard workspace.surfaceOwnershipTarget(for: surfaceID) != nil else {
+                    continue
+                }
+                let isAuthenticatedWorkspace = workspace.id == remoteWorkspaceID
+                let hasRemoteOrigin = workspace.surfaceRegistry
+                    .remoteTTYReportOriginWorkspaceIDs[surfaceID] == remoteWorkspaceID
+                if (isAuthenticatedWorkspace && claimedWorkspaceMatchesAuthenticated)
+                    || hasRemoteOrigin {
+                    return true
+                }
+            }
+        }
+
+        // A moved remote terminal may currently live in a Dock while its
+        // transfer record still names the authenticated restore workspace.
+        for dock in DockSplitStore.liveStores {
+            if dock.scope == .workspace,
+               dock.workspaceId == remoteWorkspaceID,
+               dock.containsPanel(surfaceID),
+               claimedWorkspaceMatchesAuthenticated {
+                return true
+            }
+            if dock.detachedSurfaceTransfersByPanelId[surfaceID]?.sessionRestoreWorkspaceId
+                == remoteWorkspaceID {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// Shared notification-attention route for every surface container. Dock
     /// stores resolve first through their live registry; workspace panels use
     /// the existing attention coordinator and pane-overlay path.

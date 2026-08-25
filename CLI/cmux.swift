@@ -25649,7 +25649,11 @@ struct CMUXCLI {
             // blocker is actually waiting; current targeted wrappers never pay
             // this path for ordinary tool calls.
             let legacyOrdinaryToolNeedsTransition = !isBlockingNeedsInputTool
+                // Only pre-correlation records may use an ordinary tool as a
+                // transition boundary. A correlated blocker is still owned by
+                // the current turn; an old catch-all event must not clear it.
                 && mappedSession?.agentLifecycle == .needsInput
+                && mappedSession?.pendingBlockingToolUseIds == nil
             if !isBlockingNeedsInputTool && !legacyOrdinaryToolNeedsTransition {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.ordinary-ignored")
                 printClaudeHookAck()
@@ -25709,7 +25713,9 @@ struct CMUXCLI {
             if isBlockingNeedsInputTool,
                let toolName,
                let sessionId = parsedInput.sessionId {
-                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+                // Bypass-permissions blockers are intentionally live-only. Do
+                // not send their model-controlled question/plan through the
+                // durable feed telemetry path.
                 // Save the question / plan summary in the session so the Notification
                 // handler (when it does fire) reuses it instead of the generic
                 // "Claude Code needs your attention". The question / plan text is

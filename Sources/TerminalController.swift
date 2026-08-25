@@ -1682,7 +1682,11 @@ class TerminalController {
 
                 let result = processSocketLine(
                     trimmed,
-                    passwordAuthorization: passwordAuthorization
+                    passwordAuthorization: passwordAuthorization,
+                    // Preserve the fact that this came from a socket even if
+                    // LOCAL_PEERPID was unavailable; transient attention then
+                    // fails closed instead of accepting a forged owner.
+                    peerProcessID: pid ?? 0
                 )
                 passwordAuthorization = result.passwordAuthorization
                 if let response = result.response {
@@ -1702,7 +1706,8 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
-        passwordAuthorization: SocketPasswordAuthorization
+        passwordAuthorization: SocketPasswordAuthorization,
+        peerProcessID: pid_t? = nil
     ) -> SocketLineProcessingResult {
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
@@ -1734,7 +1739,10 @@ class TerminalController {
             )
         }
 
-        let response = processCommandUsingSocketExecutionPolicy(command)
+        let response = processCommandUsingSocketExecutionPolicy(
+            command,
+            peerProcessID: peerProcessID
+        )
 #if DEBUG
         if let response {
             Self.debugLogSocketCommandEndIfNeeded(
@@ -1996,7 +2004,10 @@ class TerminalController {
     }
 #endif
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
+    private nonisolated func processCommandUsingSocketExecutionPolicy(
+        _ command: String,
+        peerProcessID: pid_t? = nil
+    ) -> String? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.hasPrefix("{") {
@@ -2023,7 +2034,7 @@ class TerminalController {
             if policy.runsOnSocketWorker {
                 return socketWorkerV2Response(handling: request)
             }
-            return processParsedV2Command(request)
+            return processParsedV2Command(request, peerProcessID: peerProcessID)
         }
 
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
@@ -2281,14 +2292,17 @@ class TerminalController {
     /// before this point; this entry serves in-process callers
     /// (`runV2CommandLine`, and `processCommand`'s v2 branch), so it may parse
     /// on its calling thread.
-    private nonisolated func processV2Command(_ jsonLine: String) -> String {
+    private nonisolated func processV2Command(
+        _ jsonLine: String,
+        peerProcessID: pid_t? = nil
+    ) -> String {
         // v1 access-mode gating applies to v2 as well. We can't know which v2 method maps
         // to which v1 command without parsing, so parse first and then apply allow-list.
         switch Self.v2Parser.request(fromLine: jsonLine) {
         case .failure(let parseError):
             return Self.v2Encoder.response(for: parseError)
         case .success(let request):
-            return processParsedV2Command(request)
+            return processParsedV2Command(request, peerProcessID: peerProcessID)
         }
     }
 
@@ -2306,7 +2320,10 @@ class TerminalController {
     /// for in-process callers). Policy checks and response encoding stay on
     /// the calling thread; only the command body crosses to the main actor,
     /// via a single `v2MainSync` hop.
-    private nonisolated func processParsedV2Command(_ request: ControlRequest) -> String {
+    private nonisolated func processParsedV2Command(
+        _ request: ControlRequest,
+        peerProcessID: pid_t? = nil
+    ) -> String {
         let bridged = V2SocketRequest(bridging: request)
         let id: Any? = bridged.id
         let method = bridged.method
@@ -2341,7 +2358,8 @@ class TerminalController {
                     id: id,
                     method: method,
                     params: params,
-                    diffViewerRegistration: diffViewerRegistration
+                    diffViewerRegistration: diffViewerRegistration,
+                    peerProcessID: peerProcessID
                 )
             }
             switch outcome {
@@ -2368,7 +2386,8 @@ class TerminalController {
         id: Any?,
         method: String,
         params: [String: Any],
-        diffViewerRegistration: DiffViewerSessionPreparation = .notNeeded
+        diffViewerRegistration: DiffViewerSessionPreparation = .notNeeded,
+        peerProcessID: pid_t? = nil
     ) -> V2MainHopOutcome {
         v2RefreshKnownRefs()
 
@@ -2379,10 +2398,15 @@ class TerminalController {
         if let coordinatorResult = controlCommandCoordinator.handle(request) {
             return .callResult(coordinatorResult)
         }
+        let legacyParams = transientAttentionParams(
+            method: method,
+            params: params,
+            peerProcessID: peerProcessID
+        )
         return .encoded(v2LegacyMainActorResponse(
             id: id,
             method: method,
-            params: params,
+            params: legacyParams,
             diffViewerRegistration: diffViewerRegistration
         ))
     }

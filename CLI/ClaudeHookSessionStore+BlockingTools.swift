@@ -136,6 +136,28 @@ extension ClaudeHookSessionStore {
                 startedAt: now,
                 updatedAt: now
             )
+            let requestId = normalizedBlockingToolIdentifier(toolUseId)
+                ?? "cmux-fallback-\(UUID().uuidString.lowercased())"
+            let pending = normalizedBlockingToolUseIds(
+                (record.pendingBlockingToolUseIds ?? []) + [requestId]
+            )
+            let requestAlreadyPending =
+                record.pendingBlockingToolUseIds?.contains(requestId) == true
+            // Refuse a new correlation once its bounded durable slot is full.
+            // Evicting here independently of FeedTransientAttentionStore can
+            // strand the evicted request's live attention when another session
+            // wins the app-wide registry eviction.
+            guard requestAlreadyPending
+                || pending.count <= Self.maximumBlockingToolCorrelationCount else {
+                return nil
+            }
+            let payloadSignature = blockingToolPayloadSignature(from: rawObject)
+            let correlations = record.pendingBlockingToolCorrelations ?? []
+            guard requestAlreadyPending
+                || payloadSignature == nil
+                || correlations.count < Self.maximumBlockingToolCorrelationCount else {
+                return nil
+            }
             updateBlockingToolRecord(
                 &record,
                 workspaceId: workspaceId,
@@ -150,11 +172,8 @@ extension ClaudeHookSessionStore {
             if let agentPID {
                 updateProcessIdentity(&record, pid: agentPID)
             }
-            let requestId = normalizedBlockingToolIdentifier(toolUseId)
-                ?? "cmux-fallback-\(UUID().uuidString.lowercased())"
-            let pending = (record.pendingBlockingToolUseIds ?? []) + [requestId]
             record.pendingBlockingToolUseIds = normalizedBlockingToolUseIds(pending)
-            if let payloadSignature = blockingToolPayloadSignature(from: rawObject) {
+            if let payloadSignature {
                 var correlations = (record.pendingBlockingToolCorrelations ?? [])
                     .filter { $0.toolUseId != requestId }
                 correlations.append(BlockingToolCorrelation(
@@ -162,33 +181,7 @@ extension ClaudeHookSessionStore {
                     toolUseId: requestId,
                     turnId: boundedBlockingToolTurnIdentifier(turnId)
                 ))
-                if correlations.count > Self.maximumBlockingToolCorrelationCount {
-                    let overflowCount =
-                        correlations.count - Self.maximumBlockingToolCorrelationCount
-                    let evictedToolUseIds = Set(
-                        correlations.prefix(overflowCount).map(\.toolUseId)
-                    )
-                    correlations.removeFirst(overflowCount)
-                    record.pendingBlockingToolUseIds = normalizedBlockingToolUseIds(
-                        (record.pendingBlockingToolUseIds ?? []).filter {
-                            !evictedToolUseIds.contains($0)
-                        }
-                    )
-                }
                 record.pendingBlockingToolCorrelations = correlations
-            }
-            if let pendingIds = record.pendingBlockingToolUseIds,
-               pendingIds.count > Self.maximumBlockingToolCorrelationCount {
-                var retainedIds = Set(
-                    pendingIds
-                        .filter { $0 != requestId }
-                        .suffix(Self.maximumBlockingToolCorrelationCount - 1)
-                )
-                retainedIds.insert(requestId)
-                record.pendingBlockingToolUseIds = Array(retainedIds).sorted()
-                record.pendingBlockingToolCorrelations =
-                    record.pendingBlockingToolCorrelations?
-                    .filter { retainedIds.contains($0.toolUseId) }
             }
             state.sessions[sessionId] = record
             return BlockingToolRegistration(owner: record, requestId: requestId)
