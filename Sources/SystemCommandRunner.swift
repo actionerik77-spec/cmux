@@ -171,11 +171,20 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 for await _ in notifications {
-                    // The notification is only a wake-up; the session bit is
-                    // the authoritative proof. Keep waiting if the dictionary
-                    // has not caught up yet; the concurrent state poll below
-                    // covers hosts that drop this notification entirely.
-                    if Self.isScreenLocked() {
+                    switch Self.screenLockState() {
+                    case .some(true):
+                        // The session bit is authoritative when available.
+                        return true
+                    case .some(false):
+                        // loginwindow can publish before the dictionary catches
+                        // up. Keep waiting; the concurrent state poll below
+                        // covers the delayed transition.
+                        continue
+                    case .none:
+                        // Some sessions omit the dictionary key entirely. This
+                        // observer was registered immediately before this call,
+                        // so its lock event is the request-local fallback; the
+                        // outer deadline still fails closed if no event arrives.
                         return true
                     }
                 }
@@ -184,7 +193,8 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             group.addTask {
                 // Poll the authoritative state concurrently with the event
                 // stream. Either source may be delayed or absent on a given
-                // macOS/session context, but a missing dictionary fails closed.
+                // macOS/session context; an unavailable dictionary remains
+                // pending until the request-local event or deadline resolves it.
                 return await Self.waitForCurrentLockState(clock: clock)
             }
             group.addTask {
@@ -194,7 +204,16 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             let result = await group.next() ?? false
             group.cancelAll()
             guard result else { return false }
-            return Self.isScreenLocked()
+            switch Self.screenLockState() {
+            case .some(true):
+                return true
+            case .none:
+                // A request-local notification is the only successful child
+                // when the session dictionary remains unavailable.
+                return true
+            case .some(false):
+                return false
+            }
         }
     }
 
@@ -206,7 +225,11 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             case .some(true):
                 return true
             case .none:
-                return false
+                do {
+                    try await clock.sleep(for: .milliseconds(50))
+                } catch {
+                    return false
+                }
             case .some(false):
                 do {
                     try await clock.sleep(for: .milliseconds(50))
