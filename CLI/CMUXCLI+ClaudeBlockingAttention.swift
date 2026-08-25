@@ -192,6 +192,35 @@ extension CMUXCLI {
         }
     }
 
+    /// SessionEnd cleanup releases the snapshot's correlated requests
+    /// individually. An all-requests release is unsafe across a race where a
+    /// newer blocker registers after the stale hook read its session record.
+    @discardableResult
+    func endClaudeBlockingAttentionForSessionEnd(
+        client: SocketClient,
+        sessionId: String,
+        owner: ClaudeHookSessionRecord?
+    ) -> Bool {
+        guard let pending = owner?.pendingBlockingToolUseIds else {
+            return endClaudeBlockingAttentionForTurnBoundary(
+                client: client,
+                sessionId: sessionId,
+                owner: owner
+            )
+        }
+        guard !pending.isEmpty else {
+            return true
+        }
+        return pending.allSatisfy { requestId in
+            endClaudeBlockingAttention(
+                client: client,
+                sessionId: sessionId,
+                toolUseId: requestId,
+                owner: owner
+            )
+        }
+    }
+
     /// Releases old-session attention claimed by the durable superseded-cleanup
     /// queue. A failed transport leaves the candidate queued so a later Claude
     /// hook can claim and retry it without relying on the old session's hooks.

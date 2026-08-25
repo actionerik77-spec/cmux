@@ -1974,20 +1974,22 @@ extension Workspace {
         from snapshot: SessionWorkspaceSnapshot,
         oldToNewPanelIds: [UUID: UUID]
     ) -> [TerminalNotification] {
-        var notifications = (snapshot.notifications ?? []).map {
-            $0.terminalNotification(tabId: id, surfaceId: nil, panelId: nil)
-        }
+        var notifications = (snapshot.notifications ?? [])
+            .map { $0.terminalNotification(tabId: id, surfaceId: nil, panelId: nil) }
+            .filter(\.persistsInSessionSnapshot)
 
         for panelSnapshot in snapshot.panels {
             guard let newPanelId = oldToNewPanelIds[panelSnapshot.id] else { continue }
             notifications.append(
-                contentsOf: (panelSnapshot.notifications ?? []).map {
-                    $0.terminalNotification(
-                        tabId: id,
-                        surfaceId: newPanelId,
-                        panelId: newPanelId
-                    )
-                }
+                contentsOf: (panelSnapshot.notifications ?? [])
+                    .map {
+                        $0.terminalNotification(
+                            tabId: id,
+                            surfaceId: newPanelId,
+                            panelId: newPanelId
+                        )
+                    }
+                    .filter(\.persistsInSessionSnapshot)
             )
         }
 

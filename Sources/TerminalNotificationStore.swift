@@ -607,9 +607,12 @@ final class TerminalNotificationStore: ObservableObject {
 
     /// Refreshes global indicator totals after an incremental owner transition.
     private func refreshUnreadIndicatorTotals() {
+        let hasPersistentNotifications = notifications.contains(
+            where: \.persistsInSessionSnapshot
+        )
         let nextMenuSnapshot = NotificationMenuSnapshot(
             unreadCount: unreadCount,
-            hasNotifications: !notifications.isEmpty || workspaceUnreadIndicatorCount > 0,
+            hasNotifications: hasPersistentNotifications || workspaceUnreadIndicatorCount > 0,
             recentNotifications: notificationMenuSnapshot.recentNotifications
         )
         if notificationMenuSnapshot != nextMenuSnapshot {

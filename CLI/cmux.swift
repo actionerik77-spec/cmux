@@ -25464,7 +25464,7 @@ struct CMUXCLI {
             }
             let didReleaseBlockingAttention: Bool
             if let sessionId = parsedInput.sessionId {
-                didReleaseBlockingAttention = endClaudeBlockingAttentionForTurnBoundary(
+                didReleaseBlockingAttention = endClaudeBlockingAttentionForSessionEnd(
                     client: client,
                     sessionId: sessionId,
                     owner: mappedSession
