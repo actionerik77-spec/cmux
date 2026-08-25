@@ -183,5 +183,24 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") })
         #expect(commands.contains { $0.hasPrefix("set_status claude_code Needs input ") })
         #expect(commands.contains { $0.hasPrefix("notify_target_async ") })
+
+        let completion = SessionResetHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "input-resolved"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","tool_use_id":"legacy-fallback-question","permission_mode":"bypassPermissions","cwd":"\#(context.root.path)"}"#
+        )
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!completion.timedOut, Comment(rawValue: completion.stderr))
+        #expect(completion.status == 0, Comment(rawValue: completion.stderr))
+        let completionCommands = context.state.snapshot()
+        #expect(completionCommands.contains { $0.hasPrefix("clear_notifications ") })
+        #expect(completionCommands.contains { $0.hasPrefix("set_agent_lifecycle claude_code running ") })
+        #expect(completionCommands.contains { $0.hasPrefix("set_status claude_code Running ") })
+        let record = try SessionResetHarness.sessionRecord(
+            in: context.storeURL,
+            sessionId: sessionId
+        )
+        #expect(record?["legacyBlockingAttentionFallbackActive"] == nil)
     }
 }
