@@ -275,7 +275,34 @@ extension AgentNotificationRegressionTests {
             Issue.record("Expected relay attention begin, got \(beginResult)")
             return
         }
-        #expect(begin["active"] as? Bool == true)
+        #expect(
+            begin["active"] as? Bool == false,
+            "a relay cannot address an unrelated surface UUID outside its authenticated workspace"
+        )
+        #expect(fixture.store.notifications.allSatisfy { $0.title != "Remote Claude Code" })
+
+        // A moved surface may still be addressed by its authenticated relay
+        // when the app retains structured remote-origin provenance for it.
+        fixture.owningWorkspace.surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[
+            fixture.panelId
+        ] = fixture.claimedWorkspace.id
+        let authorizedBeginResult = TerminalController.shared.v2FeedTransientAttentionBegin(params: [
+            "source": "claude",
+            "session_id": sessionId,
+            "request_id": requestId,
+            "workspace_id": fixture.owningWorkspace.id.uuidString,
+            "surface_id": fixture.panelId.uuidString,
+            "title": "Remote Claude Code",
+            "subtitle": "Waiting",
+            "body": "Waiting for input",
+            "_cmux_remote_workspace_id": fixture.claimedWorkspace.id.uuidString,
+        ])
+        guard case .ok(let authorizedPayload) = authorizedBeginResult,
+              let authorizedBegin = authorizedPayload as? [String: Any] else {
+            Issue.record("Expected authorized relay attention begin, got \(authorizedBeginResult)")
+            return
+        }
+        #expect(authorizedBegin["active"] as? Bool == true)
         TerminalMutationBus.shared.drainForTesting()
 
         let notification = try #require(
@@ -283,6 +310,12 @@ extension AgentNotificationRegressionTests {
         )
         #expect(notification.tabId == fixture.owningWorkspace.id)
         #expect(!notification.persistsInSessionSnapshot)
+        #expect(notification.isTransientAgentAttention)
+        #expect(fixture.store.unreadNotificationCount == 0)
+        #expect(!fixture.store.workspaceIsUnread(forTabId: fixture.owningWorkspace.id))
+        #expect(fixture.store.latestNotification(forTabId: fixture.owningWorkspace.id) == nil)
+        #expect(fixture.store.notificationMenuSnapshot.unreadCount == 0)
+        #expect(fixture.store.notificationMenuSnapshot.recentNotifications.isEmpty)
         #expect(
             fixture.store.notificationFeedHistory.notifications.allSatisfy {
                 $0.title != "Remote Claude Code"

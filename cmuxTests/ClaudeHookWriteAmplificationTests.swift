@@ -90,7 +90,6 @@ struct ClaudeHookWriteAmplificationTests {
                     "surfaceId": surfaceId,
                     "cwd": context.root.path,
                     "agentLifecycle": "needsInput",
-                    "pendingBlockingToolUseIds": ["legacy-blocker"],
                     "startedAt": now,
                     "updatedAt": now,
                 ],
@@ -135,7 +134,61 @@ struct ClaudeHookWriteAmplificationTests {
         #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") })
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["agentLifecycle"] as? String == "running")
-        #expect(record?["pendingBlockingToolUseIds"] as? [String] == [])
+        #expect(record?["pendingBlockingToolUseIds"] == nil)
+    }
+
+    @Test func legacyOrdinaryToolCannotClearCorrelatedBlockingAttention() throws {
+        let context = try Harness.makeContext(name: "legacy-ordinary-tool-correlated-blocker")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "legacy-ordinary-tool-correlated-session"
+        let now: TimeInterval = 4_102_444_800
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "needsInput",
+                    "pendingBlockingToolUseIds": ["current-blocker"],
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateData = try JSONSerialization.data(
+            withJSONObject: state,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try stateData.write(to: context.storeURL)
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 0.1) == .timedOut)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(context.state.snapshot().isEmpty)
+        #expect(try Data(contentsOf: context.storeURL) == stateData)
     }
 
     @Test func oversizedBlockingHookInputIsRejectedBeforeMutation() throws {
@@ -417,6 +470,11 @@ struct ClaudeHookWriteAmplificationTests {
 
         runHook(subcommand: "pre-tool-use", eventName: "PreToolUse", plan: "First plan")
         runHook(subcommand: "pre-tool-use", eventName: "PreToolUse", plan: "Second plan")
+
+        #expect(
+            !context.state.snapshot().contains { $0.contains(#""method":"feed.push""#) },
+            "bypass-permissions blockers use live attention only and must not persist Feed telemetry"
+        )
 
         let beginRequestIds = attentionRequestIds(
             method: "feed.attention.begin",

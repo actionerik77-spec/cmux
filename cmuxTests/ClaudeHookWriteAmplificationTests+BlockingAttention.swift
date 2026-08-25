@@ -9,6 +9,67 @@ import Testing
 extension ClaudeHookWriteAmplificationTests {
     private typealias AttentionHarness = ClaudeHookLiveDeliveryHarness
 
+    @Test func blockingCorrelationCapRejectsOverflowWithoutEvictingAttention() throws {
+        let context = try AttentionHarness.makeContext(name: "blocking-correlation-cap")
+        defer { context.cleanup() }
+
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
+        ])
+        let sessionId = "bounded-correlation-session"
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+
+        for index in 0..<256 {
+            let registration = try #require(
+                store.recordBlockingToolNeedsInput(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: context.root.path,
+                    transcriptPath: nil,
+                    agentPID: nil,
+                    toolUseId: "request-\(index)",
+                    rawObject: [
+                        "tool_name": "AskUserQuestion",
+                        "tool_input": ["question": "question-\(index)"],
+                    ],
+                    lastSubtitle: "Waiting",
+                    lastBody: "Waiting for input"
+                )
+            )
+            #expect(registration.requestId == "request-\(index)")
+        }
+        let stateBeforeOverflow = try Data(contentsOf: context.storeURL)
+
+        let overflow = try store.recordBlockingToolNeedsInput(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            transcriptPath: nil,
+            agentPID: nil,
+            toolUseId: "request-overflow",
+            rawObject: [
+                "tool_name": "AskUserQuestion",
+                "tool_input": ["question": "overflow"],
+            ],
+            lastSubtitle: "Waiting",
+            lastBody: "Waiting for input"
+        )
+
+        #expect(overflow == nil)
+        #expect(try Data(contentsOf: context.storeURL) == stateBeforeOverflow)
+        let record = try AttentionHarness.sessionRecord(
+            in: context.storeURL,
+            sessionId: sessionId
+        )
+        let pending = try #require(record?["pendingBlockingToolUseIds"] as? [String])
+        #expect(pending.count == 256)
+        #expect(pending.contains("request-0"))
+        #expect(!pending.contains("request-overflow"))
+    }
+
     @Test func resolvedPermissionRequestResumesNotificationLifecycle() throws {
         let context = try AttentionHarness.makeContext(name: "permission-resumes-notification")
         defer { context.cleanup() }

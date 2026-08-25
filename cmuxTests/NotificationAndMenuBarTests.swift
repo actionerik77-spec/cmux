@@ -1742,6 +1742,28 @@ final class NotificationMenuSnapshotBuilderTests: XCTestCase {
         XCTAssertTrue(snapshot.recentNotifications.isEmpty)
     }
 
+    func testSnapshotExcludesTransientAgentAttention() {
+        let transient = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            correlationKey: TerminalNotification.transientAgentAttentionCorrelationPrefix + "test",
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Model-controlled prompt",
+            createdAt: Date(),
+            isRead: false
+        )
+
+        let snapshot = NotificationMenuSnapshotBuilder.make(
+            notifications: [transient]
+        )
+
+        XCTAssertEqual(snapshot.unreadCount, 0)
+        XCTAssertFalse(snapshot.hasNotifications)
+        XCTAssertTrue(snapshot.recentNotifications.isEmpty)
+    }
+
     func testStateHintTitleHandlesSingularPluralAndZero() {
         XCTAssertEqual(NotificationMenuSnapshotBuilder.stateHintTitle(unreadCount: 0), "No unread notifications")
         XCTAssertEqual(NotificationMenuSnapshotBuilder.stateHintTitle(unreadCount: 1), "1 unread notification")
