@@ -158,32 +158,47 @@ public struct TerminalPromptInputLedger: Sendable {
         if let message,
            let messageSignature = messageSignature(message) {
             if let index = pendingBoundaries.firstIndex(where: {
-                guard case .programmatic(
-                    let candidateSignature,
-                    _,
-                    _
-                ) = $0 else {
+                switch $0 {
+                case .programmatic(let candidateSignature, _, _),
+                     .confirmedProgrammatic(let candidateSignature):
+                    return candidateSignature == messageSignature
+                case .human, .retiredProgrammatic:
                     return false
                 }
-                return candidateSignature == messageSignature
             }) {
-                guard case .programmatic(
-                    _,
+                switch pendingBoundaries[index] {
+                case .confirmedProgrammatic:
+                    // A duplicate exact hook is already accounted for. Consume
+                    // only its tombstone; never reinterpret it as human input.
+                    pendingBoundaries.remove(at: index)
+                    return .unmatched
+                case .programmatic(
+                    let candidateSignature,
                     let source,
                     let confirmsHumanInputSnapshot
-                ) = pendingBoundaries[index] else {
+                ):
+                    let hasPendingHumanBoundary = pendingBoundaries.contains {
+                        if case .human = $0 { return true }
+                        return false
+                    }
+                    if hasPendingHumanBoundary {
+                        pendingBoundaries[index] = .confirmedProgrammatic(
+                            messageSignature: candidateSignature
+                        )
+                        trimConfirmedProgrammaticBoundaries()
+                    } else {
+                        pendingBoundaries.remove(at: index)
+                    }
+                    if let confirmsHumanInputSnapshot,
+                       confirmsHumanInputSnapshot.epoch == humanInputEpoch {
+                        confirmHumanInputThroughGeneration(
+                            confirmsHumanInputSnapshot.generation
+                        )
+                    }
+                    return .programmatic(source: source)
+                case .human, .retiredProgrammatic:
                     return .unmatched
                 }
-                // Keep a bounded sequence-only tombstone so a replayed hook
-                // cannot fall through and consume a newer human boundary.
-                retireProgrammaticBoundary(at: index)
-                if let confirmsHumanInputSnapshot,
-                   confirmsHumanInputSnapshot.epoch == humanInputEpoch {
-                    confirmHumanInputThroughGeneration(
-                        confirmsHumanInputSnapshot.generation
-                    )
-                }
-                return .programmatic(source: source)
             }
         }
         // Agent versions can normalize or rewrite the prompt before emitting
@@ -227,7 +242,7 @@ public struct TerminalPromptInputLedger: Sendable {
             switch $0 {
             case .programmatic, .retiredProgrammatic:
                 return true
-            case .human:
+            case .human, .confirmedProgrammatic:
                 return false
             }
         }) else {
@@ -335,6 +350,23 @@ public struct TerminalPromptInputLedger: Sendable {
               }) {
             pendingBoundaries.remove(at: oldestIndex)
             retiredCount -= 1
+        }
+    }
+
+    /// Bounds exact-hook replay tombstones without evicting human boundaries.
+    private mutating func trimConfirmedProgrammaticBoundaries() {
+        var confirmedCount = pendingBoundaries.reduce(into: 0) { count, boundary in
+            if case .confirmedProgrammatic = boundary {
+                count += 1
+            }
+        }
+        while confirmedCount > Self.maximumPendingBoundaries,
+              let oldestIndex = pendingBoundaries.firstIndex(where: {
+                  if case .confirmedProgrammatic = $0 { return true }
+                  return false
+              }) {
+            pendingBoundaries.remove(at: oldestIndex)
+            confirmedCount -= 1
         }
     }
 

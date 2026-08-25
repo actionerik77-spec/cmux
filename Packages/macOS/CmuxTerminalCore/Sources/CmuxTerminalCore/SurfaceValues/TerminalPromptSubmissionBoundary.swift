@@ -9,6 +9,11 @@ enum TerminalPromptSubmissionBoundary: Sendable {
         confirmsHumanInputSnapshot:
             TerminalPromptInputLedger.HumanInputSnapshot?
     )
+    /// An exact app-owned hook already matched while human input remained
+    /// pending; a duplicate signature must not consume that human boundary.
+    case confirmedProgrammatic(
+        messageSignature: TerminalPromptMessageSignature
+    )
     /// Programmatic hook ownership retained after exact source attribution was
     /// evicted. Adjacent retired boundaries coalesce without losing FIFO order.
     case retiredProgrammatic(count: UInt64)
