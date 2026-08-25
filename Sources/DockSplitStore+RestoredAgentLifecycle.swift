@@ -208,7 +208,7 @@ extension DockSplitStore {
         }
         syncAgentNeedsInputAttention(
             panelId: detached.panelId,
-            runtime: detached.agentRuntime
+            runtime: agentRuntimeByPanelId[detached.panelId]
         )
     }
 
