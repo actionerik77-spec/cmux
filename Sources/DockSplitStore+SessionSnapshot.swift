@@ -178,13 +178,9 @@ extension DockSplitStore {
                 ? policy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
                 : nil
             let persistedAgentWasRunning: Bool? =
-                if restorableAgent != nil {
-                    agentWasRunning ?? false
-                } else if resumeBinding != nil || managedResumeBinding != nil {
-                    true
-                } else {
-                    nil
-                }
+                restorableAgent != nil || resumeBinding != nil || managedResumeBinding != nil
+                    ? (agentWasRunning ?? false)
+                    : nil
             let resumeStartupInput = policy.surfaceResumeStartupInput(
                 resumeBinding,
                 autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(

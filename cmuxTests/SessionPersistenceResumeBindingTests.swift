@@ -673,6 +673,10 @@ import Testing
             ),
             panelId: localPanel.id
         ))
+        remoteWorkspace.updatePanelShellActivityState(
+            panelId: localPanel.id,
+            state: .commandRunning
+        )
 
         let snapshot = remoteWorkspace.sessionSnapshot(includeScrollback: false)
         let persistedLocalPanel = try #require(snapshot.panels.first {

@@ -517,8 +517,14 @@ extension Workspace {
                     if !confirmedRuntimeProcessIdentities.isEmpty {
                         return true
                     }
-                    guard let effectiveRestorableAgent,
-                          effectiveRestorableAgent.kind.rawValue == bindingKind.rawValue,
+                    guard let effectiveRestorableAgent else {
+                        switch panelShellActivityStates[panelId] {
+                        case .some(.commandRunning): return true
+                        case .some(.promptIdle): return false
+                        case .some(.unknown), .none: return nil
+                        }
+                    }
+                    guard effectiveRestorableAgent.kind.rawValue == bindingKind.rawValue,
                           ManagedAgentSessionIdentity.sessionIDsMatch(
                               kind: bindingKind.rawValue,
                               lhs: effectiveRestorableAgent.sessionId,
@@ -567,18 +573,14 @@ extension Workspace {
                         processPresence: agentProcessPresence
                     )
             }()
-            // A retained structured agent with inconclusive liveness must not
-            // use the legacy nil-as-running fallback. A binding-only terminal
-            // has no process observation to contradict its authoritative hook
-            // checkpoint, so keep that binding eligible for restore.
+            // A newly captured agent with inconclusive liveness must not use the
+            // legacy nil-as-running fallback. Keep nil only for ordinary
+            // non-agent terminals; old snapshots still decode nil and retain
+            // their backwards-compatible restore behavior.
             let persistedAgentWasRunning: Bool? =
-                if effectiveRestorableAgent != nil {
-                    agentWasRunning ?? false
-                } else if effectiveResumeBinding != nil {
-                    true
-                } else {
-                    nil
-                }
+                effectiveRestorableAgent != nil || effectiveResumeBinding != nil
+                    ? (agentWasRunning ?? false)
+                    : nil
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
                 effectiveResumeBinding,
                 autoResumeAgentSessions:
