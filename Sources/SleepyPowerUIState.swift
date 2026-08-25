@@ -2,13 +2,6 @@ import Foundation
 import CmuxFoundation
 import Observation
 
-/// Identity carried by one Lock Mac request so a late result cannot overwrite a
-/// later Sleepy Mode session or request.
-struct SleepyLockRequest: Sendable {
-    let sessionID: UUID
-    let requestID: UInt64
-}
-
 /// Shared, observable Low Power UI state. Sleepy Mode creates one overlay window
 /// per display; injecting a single instance into every `SleepyFaceView` keeps
 /// their labels in sync and makes each button compute its next action from one
