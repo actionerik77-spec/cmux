@@ -182,9 +182,15 @@ public struct TerminalPromptInputLedger: Sendable {
                         return false
                     }
                     if hasPendingHumanBoundary {
-                        pendingBoundaries[index] = .confirmedProgrammatic(
+                        // Keep the duplicate-hook tombstone, but place it
+                        // behind the current boundary queue. A differently
+                        // signed hook for a later human submission must be
+                        // able to reach that human boundary without waiting
+                        // for a duplicate app hook to arrive first.
+                        pendingBoundaries.remove(at: index)
+                        pendingBoundaries.append(.confirmedProgrammatic(
                             messageSignature: candidateSignature
-                        )
+                        ))
                         trimConfirmedProgrammaticBoundaries()
                     } else {
                         pendingBoundaries.remove(at: index)

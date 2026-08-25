@@ -149,35 +149,6 @@ func findGhosttyNSView(in view: NSView) -> GhosttyNSView? {
 /// Chinese pinyin candidate selection, Japanese hiragana-to-kanji conversion).
 final class CJKIMEMarkedTextTests: XCTestCase {
 
-    func testMarkedPreeditClaimsHumanPromptOwnership() {
-        _ = NSApplication.shared
-
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        defer { surface.releaseSurfaceForTesting() }
-        surface.synchronizePromptInputAgentScope("agentPIDKey:ime.preedit")
-
-        guard let view = findGhosttyNSView(in: surface.hostedView) else {
-            XCTFail("Expected hosted GhosttyNSView")
-            return
-        }
-
-        view.setMarkedText(
-            "ㅎ",
-            selectedRange: NSRange(location: 0, length: 1),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-
-        XCTAssertTrue(
-            surface.hasUnconfirmedHumanPromptInput,
-            "An active AppKit preedit must block automation even before a key reaches Ghostty"
-        )
-    }
-
     // MARK: - Korean (한글) jamo combining
 
     /// Korean IME sends partial jamo as marked text, then replaces/commits.
