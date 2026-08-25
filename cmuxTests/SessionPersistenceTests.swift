@@ -194,6 +194,32 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(store.notifications.contains { $0.tabId == restoredWorkspaceId && $0.id != duplicateId })
     }
 
+    @MainActor
+    func testRestoreSessionNotificationsDropsTransientAgentAttention() {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let workspaceId = UUID()
+        let transient = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: UUID(),
+            correlationKey: TerminalNotification.transientAgentAttentionCorrelationPrefix + "restore",
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Model-controlled prompt",
+            createdAt: Date(),
+            isRead: false
+        )
+
+        store.restoreSessionNotifications([transient], forTabId: workspaceId)
+
+        XCTAssertTrue(store.notifications.isEmpty)
+        XCTAssertNil(store.latestNotification(forTabId: workspaceId))
+        XCTAssertEqual(store.unreadNotificationCount, 0)
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

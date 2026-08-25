@@ -903,4 +903,57 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(record?["agentLifecycle"] as? String == "needsInput")
         #expect(record?["pendingBlockingToolUseIds"] as? [String] == ["current-turn-tool"])
     }
+
+    @Test func sessionEndReleasesCorrelatedRequestsIndividually() throws {
+        let context = try AttentionHarness.makeContext(name: "session-end-correlated-release")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "session-end-correlated-release-session"
+        let now: TimeInterval = 4_102_444_800
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [sessionId: [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId,
+                "surfaceId": surfaceId,
+                "cwd": context.root.path,
+                "agentLifecycle": "needsInput",
+                "pendingBlockingToolUseIds": ["correlated-tool"],
+                "startedAt": now,
+                "updatedAt": now,
+            ]],
+        ]
+        try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId]
+        )
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = AttentionHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"SessionEnd","cwd":"\#(context.root.path)"}"#
+        )
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let endCommands = context.state.snapshot().compactMap { command -> [String: Any]? in
+            guard let data = command.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["method"] as? String == "feed.attention.end" else {
+                return nil
+            }
+            return object["params"] as? [String: Any]
+        }
+        #expect(endCommands.contains { $0["request_id"] as? String == "correlated-tool" })
+        #expect(endCommands.allSatisfy { $0["all_requests"] as? Bool != true })
+    }
 }
