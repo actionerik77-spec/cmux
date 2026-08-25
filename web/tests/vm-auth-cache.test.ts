@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 
 const getUser = mock(async (): Promise<unknown> => null);
 
@@ -96,12 +96,16 @@ describe("native auth verification cache", () => {
 
   test("entries expire after the TTL", async () => {
     process.env.CMUX_VM_AUTH_CACHE_TTL_MS = "20";
+    setSystemTime(0);
+    try {
+      await verifyRequest(nativeRequest("access-1"));
+      setSystemTime(40);
+      await verifyRequest(nativeRequest("access-1"));
 
-    await verifyRequest(nativeRequest("access-1"));
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    await verifyRequest(nativeRequest("access-1"));
-
-    expect(getUser).toHaveBeenCalledTimes(2);
+      expect(getUser).toHaveBeenCalledTimes(2);
+    } finally {
+      setSystemTime();
+    }
   });
 
   test("explicit sign-out revocation invalidates cached native credentials", async () => {
