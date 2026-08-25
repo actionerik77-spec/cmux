@@ -44,6 +44,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
+    @ObservationIgnored private(set) var isRetired = false
     /// Host views currently showing this Dock. Normally at most one (the owning
     /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
     /// and new host, so visibility is the union rather than a single flag.
@@ -345,6 +346,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         // so Bonsplit routes it here; the live panel is moved (not copied).
         self.bonsplitController.onExternalTabDrop = { [weak self] request in
             guard let self else { return false }
+            guard !self.isRetired else { return false }
             if let handled = self.performRegisteredPaneTransferDrop(request) {
                 return handled
             }
@@ -458,6 +460,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Drives Dock activation from the right sidebar: loads config on first
     /// visible activation and toggles panel UI visibility.
     func setActive(isVisible: Bool, mode: RightSidebarMode, visibilityHostId: UUID? = nil) {
+        guard !isRetired else { return }
         let shouldBeVisible = isVisible && mode == .dock
         if shouldBeVisible {
             if hasLoadedConfiguration {
@@ -478,6 +481,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     private func reloadIfBaseDirectoryChanged() {
+        guard !isRetired else { return }
         guard hasLoadedConfiguration else { return }
         let rootDirectory = currentBaseDirectory()
         if configurationLoadTask != nil, rootDirectory != configurationLoadRootDirectory { reload(); return }
@@ -522,7 +526,19 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         removeAllPanels()
     }
 
+    /// Permanently retires this Dock before releasing its panels. A retained
+    /// sidebar callback may still hold the store after its workspace closes,
+    /// so retirement—not temporary emptiness—is the authoritative boundary.
+    func retire() {
+        guard !isRetired else { return }
+        isRetired = true
+        Self.liveStoresTable.remove(self)
+        clearDockPortalReconcile()
+        closeAllPanels()
+    }
+
     func ensureLoaded() {
+        guard !isRetired else { return }
         guard !hasLoadedConfiguration else { return }
         hasLoadedConfiguration = true
         startConfigurationLoad(replacingPanels: false)
@@ -555,6 +571,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
+        guard !isRetired else { return nil }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
         let resolvedBrowserProfileID = kind == .browser
@@ -637,6 +654,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
     ) -> UUID? {
+        guard !isRetired else { return nil }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId)
         let resolvedBrowserProfileID = kind == .browser
@@ -936,6 +954,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> (any Panel)? {
+        guard !isRetired else { return nil }
         switch kind {
         case .terminal:
             return makeTerminalPanel(
@@ -974,6 +993,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     private func makePanel(for def: DockControlDefinition, baseDirectory: String) -> (any Panel)? {
+        guard !isRetired else { return nil }
         switch def.kind {
         case .terminal:
             let workingDirectory = Self.resolvedWorkingDirectory(def.cwd, baseDirectory: baseDirectory)
@@ -1069,6 +1089,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         title: String,
         inPane paneId: PaneID?
     ) -> TabID? {
+        guard !isRetired else {
+            panel.close()
+            return nil
+        }
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
             title: title,
@@ -1312,6 +1336,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     // MARK: - Config loading
 
     func reload() {
+        guard !isRetired else { return }
         removeAllPanels()
         hasLoadedConfiguration = true
         hasAppliedConfigurationSeed = false
@@ -1319,6 +1344,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     func trustAndReload() {
+        guard !isRetired else { return }
         if let trustRequest {
             CmuxActionTrust.shared.trust(trustRequest.descriptor)
         }
@@ -1326,6 +1352,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     private func startConfigurationLoad(replacingPanels: Bool) {
+        guard !isRetired else { return }
         configurationLoadGeneration += 1
         let generation = configurationLoadGeneration
         let rootDirectory = currentBaseDirectory()
@@ -1345,6 +1372,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     private func applyConfigurationIdentity(_ current: DockConfigIdentity, generation: Int) {
+        guard !isRetired else { return }
         guard generation == configurationIdentityGeneration else { return }
         configurationIdentityTask = nil
         if lastLoadedConfigIdentity == nil, hasAppliedConfigurationSeed {
@@ -1376,6 +1404,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         generation: Int,
         replacingPanels: Bool
     ) {
+        guard !isRetired else { return }
         guard generation == configurationLoadGeneration else { return }
         configurationLoadTask = nil; configurationLoadRootDirectory = nil
         errorMessage = nil
@@ -1421,6 +1450,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Bonsplit tree cannot pin absolute point heights, but the proportions are
     /// preserved and remain user-resizable).
     private func seed(definitions: [DockControlDefinition], baseDirectory: String) {
+        guard !isRetired else { return }
         // Build panels first so divider math runs over the entries actually
         // created (e.g. browser entries are skipped when the browser is disabled).
         let created: [(definition: DockControlDefinition, panel: any Panel)] = definitions.compactMap { definition in
