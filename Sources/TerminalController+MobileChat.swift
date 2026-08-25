@@ -8,6 +8,8 @@ import Foundation
 /// the existing mobile terminal injection machinery so chat input behaves
 /// exactly like composer input.
 extension TerminalController {
+    private static let mobileChatAttachmentPreparationTimeout:
+        Duration = .seconds(30)
     /// Actionable error for a chat session whose terminal binding cannot
     /// be resolved even after a hook-store refresh. Surfaces verbatim in the
     /// iOS chat error banner, so it is localized.
@@ -343,7 +345,10 @@ extension TerminalController {
         guard let attachmentFileURLs =
                 await Self.prepareMobileChatAttachments(
                     attachmentPayloads,
-                    pasteboard: GhosttyApp.terminalPasteboard
+                    pasteboard: GhosttyApp.terminalPasteboard,
+                    deadline: ContinuousClock.now.advanced(
+                        by: Self.mobileChatAttachmentPreparationTimeout
+                    )
                 ) else {
             return .err(
                 code: "invalid_params",
@@ -427,13 +432,16 @@ extension TerminalController {
     #endif
     nonisolated static func prepareMobileChatAttachments(
         _ attachments: [MobileChatAttachmentPayload],
-        pasteboard: TerminalPasteboardService
+        pasteboard: TerminalPasteboardService,
+        deadline: ContinuousClock.Instant? = nil
     ) async -> [URL]? {
         var fileURLs: [URL] = []
         fileURLs.reserveCapacity(attachments.count)
 
         for attachment in attachments {
-            guard attachment.encodedData.utf8.count
+            guard !Task.isCancelled,
+                  deadline.map({ ContinuousClock.now < $0 }) ?? true,
+                  attachment.encodedData.utf8.count
                     <= TerminalPasteboardService
                         .maximumBase64ImageByteCount,
                   let imageData = Data(
@@ -447,6 +455,11 @@ extension TerminalController {
                 return nil
             }
             fileURLs.append(fileURL)
+        }
+        guard !Task.isCancelled,
+              deadline.map({ ContinuousClock.now < $0 }) ?? true else {
+            pasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+            return nil
         }
         return fileURLs
     }

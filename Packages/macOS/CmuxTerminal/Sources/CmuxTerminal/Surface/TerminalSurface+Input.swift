@@ -8,6 +8,12 @@ internal import CMUXDebugLog
 
 // MARK: - Socket/API input: send paths, pending queues, parsing
 
+private enum PendingSocketInputDeliveryResult {
+    case delivered
+    case deferred
+    case failed
+}
+
 extension TerminalSurface {
     /// The single agent-process identity that owns prompt-input tracking.
     @MainActor
@@ -21,19 +27,19 @@ extension TerminalSurface {
         promptInputLedger.hasPendingProgrammaticSubmission
             || (pendingSocketInputQueue + deferredPromptSubmissionRetries)
                 .contains { input in
-                guard case .promptSubmission(
-                    _,
-                    _,
-                    _,
-                    let hookRecordingSource,
-                    _,
-                    _,
-                    _
-                ) = input else {
-                    return false
+                    guard case .promptSubmission(
+                        _,
+                        _,
+                        _,
+                        let hookRecordingSource,
+                        _,
+                        _,
+                        _
+                    ) = input else {
+                        return false
+                    }
+                    return hookRecordingSource != nil
                 }
-                return hookRecordingSource != nil
-            }
     }
 
     /// Returns the transport-owned name for a physical manual-I/O key, if any.
@@ -537,11 +543,14 @@ extension TerminalSurface {
             for: events,
             isHumanInput: recordPromptInput
         ) {
-            queuedInput = deliverPendingSocketInput(
+            let deliveryResult = deliverPendingSocketInput(
                 input,
                 validatedSurface: &validatedSurface,
                 validatedGeneration: &validatedGeneration
-            ) || queuedInput
+            )
+            if case .deferred = deliveryResult {
+                queuedInput = true
+            }
         }
         if recordPromptInput {
             recordPromptInputMutations(for: events)
@@ -1578,12 +1587,13 @@ extension TerminalSurface {
             } else if case .appOwnedKey = item {
                 queuedKeys += 1
             }
-            let delivered = deliverPendingSocketInput(
+            let deliveryResult = deliverPendingSocketInput(
                 item,
                 validatedSurface: &validatedSurface,
                 validatedGeneration: &validatedGeneration
             )
-            if !delivered, shouldRetainPendingPromptAfterFailure(item) {
+            if case .failed = deliveryResult,
+               shouldRetainPendingPromptAfterFailure(item) {
                 retainedItems.append(item)
                 // A receipt-less prompt that cannot replay is still the
                 // oldest admitted transaction. Keep the untouched suffix
@@ -1633,7 +1643,9 @@ extension TerminalSurface {
 
     @MainActor
     @discardableResult
-    private func deliverPendingSocketInput(_ input: PendingSocketInput) -> Bool {
+    private func deliverPendingSocketInput(
+        _ input: PendingSocketInput
+    ) -> PendingSocketInputDeliveryResult {
         var validatedSurface: ghostty_surface_t?
         var validatedGeneration: UInt64?
         return deliverPendingSocketInput(
@@ -1649,9 +1661,9 @@ extension TerminalSurface {
         _ input: PendingSocketInput,
         validatedSurface: inout ghostty_surface_t?,
         validatedGeneration: inout UInt64?
-    ) -> Bool {
+    ) -> PendingSocketInputDeliveryResult {
         guard !input.isCancelledPromptSubmission else {
-            return false
+            return .failed
         }
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: input.estimatedBytes,
@@ -1663,8 +1675,8 @@ extension TerminalSurface {
                     )
                     return
                 }
-                let delivered = self.deliverPendingSocketInput(input)
-                if !delivered,
+                let deliveryResult = self.deliverPendingSocketInput(input)
+                if case .failed = deliveryResult,
                    self.shouldRetainPendingPromptAfterFailure(input) {
                     if !self.prependPendingSocketInput(input) {
                         self.retainDeferredPromptSubmission(input)
@@ -1672,7 +1684,7 @@ extension TerminalSurface {
                 }
             }
         ) {
-            return true
+            return .deferred
         }
         let surface: ghostty_surface_t
         if let cachedSurface = validatedSurface,
@@ -1690,7 +1702,7 @@ extension TerminalSurface {
                 )
                 validatedSurface = nil
                 validatedGeneration = nil
-                return false
+                return .failed
             }
             surface = currentSurface
             validatedSurface = currentSurface
@@ -1699,7 +1711,7 @@ extension TerminalSurface {
         if case .promptSubmission = input,
            ghostty_surface_process_exited(surface) {
             finishPendingPromptDelivery(input, with: .processExited)
-            return false
+            return .failed
         }
         switch input {
         case .pasteText(let chunk):
@@ -1732,9 +1744,9 @@ extension TerminalSurface {
             let deliveryReceipt
         ):
             if let admittedAgentInputScope,
-               promptInputLedger.currentAgentScope != admittedAgentInputScope {
+                promptInputLedger.currentAgentScope != admittedAgentInputScope {
                 deliveryReceipt?.finish(.agentScopeUnavailable)
-                return false
+                return .failed
             }
             for preparationKey in preparationKeys {
                 sendKeyEvent(
@@ -1780,7 +1792,7 @@ extension TerminalSurface {
                 submitEvent: submitKey
             )
         }
-        return false
+        return .delivered
     }
 
     @MainActor

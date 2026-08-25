@@ -231,20 +231,22 @@ public struct TerminalPromptInputLedger: Sendable {
     /// attributed to the older app transaction merely because its text
     /// signature matches.
     private mutating func removeProgrammaticBoundariesSupersededByHumanInput() {
-        pendingBoundaries.removeAll { boundary in
+        let currentBoundaries = pendingBoundaries
+        pendingBoundaries = currentBoundaries.filter { boundary in
             guard case .programmatic(
                 _, _, let snapshot
             ) = boundary else {
-                return false
+                return true
             }
-            guard let snapshot else { return false }
-            guard snapshot.epoch == humanInputEpoch else { return false }
-            return pendingBoundaries.contains { boundary in
+            guard let snapshot else { return true }
+            guard snapshot.epoch == humanInputEpoch else { return true }
+            let hasNewerHumanBoundary = currentBoundaries.contains { boundary in
                 guard case .human(let generation) = boundary else {
                     return false
                 }
                 return generation > snapshot.generation
             }
+            return !hasNewerHumanBoundary
         }
     }
 
