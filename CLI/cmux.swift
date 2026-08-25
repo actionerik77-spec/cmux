@@ -25452,13 +25452,35 @@ struct CMUXCLI {
                 return
             }
             if let sessionId = parsedInput.sessionId {
-                guard let currentSession = mappedSession,
-                      (try? sessionStore.isCurrent(
-                          sessionId: sessionId,
-                          workspaceId: currentSession.workspaceId,
-                          surfaceId: currentSession.surfaceId,
-                          turnId: parsedInput.turnId
-                      )) == true else {
+                guard let currentSession = mappedSession else {
+                    didSendFeedTelemetry = true
+                    telemetry.breadcrumb("claude-hook.session-end.stale")
+                    printClaudeHookAck()
+                    return
+                }
+                let isCurrent = (try? sessionStore.isCurrent(
+                    sessionId: sessionId,
+                    workspaceId: currentSession.workspaceId,
+                    surfaceId: currentSession.surfaceId,
+                    turnId: parsedInput.turnId
+                )) == true
+                guard isCurrent else {
+                    // The old session is stale for destructive cleanup, but its
+                    // request IDs remain independently owned and must be
+                    // released before returning when a different session owns
+                    // the pane. A same-session turn mismatch must not release
+                    // the current turn's requests.
+                    let activeSessionId = try? sessionStore.activeBlockingAttentionSessionId(
+                        workspaceId: currentSession.workspaceId,
+                        surfaceId: currentSession.surfaceId
+                    )
+                    if activeSessionId != sessionId {
+                        _ = endClaudeBlockingAttentionForSessionEnd(
+                            client: client,
+                            sessionId: sessionId,
+                            owner: currentSession
+                        )
+                    }
                     didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                     printClaudeHookAck()

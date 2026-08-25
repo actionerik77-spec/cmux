@@ -141,7 +141,9 @@ extension ClaudeHookSessionStore {
         in state: inout ClaudeHookSessionStoreFile
     ) {
         state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
-            (record.supersededCleanupAttemptCount ?? 0) < Self.maxSupersededCleanupAttempts
+            record.pendingBlockingToolUseIds?.isEmpty != false
+                ? (record.supersededCleanupAttemptCount ?? 0) < Self.maxSupersededCleanupAttempts
+                : true
         }
         guard state.pendingSupersededSessionCleanup.count > Self.maxPendingSupersededCleanupRecords else {
             return
