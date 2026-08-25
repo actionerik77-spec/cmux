@@ -163,11 +163,12 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
                 for await didLock in notifications {
                     guard didLock else { continue }
                     switch Self.screenLockState() {
-                    case .some(true), .none:
-                        // The notification is request-local and was registered
-                        // before the call. It is a valid fallback only when
-                        // this session cannot expose the dictionary key.
+                    case .some(true):
                         return true
+                    case .none:
+                        // A notification without an authoritative dictionary
+                        // state cannot prove a security transition; fail closed.
+                        return false
                     case .some(false):
                         // A delayed notification can arrive before the public
                         // state catches up; re-read on a bounded cadence until
@@ -188,15 +189,17 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             // comes from a fresh current-state read when the platform exposes
             // one. This keeps an unrelated stale latch from proving a lock.
             guard result else { return false }
-            return Self.screenLockState() ?? result
+            return Self.isScreenLocked()
         }
     }
 
     private static func waitForCurrentLockState(clock: any Clock<Duration>) async -> Bool {
         while !Task.isCancelled {
             switch screenLockState() {
-            case .some(true), .none:
+            case .some(true):
                 return true
+            case .none:
+                return false
             case .some(false):
                 do {
                     try await clock.sleep(for: .milliseconds(50))
