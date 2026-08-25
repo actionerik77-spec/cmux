@@ -57,8 +57,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The result of one compound prompt paste-and-submit transaction.
     public typealias PromptSubmissionSendResult =
         CmuxTerminalCore.PromptSubmissionSendResult
-    public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
-    public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
     var runtimeControllingTTYName: String?
