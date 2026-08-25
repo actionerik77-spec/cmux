@@ -1,5 +1,6 @@
 public import CmuxCore
 public import CmuxRemoteDaemon
+internal import CryptoKit
 internal import CmuxSettings
 internal import Darwin
 internal import Foundation
@@ -238,7 +239,11 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             return nil
         }
         return { request in
-            switch validateCloudCLIRequest(request, ownerWorkspaceID: configuration.ownerWorkspaceID) {
+            switch validateCloudCLIRequest(
+                request,
+                ownerWorkspaceID: configuration.ownerWorkspaceID,
+                remoteRelayTokenHex: configuration.relayToken
+            ) {
             case .forward(let forwardedRequest):
                 return try roundTripUnixSocket(socketPath: localSocketPath, request: forwardedRequest)
             case .reject(let response):
@@ -255,7 +260,11 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// Validates VM-originated CLI bridge requests before they hit the local
     /// app socket. The websocket lease authenticates the daemon; this method
     /// keeps VM processes from becoming arbitrary local cmux socket clients.
-    internal static func validateCloudCLIRequest(_ request: Data, ownerWorkspaceID: UUID?) -> CloudCLIRequestValidation {
+    internal static func validateCloudCLIRequest(
+        _ request: Data,
+        ownerWorkspaceID: UUID?,
+        remoteRelayTokenHex: String? = nil
+    ) -> CloudCLIRequestValidation {
         let requestLimitBytes = 64 * 1024
         guard request.count <= requestLimitBytes else {
             return .reject(cloudCLIErrorResponse(
@@ -328,12 +337,161 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 requireWorkspace: true,
                 requireSurface: true
             )
+        case "feed.attention.begin", "feed.attention.end":
+            return validateCloudCLIAttention(
+                requestID: requestID,
+                method: method,
+                params: params,
+                ownerWorkspaceID: ownerWorkspaceID,
+                remoteRelayTokenHex: remoteRelayTokenHex
+            )
         default:
             return .reject(cloudCLIErrorResponse(
                 id: requestID,
                 code: "remote_cli_method_denied",
                 message: "Cloud CLI bridge only supports scoped notifications from the VM"
             ))
+        }
+    }
+
+    private static func validateCloudCLIAttention(
+        requestID: Any?,
+        method: String,
+        params: [String: Any],
+        ownerWorkspaceID: UUID,
+        remoteRelayTokenHex: String?
+    ) -> CloudCLIRequestValidation {
+        guard params["source"] as? String == "claude",
+              let sessionID = boundedCloudCLIString(params["session_id"], maximumBytes: 512),
+              !sessionID.isEmpty else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: "Cloud CLI attention requires a Claude source and session_id"
+            ))
+        }
+        var forwardedParams: [String: Any] = [
+            "source": "claude",
+            "session_id": sessionID,
+        ]
+        if method == "feed.attention.begin" {
+            guard let workspaceRaw = boundedCloudCLIString(params["workspace_id"], maximumBytes: 64),
+                  UUID(uuidString: workspaceRaw) == ownerWorkspaceID,
+                  let surfaceRaw = boundedCloudCLIString(params["surface_id"], maximumBytes: 64),
+                  UUID(uuidString: surfaceRaw) != nil,
+                  let requestIDValue = boundedCloudCLIString(params["request_id"], maximumBytes: 512),
+                  let title = boundedCloudCLIString(params["title"], maximumBytes: 512) else {
+                return .reject(cloudCLIErrorResponse(
+                    id: requestID,
+                    code: "invalid_params",
+                    message: "Cloud CLI attention target is invalid or outside this workspace"
+                ))
+            }
+            forwardedParams["workspace_id"] = workspaceRaw
+            forwardedParams["surface_id"] = surfaceRaw
+            forwardedParams["request_id"] = requestIDValue
+            forwardedParams["title"] = title
+            for key in ["subtitle", "body"] {
+                if let value = boundedCloudCLIString(params[key], maximumBytes: key == "body" ? 4_096 : 512) {
+                    forwardedParams[key] = value
+                }
+            }
+        } else {
+            guard params["all_requests"] as? Bool == true
+                || boundedCloudCLIString(params["request_id"], maximumBytes: 512) != nil else {
+                return .reject(cloudCLIErrorResponse(
+                    id: requestID,
+                    code: "invalid_params",
+                    message: "Cloud CLI attention release requires request_id or all_requests"
+                ))
+            }
+            if let requestIDValue = boundedCloudCLIString(params["request_id"], maximumBytes: 512) {
+                forwardedParams["request_id"] = requestIDValue
+            }
+            if params["all_requests"] as? Bool == true {
+                forwardedParams["all_requests"] = true
+            }
+        }
+        guard let relayToken = hexData(remoteRelayTokenHex), !relayToken.isEmpty else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "remote_cli_unscoped",
+                message: "Cloud CLI attention bridge has no relay authentication key"
+            ))
+        }
+        forwardedParams["_cmux_remote_workspace_id"] = ownerWorkspaceID.uuidString
+        forwardedParams["_cmux_remote_relay_authentication_code"] =
+            relayAuthenticationCode(for: forwardedParams, token: relayToken)
+        let forwarded: [String: Any] = [
+            "id": requestID ?? NSNull(),
+            "method": method,
+            "params": forwardedParams,
+        ]
+        guard JSONSerialization.isValidJSONObject(forwarded),
+              let data = try? JSONSerialization.data(withJSONObject: forwarded, options: []) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "encode_error",
+                message: "Failed to encode Cloud CLI attention request"
+            ))
+        }
+        return .forward(data + Data([0x0A]))
+    }
+
+    private static func boundedCloudCLIString(
+        _ rawValue: Any?,
+        maximumBytes: Int
+    ) -> String? {
+        guard let value = rawValue as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.utf8.count <= maximumBytes else { return nil }
+        return trimmed
+    }
+
+    private static func relayAuthenticationCode(
+        for params: [String: Any],
+        token: Data
+    ) -> String {
+        var payloadParams = params
+        payloadParams.removeValue(forKey: "_cmux_remote_relay_authentication_code")
+        let payload = (try? JSONSerialization.data(
+            withJSONObject: payloadParams,
+            options: [.sortedKeys]
+        )) ?? Data()
+        let code = HMAC<SHA256>.authenticationCode(
+            for: payload,
+            using: SymmetricKey(data: token)
+        )
+        let alphabet = Array("0123456789abcdef".utf8)
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(code.count * 2)
+        for byte in code {
+            bytes.append(alphabet[Int(byte >> 4)])
+            bytes.append(alphabet[Int(byte & 0x0f)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private static func hexData(_ value: String?) -> Data? {
+        guard let value, !value.isEmpty, value.utf8.count.isMultiple(of: 2) else {
+            return nil
+        }
+        let bytes = Array(value.utf8)
+        var data = Data(capacity: bytes.count / 2)
+        for index in stride(from: 0, to: bytes.count, by: 2) {
+            guard let high = hexNibble(bytes[index]),
+                  let low = hexNibble(bytes[index + 1]) else { return nil }
+            data.append((high << 4) | low)
+        }
+        return data
+    }
+
+    private static func hexNibble(_ byte: UInt8) -> UInt8? {
+        switch byte {
+        case 48 ... 57: byte - 48
+        case 65 ... 70: byte - 55
+        case 97 ... 102: byte - 87
+        default: nil
         }
     }
 

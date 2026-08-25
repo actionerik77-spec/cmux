@@ -1456,10 +1456,16 @@ final class TerminalNotificationStore: ObservableObject {
         var effectiveEffects = effects
         if notification.isTransientAgentAttention {
             // Keep an in-memory row even when a policy disables persistence so
-            // native delivery receives a removable notification identity. The
-            // transient correlation filter still excludes it from history,
+            // correlation cleanup has a removable identity. The transient
+            // correlation filter still excludes it from history,
             // unread projections, and mobile reconciliation.
             effectiveEffects.record = true
+            // Ephemeral rows must not schedule UNNotification requests: their
+            // cleanup registry is intentionally in-memory and cannot retract a
+            // delivered system banner after a crash/relaunch.
+            effectiveEffects.desktop = false
+            effectiveEffects.sound = false
+            effectiveEffects.command = false
         }
         if effectiveEffects.record {
             recordNotification(
