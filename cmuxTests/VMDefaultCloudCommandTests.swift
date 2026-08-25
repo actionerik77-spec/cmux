@@ -616,6 +616,109 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(decodedRemoteBootstrap.contains("exec zsh -l"), decodedRemoteBootstrap)
     }
 
+    /// Exercise the real `vm ssh-attach` process path with a DEBUG-only SSH
+    /// executable override. The neighboring builder assertions are useful for
+    /// deterministic shell text, but this subprocess also verifies socket
+    /// lookup, credential/askpass setup, argument construction, and `exec`.
+    func testDefaultFreestyleSSHAttachExecutesPinnedCommandThroughCLI() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-attach-exec")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-persistent-freestyle"
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
+        let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-fake-ssh-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSH = tempDirectory.appendingPathComponent("ssh")
+        let capturedArguments = tempDirectory.appendingPathComponent("ssh-args")
+
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$@" > "${CMUX_TEST_SSH_ARGS:?}"
+        exit 0
+        """.write(to: fakeSSH, atomically: true, encoding: .utf8)
+        chmod(fakeSSH.path, 0o700)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "vm.ssh_info" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["id"] as? String, vmID)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "transport": "ssh",
+                    "host": "vm-ssh.freestyle.sh",
+                    "port": 22,
+                    "username": "\(vmID)+cmux",
+                    "credential": [
+                        "kind": "password",
+                        "value": "lease-token",
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] = "1"
+        environment["CMUX_REMOTE_TMUX_SSH_FOR_TESTING"] = fakeSSH.path
+        environment["CMUX_TEST_SSH_ARGS"] = capturedArguments.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertEqual(result.status, 0, result.stdout + result.stderr)
+
+        let sshArguments = try String(contentsOf: capturedArguments, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        XCTAssertTrue(sshArguments.contains("IdentityFile=/dev/null"), sshArguments.description)
+        XCTAssertTrue(sshArguments.contains("NumberOfPasswordPrompts=1"), sshArguments.description)
+        XCTAssertTrue(sshArguments.contains("ControlMaster=no"), sshArguments.description)
+
+        let remoteCommand = try XCTUnwrap(sshArguments.first { $0.hasPrefix("RemoteCommand=") })
+        let decodedRemoteBootstrap = decodedReusableShellStartupCommand(remoteCommand)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_WORKSPACE_ID='\(workspaceID)'"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_SURFACE_ID='\(surfaceID)'"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("cmux-cloud-$cmux_cloud_tty_scope"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("unset CMUX_CLOUD_TMUX_SESSION"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("exec zsh -l"), decodedRemoteBootstrap)
+        XCTAssertEqual(
+            state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.ssh_info"]
+        )
+    }
+
     func testDefaultFreestyleSSHAttachRejectedCredentialDoesNotExposePasswordPrompt() throws {
         let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-fake-ssh-\(UUID().uuidString)", isDirectory: true)
