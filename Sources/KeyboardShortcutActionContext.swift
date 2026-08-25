@@ -209,7 +209,8 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
              .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
              .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard,
-             .commandPaletteNext, .commandPalettePrevious:
+             .commandPaletteNext, .commandPalettePrevious,
+             .browserHardReload:
             return true
         default:
             return false
