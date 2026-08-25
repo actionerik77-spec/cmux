@@ -37,6 +37,52 @@ Hangul canonical font resolution at `3fbdd078d`.
   - SHA-256 `e5b6ddb8d446fb3b2079ac3011b94c55d2fc9ea1c2eb1eafdfc1a7996ecd7cc3`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
+The latest mainline sync also retains the iOS render-disposition work below;
+its artifact entries remain in `scripts/ghosttykit-checksums.txt` for the
+mainline pins while this branch stays on `a63a97868` so the Fish wrapper fix is
+included.
+
+### iOS tokened render disposition and nonblocking prompt reveal
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/200
+- Commits:
+  - `6b221bd26` (ios: report tokened render dispositions)
+  - `e96f2fa1a` (refactor: simplify render failure callback)
+  - `531e49bd6` (ios: make prompt scroll nonblocking)
+  - `d13061b27` (test: cover terminal render delivery gaps)
+  - `3da10da73` (fix: guarantee tokened render disposition)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer.zig`
+  - `src/renderer/Thread.zig`
+  - `src/renderer/generic.zig`
+  - `src/renderer/metal/Frame.zig`
+  - `src/renderer/metal/IOSurfaceLayer.zig`
+  - `src/renderer/opengl/Frame.zig`
+  - `src/termio/Termio.zig`
+- Summary:
+  - Pairs the existing exact-frame presentation callback with discarded and
+    backend-failed outcomes, including layer-size and surface-generation
+    rejection after GPU completion.
+  - Rejects asynchronous tokened requests on iOS, where external-drain mode
+    does not service the renderer-thread request slot, and terminally fails a
+    request accepted across another platform's drain-mode transition.
+  - Releases delivery gates even when a host omits the optional failure
+    callback, while preserving explicitly null callback userdata.
+  - Adds a try-only scroll-to-bottom operation so iOS prompt reveal retries on
+    its display driver instead of blocking the output queue on Ghostty state.
+- Conflict note:
+  - Preserve one terminal disposition for every accepted token. If upstream
+    changes Metal layer assignment or external-drain ownership, keep iOS
+    submissions on the external driver and retain the post-GPU discard signal.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3da10da73ae848c0310e3e0f0cb29e509c2f6963-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `6a02a2ec3794de79a02af993083292a89517d2533eb20c746deca377f23456bd`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
 ### VT formatter cursor restoration after margins
 
 - Pull request:
