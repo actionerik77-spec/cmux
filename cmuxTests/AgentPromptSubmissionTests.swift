@@ -345,6 +345,71 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func unverifiedHookDoesNotRecordWhileAnAppPromptIsPending() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        var workspaceForCleanup: Workspace?
+        var panelForCleanup: TerminalPanel?
+        let defaults = UserDefaults.standard
+        let previousIMessageMode = defaults.object(forKey: IMessageModeSettings.key)
+        defer {
+            if let previousIMessageMode {
+                defaults.set(previousIMessageMode, forKey: IMessageModeSettings.key)
+            } else {
+                defaults.removeObject(forKey: IMessageModeSettings.key)
+            }
+            panelForCleanup?.surface.releaseSurfaceForTesting()
+            if let workspace = workspaceForCleanup,
+               tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+        defaults.set(true, forKey: IMessageModeSettings.key)
+
+        let workspace = tabManager.addWorkspace(select: true)
+        workspaceForCleanup = workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        panelForCleanup = panel
+        workspace.recordAgentPID(
+            key: "codex.unverified-prompt",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        let submission = panel.surface.sendPromptSubmission(
+            "app-owned prompt",
+            submitKey: "return",
+            hookRecordingSource: "workspace.agent_submit"
+        )
+        #expect(submission.accepted)
+        #expect(workspace.latestSubmittedMessage == nil)
+
+        let event = WorkstreamEvent(
+            sessionId: "foreign-session",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: workspace.id.uuidString,
+            surfaceId: nil,
+            toolInputJSON: #"{"prompt":"foreign human hook"}"#
+        )
+        TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
+
+        #expect(
+            workspace.latestSubmittedMessage == nil,
+            "An unverified hook must not fall through to generic workspace prompt recording"
+        )
+    }
+
+    @MainActor
     @Test func staleExplicitSurfaceHookDoesNotConfirmAnotherTerminal() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = previousAppDelegate ?? AppDelegate()

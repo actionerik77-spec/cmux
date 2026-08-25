@@ -156,6 +156,52 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(params["text"] as? String == "review the current diff")
     }
 
+    @Test func agentSubmitUsesAmbientSurfaceWhenNoTargetFlagsAreProvided() throws {
+        let socketPath = Self.makeSocketPath("agent-ambient")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = Self.requestID(from: payload),
+                  payload["method"] as? String == "workspace.agent_submit" else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "submitted": true,
+                    "queued": false,
+                    "workspace_id": Self.callerWorkspaceId,
+                    "surface_id": Self.callerSurfaceId,
+                ]
+            )
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["agent-submit", "ambient", "prompt"],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let request = try #require(state.requestObjects().first)
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
+        #expect(params["surface_id"] as? String == Self.callerSurfaceId)
+        #expect(params["text"] as? String == "ambient prompt")
+    }
+
     @Test func agentSubmitWindowDoesNotInheritCallerWorkspace() throws {
         let socketPath = Self.makeSocketPath("agent-window")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
