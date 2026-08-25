@@ -118,6 +118,21 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(acceptedInputCount == 1)
     }
 
+    @Test func queuedPromptSubmissionNotifiesItsOwner() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        var acceptedInputCount = 0
+        fixture.surface.onExplicitInput = { acceptedInputCount += 1 }
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "prompt",
+                submitKey: "return"
+            ) == .queued
+        )
+        #expect(acceptedInputCount == 1)
+    }
+
     @Test func rejectedParsedInputDoesNotNotifyItsOwner() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }

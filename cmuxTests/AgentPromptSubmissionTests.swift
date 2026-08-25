@@ -295,7 +295,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func surfaceLessHookConfirmsUniqueAgentTerminalDraft() throws {
+    @Test func surfaceLessHookWithoutExactSessionDoesNotGuessUniqueAgent() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = previousAppDelegate ?? AppDelegate()
         let previousTabManager = appDelegate.tabManager
@@ -332,7 +332,7 @@ struct AgentPromptSubmissionTests {
         #expect(panel.surface.hasUnconfirmedHumanPromptInput)
 
         let event = WorkstreamEvent(
-            sessionId: "surface-less-hook",
+            sessionId: "unrelated-session",
             hookEventName: .userPromptSubmit,
             source: "codex",
             workspaceId: workspace.id.uuidString,
@@ -341,7 +341,7 @@ struct AgentPromptSubmissionTests {
         )
         TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
 
-        #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
     }
 
     @MainActor
@@ -513,6 +513,67 @@ struct AgentPromptSubmissionTests {
         workspace.agentPIDs = pids
 
         #expect(workspace.agentPromptInputScope(forPanelId: panelID) == nil)
+    }
+
+    @MainActor
+    @Test func agentSubmitAcceptsWorkspaceAndSurfaceRefs() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        var workspaceForCleanup: Workspace?
+        var panelForCleanup: TerminalPanel?
+        defer {
+            panelForCleanup?.surface.releaseSurfaceForTesting()
+            if let workspace = workspaceForCleanup,
+               tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+        let workspace = tabManager.addWorkspace(select: true)
+        workspaceForCleanup = workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        panelForCleanup = panel
+        workspace.recordAgentPID(
+            key: "codex.ref-session",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        panel.surface.releaseSurfaceForTesting()
+
+        let workspaceRef = try #require(
+            TerminalController.shared.v2Ref(
+                kind: .workspace,
+                uuid: workspace.id
+            ) as? String
+        )
+        let surfaceRef = try #require(
+            TerminalController.shared.v2Ref(
+                kind: .surface,
+                uuid: panelID
+            ) as? String
+        )
+        let result = TerminalController.shared.v2WorkspaceAgentSubmit(params: [
+            "workspace_id": workspaceRef,
+            "surface_id": surfaceRef,
+            "text": "prompt through refs",
+        ])
+
+        guard case .ok(let rawPayload) = result else {
+            Issue.record("Expected workspace and surface refs to resolve")
+            return
+        }
+        let payload = try #require(rawPayload as? [String: Any])
+        #expect(payload["submitted"] as? Bool == true)
+        #expect(payload["queued"] as? Bool == true)
     }
 
     @MainActor
