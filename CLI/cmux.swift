@@ -25640,9 +25640,16 @@ struct CMUXCLI {
             // compatibility path transition-driven: an ordinary tool observed while
             // the session is already running has no durable work to do. Current
             // wrappers invoke this command only for the two blocking tools below.
-            didSendFeedTelemetry = true
             let toolName = parsedInput.object?["tool_name"] as? String
             let isBlockingNeedsInputTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
+            let permissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
+                ?? (parsedInput.rawObject?["permissionMode"] as? String)
+            let isBypassBlockingTool = isBlockingNeedsInputTool
+                && permissionMode == "bypassPermissions"
+            // Ordinary tools and bypass-only blockers intentionally skip the
+            // durable Feed event. Plan/default blockers retain the targeted
+            // PreToolUse telemetry because PermissionRequest follows them.
+            didSendFeedTelemetry = !isBlockingNeedsInputTool || isBypassBlockingTool
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             // Legacy wrappers still invoke this command for ordinary tools. Keep
             // their transition cleanup, but only when the durable session says a
@@ -25699,6 +25706,9 @@ struct CMUXCLI {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.nested-suppressed")
                 printClaudeHookAck()
                 return
+            }
+            if isBlockingNeedsInputTool, !isBypassBlockingTool {
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
 
             // AskUserQuestion and ExitPlanMode are blocking "needs input" tools:
@@ -25776,9 +25786,7 @@ struct CMUXCLI {
                 // Read permission_mode from rawObject: the compacted `object`
                 // (compactClaudeHookObject) keeps only an allowlist of keys and does
                 // not retain permission_mode.
-                let permissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
-                    ?? (parsedInput.rawObject?["permissionMode"] as? String)
-                if permissionMode == "bypassPermissions",
+                if isBypassBlockingTool,
                    let registeredBlockingTool {
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
