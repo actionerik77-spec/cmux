@@ -91,4 +91,20 @@ public enum PendingSocketInput: Sendable {
             true
         }
     }
+
+    /// Completes a queued compound prompt's optional delivery receipt.
+    ///
+    /// Surface teardown uses this value-only hook from its nonisolated
+    /// deinitializer, where it cannot call a MainActor helper. Other input
+    /// kinds have no receipt and are left unchanged.
+    public func completePromptSubmissionDelivery(
+        with result: PromptSubmissionSendResult
+    ) {
+        guard case .promptSubmission(
+            _, _, _, _, _, _, let deliveryReceipt
+        ) = self else {
+            return
+        }
+        deliveryReceipt?.finish(result)
+    }
 }

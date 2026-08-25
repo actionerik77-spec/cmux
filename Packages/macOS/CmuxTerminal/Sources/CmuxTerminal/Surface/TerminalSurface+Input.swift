@@ -1440,6 +1440,21 @@ extension TerminalSurface {
         return true
     }
 
+    /// Drops pending input because this surface will not receive another
+    /// runtime write, completing any agent-submit receipts instead of leaving
+    /// the global socket lane occupied forever.
+    @MainActor
+    func discardPendingSocketInput(
+        with result: PromptSubmissionSendResult = .surfaceUnavailable
+    ) {
+        let queued = pendingSocketInputQueue
+        pendingSocketInputQueue.removeAll(keepingCapacity: false)
+        pendingSocketInputBytes = 0
+        for input in queued {
+            finishPendingPromptDelivery(input, with: result)
+        }
+    }
+
     @MainActor
     func flushPendingSocketInputIfNeeded() {
         guard let liveSurface = liveSurfaceForSocketWrite(
@@ -1529,7 +1544,12 @@ extension TerminalSurface {
             estimatedBytes: input.estimatedBytes,
             isHumanInput: input.isHumanInput,
             replay: { [weak self] in
-                guard let self else { return }
+                guard let self else {
+                    input.completePromptSubmissionDelivery(
+                        with: .surfaceUnavailable
+                    )
+                    return
+                }
                 let delivered = self.deliverPendingSocketInput(input)
                 if !delivered,
                    self.shouldRetainPendingPromptAfterScopeMismatch(input) {
@@ -1653,11 +1673,6 @@ extension TerminalSurface {
         _ input: PendingSocketInput,
         with result: PromptSubmissionSendResult
     ) {
-        guard case .promptSubmission(
-            _, _, _, _, _, _, let deliveryReceipt
-        ) = input else {
-            return
-        }
-        deliveryReceipt?.finish(result)
+        input.completePromptSubmissionDelivery(with: result)
     }
 }

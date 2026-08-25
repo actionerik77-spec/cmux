@@ -85,11 +85,13 @@ extension TerminalController {
             // strictly fail-closed when that scope is unavailable.
             let rejectTrackedHumanComposer =
                 rejectIfHumanComposerBusy && agentInputScope != nil
-            // The legacy pre-binding clear remains app-owned by traveling with
-            // the paste and submit key in one indivisible transaction. Generic
-            // named-key delivery would incorrectly claim human composer state.
+            // Keep the legacy composer reset inside the same indivisible
+            // transaction whenever this exact mobile-chat path is guarded.
+            // Tracked input is rejected before these keys are admitted; the
+            // reset therefore covers only composer text that the ledger cannot
+            // authoritatively observe (including restored TUI state).
             let preparationKeys =
-                rejectIfHumanComposerBusy && agentInputScope == nil
+                rejectIfHumanComposerBusy
                     ? ["ctrl+a", "ctrl+k", "ctrl+u"]
                     : []
             let result = terminalPanel.sendPromptSubmissionResult(

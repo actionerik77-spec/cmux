@@ -148,10 +148,6 @@ final class AgentChatTranscriptService {
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
-    deinit {
-        mobileChatAttachmentExpirationTimer?.cancel()
-    }
-
     private struct ProseTurnState {
         let token: AgentChatProseStreamer.TurnToken
         let startedAt: Date
@@ -1013,6 +1009,7 @@ final class AgentChatTranscriptService {
         // `isolated deinit` still has Xcode compatibility constraints in cmux,
         // so keep teardown synchronous while asserting that owner invariant.
         MainActor.assumeIsolated {
+            mobileChatAttachmentExpirationTimer?.cancel()
             proseWakeDriver?.stop()
             proseStreamer?.stopAll()
         }

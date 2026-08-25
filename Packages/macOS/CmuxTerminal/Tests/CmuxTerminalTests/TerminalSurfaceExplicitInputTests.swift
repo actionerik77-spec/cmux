@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import GhosttyKit
 import Testing
 @testable import CmuxTerminal
@@ -423,6 +424,27 @@ struct TerminalSurfaceExplicitInputTests {
             return
         }
         #expect(retainedScope == originalScope)
+    }
+
+    @Test func discardedQueuedPromptCompletesItsDeliveryReceipt() async {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.discarded-prompt"
+        )
+        let receipt = PromptSubmissionDeliveryReceipt()
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "discard this prompt",
+                submitKey: "return",
+                hookRecordingSource: "workspace.agent_submit",
+                deliveryReceipt: receipt
+            ) == .queued
+        )
+        fixture.surface.discardPendingSocketInput()
+
+        #expect(await receipt.wait() == .surfaceUnavailable)
     }
 
     @Test func unconfiguredControlReturnRemainsFailClosed() {

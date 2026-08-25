@@ -650,6 +650,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     deinit {
         agentCommandShimInstallTask?.cancel()
         agentCommandShimCompletionTask?.cancel()
+        for input in pendingSocketInputQueue {
+            input.completePromptSubmissionDelivery(with: .surfaceUnavailable)
+        }
+        pendingSocketInputQueue.removeAll(keepingCapacity: false)
+        pendingSocketInputBytes = 0
         registry.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so

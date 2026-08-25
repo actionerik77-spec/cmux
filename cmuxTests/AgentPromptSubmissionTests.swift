@@ -365,6 +365,32 @@ struct AgentPromptSubmissionTests {
         )
         #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
 
+        let boundMobileResult = TerminalController.shared
+            .v2MobileTerminalPaste(
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": panelID.uuidString,
+                    "text": "bound mobile message",
+                ],
+                rejectIfHumanComposerBusy: true
+            )
+        guard case .ok(let boundMobilePayload) = boundMobileResult else {
+            Issue.record("Expected bound mobile send to remain available")
+            return
+        }
+        let boundMobileResponse = try #require(
+            boundMobilePayload as? [String: Any]
+        )
+        #expect(boundMobileResponse["submitted"] as? Bool == true)
+        #expect(boundMobileResponse["queued"] as? Bool == true)
+        #expect(
+            panel.surface.pendingPromptPreparationKeyLabelsForTests
+                == [
+                    ["ctrl+a", "ctrl+k", "ctrl+u"],
+                    ["ctrl+a", "ctrl+k", "ctrl+u"],
+                ]
+        )
+
         let agentResult = TerminalController.shared.v2WorkspaceAgentSubmit(
             params: [
                 "workspace_id": workspace.id.uuidString,
@@ -382,7 +408,7 @@ struct AgentPromptSubmissionTests {
         #expect(agentResponse["submitted"] as? Bool == true)
         #expect(agentResponse["queued"] as? Bool == true)
         #expect(
-            panel.surface.pendingSocketInputSnapshotForTests.items == 2
+            panel.surface.pendingSocketInputSnapshotForTests.items == 3
         )
     }
 
