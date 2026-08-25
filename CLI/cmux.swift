@@ -25525,6 +25525,21 @@ struct CMUXCLI {
             }
             let toolName = firstString(in: rawObject, keys: ["tool_name", "toolName"])
             let isBlockingTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
+            let mappedPermissionSession = parsedInput.sessionId.flatMap {
+                try? sessionStore.lookup(sessionId: $0)
+            }
+            let permissionRequestIsCurrent: Bool = {
+                guard let mappedPermissionSession,
+                      let sessionId = parsedInput.sessionId else {
+                    return true
+                }
+                return (try? sessionStore.isCurrent(
+                    sessionId: sessionId,
+                    workspaceId: mappedPermissionSession.workspaceId,
+                    surfaceId: mappedPermissionSession.surfaceId,
+                    turnId: parsedInput.turnId
+                )) ?? true
+            }()
             let terminalResponse = try runFeedHook(
                 commandArgs: ["--source", "claude"],
                 client: client,
@@ -25533,12 +25548,14 @@ struct CMUXCLI {
             )
             if terminalResponse != nil,
                isBlockingTool,
+               permissionRequestIsCurrent,
                let sessionId = parsedInput.sessionId {
                 do {
                     _ = try sessionStore.resolveBlockingToolPermissionRequest(
                         sessionId: sessionId,
                         toolUseId: extractClaudeHookToolUseId(from: rawObject),
-                        rawObject: rawObject
+                        rawObject: rawObject,
+                        turnId: parsedInput.turnId
                     )
                 } catch {
                     telemetry.breadcrumb(
@@ -25671,6 +25688,7 @@ struct CMUXCLI {
                         transcriptPath: parsedInput.transcriptPath,
                         agentPID: claudePid,
                         toolUseId: toolUseId,
+                        turnId: parsedInput.turnId,
                         rawObject: parsedInput.rawObject,
                         lastSubtitle: waitingSubtitle,
                         lastBody: needsInputBody

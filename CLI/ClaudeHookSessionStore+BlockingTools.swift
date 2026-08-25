@@ -5,6 +5,8 @@ extension ClaudeHookSessionStore {
     struct BlockingToolCorrelation: Codable, Equatable {
         let payloadSignature: String
         let toolUseId: String
+        /// The Claude turn that registered this payload, when available.
+        let turnId: String?
     }
 
     struct BlockingToolRegistration: Equatable {
@@ -71,6 +73,7 @@ extension ClaudeHookSessionStore {
         transcriptPath: String?,
         agentPID: Int?,
         toolUseId: String?,
+        turnId: String? = nil,
         rawObject: [String: Any]?,
         lastSubtitle: String,
         lastBody: String
@@ -108,7 +111,8 @@ extension ClaudeHookSessionStore {
                     .filter { $0.toolUseId != requestId }
                 correlations.append(BlockingToolCorrelation(
                     payloadSignature: payloadSignature,
-                    toolUseId: requestId
+                    toolUseId: requestId,
+                    turnId: normalizedBlockingToolIdentifier(turnId)
                 ))
                 if correlations.count > Self.maximumBlockingToolCorrelationCount {
                     let overflowCount =
@@ -150,7 +154,8 @@ extension ClaudeHookSessionStore {
     func selectBlockingToolInput(
         sessionId: String,
         toolUseId: String?,
-        rawObject: [String: Any]?
+        rawObject: [String: Any]?,
+        turnId: String? = nil
     ) throws -> BlockingToolSelection {
         let explicitRequestId = normalizedBlockingToolIdentifier(toolUseId)
         guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
@@ -168,7 +173,8 @@ extension ClaudeHookSessionStore {
             guard let requestId = correlatedBlockingToolUseId(
                 explicitToolUseId: explicitRequestId,
                 rawObject: rawObject,
-                record: record
+                record: record,
+                incomingTurnId: turnId
             ), pending.contains(requestId) else {
                 return .ignoreUnmatched
             }
@@ -187,7 +193,8 @@ extension ClaudeHookSessionStore {
         surfaceId: String,
         cwd: String?,
         transcriptPath: String?,
-        toolUseId: String?
+        toolUseId: String?,
+        turnId: String? = nil
     ) throws -> BlockingToolResolution {
         guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
             return .ignoreUnmatched
@@ -201,6 +208,7 @@ extension ClaudeHookSessionStore {
             let resolution = resolveBlockingTool(
                 in: &record,
                 toolUseId: toolUseId,
+                turnId: turnId,
                 now: now
             )
             guard resolution == .resolved else { return resolution }
@@ -229,7 +237,8 @@ extension ClaudeHookSessionStore {
     func resolveBlockingToolPermissionRequest(
         sessionId: String,
         toolUseId: String?,
-        rawObject: [String: Any]?
+        rawObject: [String: Any]?,
+        turnId: String? = nil
     ) throws -> BlockingToolResolution {
         guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
             return .resolved
@@ -243,8 +252,10 @@ extension ClaudeHookSessionStore {
                 toolUseId: correlatedBlockingToolUseId(
                     explicitToolUseId: toolUseId,
                     rawObject: rawObject,
-                    record: record
+                    record: record,
+                    incomingTurnId: turnId
                 ),
+                turnId: turnId,
                 now: Date.now.timeIntervalSince1970
             )
             guard resolution == .resolved else { return resolution }
@@ -256,12 +267,19 @@ extension ClaudeHookSessionStore {
     private func resolveBlockingTool(
         in record: inout ClaudeHookSessionRecord,
         toolUseId: String?,
+        turnId: String?,
         now: TimeInterval
     ) -> BlockingToolResolution {
         if let storedPending = record.pendingBlockingToolUseIds {
             let pending = normalizedBlockingToolUseIds(storedPending)
             guard let toolUseId = normalizedBlockingToolIdentifier(toolUseId),
-                  pending.contains(toolUseId) else {
+                  pending.contains(toolUseId),
+                  blockingToolTurnMatches(
+                      storedTurnId: record.pendingBlockingToolCorrelations?.first {
+                          $0.toolUseId == toolUseId
+                      }?.turnId,
+                      incomingTurnId: turnId
+                  ) else {
                 return .ignoreUnmatched
             }
             let remaining = pending.filter { $0 != toolUseId }
@@ -320,9 +338,18 @@ extension ClaudeHookSessionStore {
     private func correlatedBlockingToolUseId(
         explicitToolUseId: String?,
         rawObject: [String: Any]?,
-        record: ClaudeHookSessionRecord
+        record: ClaudeHookSessionRecord,
+        incomingTurnId: String?
     ) -> String? {
         if let explicitToolUseId = normalizedBlockingToolIdentifier(explicitToolUseId) {
+            guard blockingToolTurnMatches(
+                storedTurnId: record.pendingBlockingToolCorrelations?.first {
+                    $0.toolUseId == explicitToolUseId
+                }?.turnId,
+                incomingTurnId: incomingTurnId
+            ) else {
+                return nil
+            }
             return explicitToolUseId
         }
         guard record.pendingBlockingToolUseIds != nil,
@@ -333,8 +360,26 @@ extension ClaudeHookSessionStore {
             record.pendingBlockingToolUseIds ?? []
         ))
         return record.pendingBlockingToolCorrelations?.first {
-            $0.payloadSignature == payloadSignature && pending.contains($0.toolUseId)
+            $0.payloadSignature == payloadSignature
+                && pending.contains($0.toolUseId)
+                && blockingToolTurnMatches(
+                    storedTurnId: $0.turnId,
+                    incomingTurnId: incomingTurnId
+                )
         }?.toolUseId
+    }
+
+    private func blockingToolTurnMatches(
+        storedTurnId: String?,
+        incomingTurnId: String?
+    ) -> Bool {
+        guard let storedTurnId = normalizedBlockingToolIdentifier(storedTurnId) else {
+            return true
+        }
+        guard let incomingTurnId = normalizedBlockingToolIdentifier(incomingTurnId) else {
+            return false
+        }
+        return storedTurnId == incomingTurnId
     }
 
     private func blockingToolPayloadSignature(
@@ -343,18 +388,13 @@ extension ClaudeHookSessionStore {
         guard let rawObject else { return nil }
         let rawToolName = rawObject["tool_name"] ?? rawObject["toolName"]
         let toolName = normalizedBlockingToolIdentifier(rawToolName as? String)
-            .map {
-                boundedBlockingToolString(
-                    $0,
-                    maxBytes: Self.maximumBlockingToolPayloadSignatureKeyBytes
-                )
-            }
         let toolInput = rawObject["tool_input"] ?? rawObject["toolInput"] ?? NSNull()
-        guard let boundedToolInput = boundedBlockingToolPayloadValue(toolInput, depth: 0) else {
+        guard toolName?.utf8.count ?? 0 <= Self.maximumBlockingToolPayloadSignatureKeyBytes,
+              blockingToolPayloadValueIsBounded(toolInput, depth: 0) else {
             return nil
         }
         let canonicalPayload: [String: Any] = [
-            "tool_input": boundedToolInput,
+            "tool_input": toolInput,
             "tool_name": toolName ?? NSNull(),
         ]
         guard JSONSerialization.isValidJSONObject(canonicalPayload),
@@ -367,84 +407,38 @@ extension ClaudeHookSessionStore {
         return Data(SHA256.hash(data: data)).base64EncodedString()
     }
 
-    private func boundedBlockingToolPayloadValue(
+    /// Rejects values that would be truncated before fallback correlation.
+    /// A truncated signature could make two distinct blockers look identical;
+    /// an explicit tool ID remains the only safe path for oversized payloads.
+    private func blockingToolPayloadValueIsBounded(
         _ value: Any,
         depth: Int
-    ) -> Any? {
+    ) -> Bool {
         if let string = value as? String {
-            return boundedBlockingToolString(
-                string,
-                maxBytes: Self.maximumBlockingToolPayloadSignatureStringBytes
-            )
+            return string.utf8.count <= Self.maximumBlockingToolPayloadSignatureStringBytes
         }
-        if let bool = value as? Bool {
-            return bool
-        }
-        if let number = value as? NSNumber {
-            return number
-        }
-        if value is NSNull {
-            return NSNull()
-        }
+        if value is Bool || value is NSNumber || value is NSNull { return true }
         guard depth < Self.maximumBlockingToolPayloadSignatureDepth else {
-            return ["_cmux_truncated": true]
+            return false
         }
         if let dictionary = value as? [String: Any] {
-            let keys = dictionary.keys.sorted()
-            var bounded: [String: Any] = [:]
-            for key in keys.prefix(Self.maximumBlockingToolPayloadSignatureCollectionCount) {
-                guard let rawValue = dictionary[key],
-                      let boundedValue = boundedBlockingToolPayloadValue(
-                          rawValue,
-                          depth: depth + 1
-                      ) else {
-                    continue
-                }
-                let boundedKey = boundedBlockingToolString(
-                    key,
-                    maxBytes: Self.maximumBlockingToolPayloadSignatureKeyBytes
-                )
-                bounded[boundedKey] = boundedValue
+            guard dictionary.count <= Self.maximumBlockingToolPayloadSignatureCollectionCount else {
+                return false
             }
-            if keys.count > Self.maximumBlockingToolPayloadSignatureCollectionCount {
-                bounded["_cmux_truncated_key_count"] =
-                    keys.count - Self.maximumBlockingToolPayloadSignatureCollectionCount
+            return dictionary.allSatisfy { key, value in
+                key.utf8.count <= Self.maximumBlockingToolPayloadSignatureKeyBytes
+                    && blockingToolPayloadValueIsBounded(value, depth: depth + 1)
             }
-            return bounded
         }
         if let array = value as? [Any] {
-            let boundedValues = array.prefix(
-                Self.maximumBlockingToolPayloadSignatureCollectionCount
-            ).compactMap {
-                boundedBlockingToolPayloadValue($0, depth: depth + 1)
+            guard array.count <= Self.maximumBlockingToolPayloadSignatureCollectionCount else {
+                return false
             }
-            if array.count > Self.maximumBlockingToolPayloadSignatureCollectionCount {
-                return [
-                    "_cmux_values": boundedValues,
-                    "_cmux_truncated_value_count":
-                        array.count - Self.maximumBlockingToolPayloadSignatureCollectionCount,
-                ]
+            return array.allSatisfy {
+                blockingToolPayloadValueIsBounded($0, depth: depth + 1)
             }
-            return boundedValues
         }
-        return nil
-    }
-
-    private func boundedBlockingToolString(
-        _ value: String,
-        maxBytes: Int
-    ) -> String {
-        guard value.utf8.count > maxBytes else { return value }
-        var endIndex = value.startIndex
-        var usedBytes = 0
-        while endIndex < value.endIndex {
-            let nextIndex = value.index(after: endIndex)
-            let characterBytes = value[endIndex..<nextIndex].utf8.count
-            guard usedBytes + characterBytes <= maxBytes else { break }
-            usedBytes += characterBytes
-            endIndex = nextIndex
-        }
-        return String(value[..<endIndex])
+        return false
     }
 
     private func normalizedBlockingToolIdentifier(_ value: String?) -> String? {

@@ -75,7 +75,8 @@ extension CMUXCLI {
             switch try sessionStore.selectBlockingToolInput(
                 sessionId: sessionId,
                 toolUseId: toolUseId,
-                rawObject: parsedInput.rawObject
+                rawObject: parsedInput.rawObject,
+                turnId: parsedInput.turnId
             ) {
             case .selected(let requestId):
                 attentionRequestId = requestId
@@ -111,7 +112,8 @@ extension CMUXCLI {
                 surfaceId: surfaceId,
                 cwd: parsedInput.cwd,
                 transcriptPath: parsedInput.transcriptPath,
-                toolUseId: attentionRequestId
+                toolUseId: attentionRequestId,
+                turnId: parsedInput.turnId
             )
         } catch {
             telemetry.breadcrumb(

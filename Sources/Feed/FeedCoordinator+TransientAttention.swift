@@ -16,6 +16,8 @@ final class FeedTransientAttentionStore {
         /// One exact local process generation, protected against PID reuse.
         case localProcess(AgentPIDProcessIdentity)
         /// The live remote workspace whose authenticated relay created it.
+        /// Relay disconnect is recoverable, so this owner is retained until an
+        /// authenticated end or workspace-close boundary proves completion.
         case remoteWorkspace(UUID)
 
         var localProcessIdentity: AgentPIDProcessIdentity? {
