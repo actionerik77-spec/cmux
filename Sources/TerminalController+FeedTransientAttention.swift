@@ -67,6 +67,8 @@ extension TerminalController {
             )
         }
         let remoteWorkspaceRaw = params["_cmux_remote_workspace_id"]
+        let isLegacyRelease = params["legacy_release"] as? Bool == true
+        let localProcessIdentity = transientAttentionProcessIdentity(params)
         let authenticatedRemoteWorkspaceId: UUID?
         let authenticatedLocalProcessIdentity: AgentPIDProcessIdentity?
         if remoteWorkspaceRaw != nil {
@@ -78,11 +80,14 @@ extension TerminalController {
             authenticatedRemoteWorkspaceId = remoteWorkspaceId
             authenticatedLocalProcessIdentity = nil
         } else {
-            guard let processIdentity = transientAttentionProcessIdentity(params) else {
+            guard isLegacyRelease || localProcessIdentity != nil else {
                 return invalidTransientAttentionOwnerResult()
             }
             authenticatedRemoteWorkspaceId = nil
-            authenticatedLocalProcessIdentity = processIdentity
+            authenticatedLocalProcessIdentity = localProcessIdentity
+        }
+        if isLegacyRelease {
+            return .ok(["ended": false])
         }
         let ended: Bool
         if (params["all_requests"] as? Bool) == true {

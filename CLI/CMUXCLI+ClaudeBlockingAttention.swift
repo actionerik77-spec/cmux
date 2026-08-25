@@ -139,7 +139,12 @@ extension CMUXCLI {
               pid <= Int(Int32.max),
               startSeconds >= 0,
               (0..<1_000_000).contains(startMicroseconds) else {
-            return false
+            // Older session records may predate PID birth metadata. They could
+            // not have acquired a current authenticated transient entry, but
+            // durable Claude state still needs to complete; the app treats
+            // this marker as a no-op transient release.
+            params["legacy_release"] = true
+            return true
         }
         params["ppid"] = pid
         params["ppid_start_seconds"] = startSeconds
@@ -215,10 +220,6 @@ extension CMUXCLI {
             transcriptPath: parsedInput.transcriptPath,
             agentLifecycle: .running,
             clearPendingBlockingTools: true
-        )
-        _ = try? sendV1Command(
-            "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-            client: client
         )
         setAgentLifecycle(
             client: client,

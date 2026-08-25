@@ -213,6 +213,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
     func removeAllDetachedSurfaceTransfers() {
+        for panelId in detachedSurfaceTransfersByPanelId.keys {
+            FeedCoordinator.shared.endTransientBlockingAttention(surfaceId: panelId)
+        }
         let workspaceIDs = Set(
             detachedSurfaceTransfersByPanelId.values.compactMap(
                 Self.remoteTerminalPresentationWorkspaceID
