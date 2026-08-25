@@ -69,6 +69,8 @@ extension CMUXCLI {
     /// this legacy path only restores the status and targeted notification.
     func fallbackClaudeBlockingAttention(
         client: SocketClient,
+        sessionStore: ClaudeHookSessionStore,
+        sessionId: String,
         workspaceId: String,
         surfaceId: String,
         title: String,
@@ -76,6 +78,10 @@ extension CMUXCLI {
         body: String,
         pid: Int?
     ) {
+        try? sessionStore.setLegacyBlockingAttentionFallback(
+            sessionId: sessionId,
+            active: true
+        )
         setAgentLifecycle(
             client: client,
             key: Self.claudeCodeStatusKey,

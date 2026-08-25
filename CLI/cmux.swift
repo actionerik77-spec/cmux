@@ -156,6 +156,9 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     var lastSubtitle: String?
     var lastBody: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
+    /// True when an older app endpoint required a durable V1 attention fallback
+    /// for a bypass-permissions blocker; completion must clear that UI path.
+    var legacyBlockingAttentionFallbackActive: Bool? = nil
     var lastEmittedNotificationFingerprint: String?
     var lastEmittedNotificationAt: TimeInterval?
     var recentEmittedNotificationFingerprints: [String: TimeInterval]?
@@ -25820,6 +25823,8 @@ struct CMUXCLI {
                     if !beganTransientAttention {
                         fallbackClaudeBlockingAttention(
                             client: client,
+                            sessionStore: sessionStore,
+                            sessionId: sessionId,
                             workspaceId: workspaceId,
                             surfaceId: existingSurfaceId,
                             title: title,

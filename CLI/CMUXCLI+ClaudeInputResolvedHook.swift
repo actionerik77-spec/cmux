@@ -29,7 +29,8 @@ extension CMUXCLI {
             ?? (parsedInput.rawObject?["permissionMode"] as? String)
         let shouldResumeClaudeLifecycle =
             mappedSession?.agentLifecycle == .needsInput
-                && permissionMode != "bypassPermissions"
+                && (permissionMode != "bypassPermissions"
+                    || mappedSession?.legacyBlockingAttentionFallbackActive == true)
         var inputResolvedRouting = routing
         inputResolvedRouting.allowsPidProbe = false
         guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(

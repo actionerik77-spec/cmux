@@ -105,8 +105,28 @@ extension ClaudeHookSessionStore {
             record.pendingBlockingToolCorrelations = []
             record.lastSubtitle = nil
             record.lastBody = nil
+            record.legacyBlockingAttentionFallbackActive = nil
             state.sessions[sessionId] = record
             return true
+        }
+    }
+
+    /// Persists whether the compatibility V1 attention UI was emitted for a
+    /// bypass blocker, so its later PostToolUse can clear that UI path.
+    func setLegacyBlockingAttentionFallback(
+        sessionId: String,
+        active: Bool
+    ) throws {
+        guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[sessionId] else { return }
+            let nextValue = active ? true : nil
+            guard record.legacyBlockingAttentionFallbackActive != nextValue else {
+                return
+            }
+            record.legacyBlockingAttentionFallbackActive = nextValue
+            record.updatedAt = Date.now.timeIntervalSince1970
+            state.sessions[sessionId] = record
         }
     }
 
