@@ -976,6 +976,14 @@ def _self_test() -> int:
             'const quote = /"/; await fetch("https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
         ),
+        # JavaScript/TypeScript block comments are not nestable; an example
+        # delimiter inside one must not hide executable code after its closer.
+        (
+            "web/tests/n32.ts",
+            "/* example /* nested-looking */\n"
+            'await fetch("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
         (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
