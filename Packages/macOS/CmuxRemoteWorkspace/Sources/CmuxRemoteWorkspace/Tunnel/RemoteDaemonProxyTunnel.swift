@@ -464,7 +464,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         )
         let alphabet = Array("0123456789abcdef".utf8)
         var bytes: [UInt8] = []
-        bytes.reserveCapacity(code.count * 2)
+        bytes.reserveCapacity(SHA256.byteCount * 2)
         for byte in code {
             bytes.append(alphabet[Int(byte >> 4)])
             bytes.append(alphabet[Int(byte & 0x0f)])
