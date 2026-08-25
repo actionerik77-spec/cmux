@@ -149,10 +149,10 @@ extension Workspace {
         }
         let notificationStore = AppDelegate.shared?.notificationStore
         let isWorkspaceManuallyUnread = notificationStore?.hasManualUnread(forTabId: id) ?? false
-        let hasWorkspaceUnreadIndicator =
-            (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
-            (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
         let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
+        let hasWorkspaceUnreadIndicator =
+            workspaceNotificationSnapshots.contains { !$0.isRead } ||
+            (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
         var snapshot = SessionWorkspaceSnapshot(
             workspaceId: id,
             stableId: stableId,
@@ -427,10 +427,11 @@ extension Workspace {
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
         let panelNotificationSnapshots = notificationSnapshots(surfaceId: panelId)
-        let panelHasUnreadNotification = hasUnreadNotification(panelId: panelId)
+        let panelHasUnreadNotification = panelNotificationSnapshots.contains { !$0.isRead }
         let hasUnreadIndicator =
             restoredUnreadPanelIds.contains(panelId) ||
-            hasVisibleNotificationIndicator(panelId: panelId)
+            panelNotificationSnapshots.contains { !$0.isRead } ||
+            (AppDelegate.shared?.notificationStore?.focusedReadIndicatorSurfaceId(forTabId: id) == panelId)
         let restoredUnreadContributesToWorkspace: Bool? = {
             if let restoredIndicator = restoredUnreadPanelIndicators[panelId] {
                 return restoredIndicator.contributesToWorkspaceUnread
@@ -1960,6 +1961,10 @@ extension Workspace {
             .notifications(forTabId: id, surfaceId: surfaceId)
             .filter(\.persistsInSessionSnapshot)
             .map(SessionNotificationSnapshot.init(notification:)) ?? []
+    }
+
+    private func hasPersistentUnreadNotification(surfaceId: UUID?) -> Bool {
+        notificationSnapshots(surfaceId: surfaceId).contains { !$0.isRead }
     }
 
     private func restoredSessionNotifications(
@@ -4433,7 +4438,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let unreadPanelIDs = Set(
             panels.keys.filter {
                 restoredUnreadPanelIds.contains($0) ||
-                    (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: $0) ?? false)
+                    hasPersistentUnreadNotification(surfaceId: $0)
             }
         )
         return WorkspaceAttentionPersistentState(
@@ -6733,8 +6738,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         recordLifecycleTombstone: Bool = true,
         livenessExcludingSurfaceId: UUID? = nil
     ) -> Bool {
+        let preserveTransientAttention =
+            remoteConfiguration?.preserveAfterTerminalExit == true
+                || transferredRemoteCleanupConfigurationsByPanelId[surfaceId]?.preserveAfterTerminalExit == true
         func finish(_ didEnd: Bool) -> Bool {
-            if didEnd {
+            if didEnd, !preserveTransientAttention {
                 FeedCoordinator.shared.endTransientBlockingAttention(surfaceId: surfaceId)
             }
             return didEnd

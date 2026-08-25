@@ -25,6 +25,11 @@ extension CMUXCLI {
         let mappedSession = parsedInput.sessionId.flatMap {
             try? sessionStore.lookup(sessionId: $0)
         }
+        let permissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
+            ?? (parsedInput.rawObject?["permissionMode"] as? String)
+        let shouldResumeClaudeLifecycle =
+            mappedSession?.agentLifecycle == .needsInput
+                && permissionMode != "bypassPermissions"
         var inputResolvedRouting = routing
         inputResolvedRouting.allowsPidProbe = false
         guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
@@ -131,7 +136,17 @@ extension CMUXCLI {
             printClaudeHookAck()
             return
         case .resolved:
-            break
+            if shouldResumeClaudeLifecycle {
+                resumeClaudeNeedsInputLifecycle(
+                    client: client,
+                    parsedInput: parsedInput,
+                    sessionStore: sessionStore,
+                    routing: routing,
+                    telemetry: telemetry,
+                    expectedSession: mappedSession,
+                    allowResolvedState: true
+                )
+            }
         }
         printClaudeHookAck()
     }

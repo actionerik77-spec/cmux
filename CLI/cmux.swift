@@ -25528,25 +25528,27 @@ struct CMUXCLI {
             let mappedPermissionSession = parsedInput.sessionId.flatMap {
                 try? sessionStore.lookup(sessionId: $0)
             }
-            let permissionRequestIsCurrent: Bool = {
-                guard let mappedPermissionSession,
-                      let sessionId = parsedInput.sessionId else {
-                    return true
-                }
-                return (try? sessionStore.isCurrent(
-                    sessionId: sessionId,
-                    workspaceId: mappedPermissionSession.workspaceId,
-                    surfaceId: mappedPermissionSession.surfaceId,
-                    turnId: parsedInput.turnId
-                )) ?? true
-            }()
             let terminalResponse = try runFeedHook(
                 commandArgs: ["--source", "claude"],
                 client: client,
                 telemetry: telemetry,
                 stdinObject: rawObject
             )
-            if terminalResponse != nil,
+            // Re-read after Feed waits for the user's decision: another turn
+            // may have become active while this synchronous hook was blocked.
+            let permissionRequestIsCurrent: Bool = {
+                guard let sessionId = parsedInput.sessionId,
+                      let currentSession = try? sessionStore.lookup(sessionId: sessionId) else {
+                    return true
+                }
+                return (try? sessionStore.isCurrent(
+                    sessionId: sessionId,
+                    workspaceId: currentSession.workspaceId,
+                    surfaceId: currentSession.surfaceId,
+                    turnId: parsedInput.turnId
+                )) ?? true
+            }()
+            if terminalResponse?["status"] as? String == "resolved",
                isBlockingTool,
                permissionRequestIsCurrent,
                let sessionId = parsedInput.sessionId {
@@ -25565,12 +25567,14 @@ struct CMUXCLI {
                 }
             }
             if terminalResponse?["status"] as? String == "resolved" {
-                resumeClaudeAfterPermissionRequest(
+                resumeClaudeNeedsInputLifecycle(
                     client: client,
                     parsedInput: parsedInput,
                     sessionStore: sessionStore,
                     routing: hookRouting,
-                    telemetry: telemetry
+                    telemetry: telemetry,
+                    expectedSession: mappedPermissionSession,
+                    allowResolvedState: isBlockingTool
                 )
             }
 

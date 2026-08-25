@@ -107,23 +107,34 @@ extension CMUXCLI {
         )
     }
 
-    /// Clears the app-owned lifecycle/status that a Claude permission
-    /// notification raised after the user answers the native PermissionRequest.
-    /// Targeted wrappers no longer observe ordinary tools, so this response is
-    /// the authoritative resume transition for that notification path.
-    func resumeClaudeAfterPermissionRequest(
+    /// Clears the app-owned lifecycle/status raised by a Claude permission
+    /// notification once its native prompt or targeted blocker completes.
+    /// Targeted wrappers no longer observe ordinary tools, so hook completion
+    /// is the authoritative resume transition for that notification path.
+    func resumeClaudeNeedsInputLifecycle(
         client: SocketClient,
         parsedInput: ClaudeHookParsedInput,
         sessionStore: ClaudeHookSessionStore,
         routing: ClaudeHookRoutingContext,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        expectedSession: ClaudeHookSessionRecord? = nil,
+        allowResolvedState: Bool = false
     ) {
         guard let sessionId = parsedInput.sessionId else { return }
-        let mappedSession = try? sessionStore.lookup(sessionId: sessionId)
+        let mappedSession = expectedSession ?? (try? sessionStore.lookup(sessionId: sessionId))
         guard let mappedSession,
-              mappedSession.agentLifecycle == .needsInput,
-              mappedSession.pendingBlockingToolUseIds?.isEmpty != false else {
+              mappedSession.agentLifecycle == .needsInput else {
             return
+        }
+        if !allowResolvedState,
+           mappedSession.pendingBlockingToolUseIds?.isEmpty == false {
+            return
+        }
+        if allowResolvedState {
+            let currentSession = try? sessionStore.lookup(sessionId: sessionId)
+            guard currentSession?.pendingBlockingToolUseIds?.isEmpty != false else {
+                return
+            }
         }
 
         var cleanupRouting = routing
