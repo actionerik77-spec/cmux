@@ -490,6 +490,163 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(record?["pendingBlockingToolUseIds"] as? [String] == [])
     }
 
+    @Test func ambiguousLongPayloadDoesNotResolveTheFirstBlocker() throws {
+        let context = try AttentionHarness.makeContext(name: "ambiguous-long-payload")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "ambiguous-long-payload-session"
+        try AttentionHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId]
+        )
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        let sharedPrefix = String(repeating: "p", count: 600)
+
+        func runHook(
+            subcommand: String,
+            eventName: String,
+            toolUseId: String?,
+            plan: String
+        ) -> AttentionHarness.ProcessRunResult {
+            let toolUseIdField = toolUseId.map { ",\"tool_use_id\":\"\($0)\"" } ?? ""
+            let result = AttentionHarness.runHookProcess(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"\#(eventName)","tool_name":"ExitPlanMode"\#(toolUseIdField),"tool_input":{"plan":"\#(plan)"},"permission_mode":"plan","cwd":"\#(context.root.path)"}"#
+            )
+            #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            return result
+        }
+
+        _ = runHook(
+            subcommand: "pre-tool-use",
+            eventName: "PreToolUse",
+            toolUseId: "long-first",
+            plan: sharedPrefix + "-first"
+        )
+        _ = runHook(
+            subcommand: "pre-tool-use",
+            eventName: "PreToolUse",
+            toolUseId: "long-second",
+            plan: sharedPrefix + "-second"
+        )
+        let beforePermission = context.state.snapshot().count
+        _ = runHook(
+            subcommand: "permission-request",
+            eventName: "PermissionRequest",
+            toolUseId: nil,
+            plan: sharedPrefix + "-second"
+        )
+        let permissionCommands = Array(context.state.snapshot().dropFirst(beforePermission))
+        #expect(!permissionCommands.contains { $0.contains(#""method":"feed.attention.end""#) })
+        let record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(
+            record?["pendingBlockingToolUseIds"] as? [String]
+                == ["long-first", "long-second"]
+        )
+    }
+
+    @Test func delayedPermissionRequestCannotResolveTheNextTurnBlocker() throws {
+        let context = try AttentionHarness.makeContext(name: "stale-permission-turn")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "stale-permission-turn-session"
+        let now: TimeInterval = 4_102_444_800
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                workspaceId: [
+                    "sessionId": sessionId,
+                    "turnId": "turn-2",
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsBySurface": [
+                surfaceId: [
+                    "sessionId": sessionId,
+                    "turnId": "turn-2",
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId],
+            feedTerminalStatusesByPlan: ["same plan": "resolved"]
+        )
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        func runHook(
+            subcommand: String,
+            eventName: String,
+            turnId: String,
+            toolUseId: String?
+        ) {
+            let toolUseIdField = toolUseId.map { ",\"tool_use_id\":\"\($0)\"" } ?? ""
+            let result = AttentionHarness.runHookProcess(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","hook_event_name":"\#(eventName)","tool_name":"ExitPlanMode"\#(toolUseIdField),"tool_input":{"plan":"same plan"},"permission_mode":"plan","cwd":"\#(context.root.path)"}"#
+            )
+            #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+        }
+
+        runHook(
+            subcommand: "pre-tool-use",
+            eventName: "PreToolUse",
+            turnId: "turn-2",
+            toolUseId: "turn-two-tool"
+        )
+        let beforeStalePermission = context.state.snapshot().count
+        runHook(
+            subcommand: "permission-request",
+            eventName: "PermissionRequest",
+            turnId: "turn-1",
+            toolUseId: nil
+        )
+        let staleCommands = Array(context.state.snapshot().dropFirst(beforeStalePermission))
+        #expect(!staleCommands.contains { $0.contains(#""method":"feed.attention.end""#) })
+        let record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["pendingBlockingToolUseIds"] as? [String] == ["turn-two-tool"])
+    }
+
     @Test func staleSessionEndDoesNotReleaseCurrentTurnBlocker() throws {
         let context = try AttentionHarness.makeContext(name: "stale-end-current-blocker")
         defer { context.cleanup() }
