@@ -138,4 +138,50 @@ extension ClaudeHookWriteAmplificationTests {
             "attention without a durable blocker cannot be correlated or released"
         )
     }
+
+    @Test func bypassAttentionFallsBackWhenTransientEndpointIsUnavailable() throws {
+        let context = try SessionResetHarness.makeContext(name: "legacy-attention-fallback")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "legacy-attention-fallback-session"
+        let processIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        try SessionResetHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            processIdentity: processIdentity
+        )
+        let serverHandled = SessionResetHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId],
+            feedAttentionBeginSucceeds: false
+        )
+        var environment = SessionResetHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLAUDE_PID"] = String(processIdentity.pid)
+
+        let result = SessionResetHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"legacy-fallback-question","permission_mode":"bypassPermissions","tool_input":{"questions":[{"question":"Continue?"}]},"cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        #expect(commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") })
+        #expect(commands.contains { $0.hasPrefix("set_status claude_code Needs input ") })
+        #expect(commands.contains { $0.hasPrefix("notify_target_async ") })
+    }
 }
