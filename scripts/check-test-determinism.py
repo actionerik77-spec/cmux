@@ -423,7 +423,9 @@ def _lex_source_line(
 
     while index < len(line):
         if state.block_comment_depth > 0:
-            comment_start = line.find("/*", index)
+            # Swift permits nested block comments; JavaScript/TypeScript and
+            # the other slash-comment languages close at the first `*/`.
+            comment_start = line.find("/*", index) if path_suffix == ".swift" else -1
             comment_end = line.find("*/", index)
             if comment_start == -1 and comment_end == -1:
                 comment_stripped[index:] = [" "] * (len(line) - index)
