@@ -235,7 +235,7 @@ final class FeedCoordinator: @unchecked Sendable {
                 timeout: waitTimeout
             ) { result in
                 let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
-                    MainActor.assumeIsolated {
+                    MainActor.assumeIsolated { () -> WorkstreamEvent? in
                         guard let acceptance = result.commit({
                             guard ContinuousClock.now < deliveryDeadline else {
                                 return FeedEventAcceptance.unavailable
@@ -284,7 +284,7 @@ final class FeedCoordinator: @unchecked Sendable {
             timeout: waitTimeout
         ) { result in
             let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
-                MainActor.assumeIsolated {
+                MainActor.assumeIsolated { () -> WorkstreamEvent? in
                     guard let acceptance = result.commit({
                         guard ContinuousClock.now < deliveryDeadline else {
                             return FeedEventAcceptance.unavailable
@@ -433,7 +433,7 @@ final class FeedCoordinator: @unchecked Sendable {
             )
         ) { result in
             let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
-                MainActor.assumeIsolated {
+                MainActor.assumeIsolated { () -> WorkstreamEvent? in
                     let accept: () -> WorkstreamEvent? = {
                         guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
                             return nil
@@ -1283,12 +1283,10 @@ extension FeedCoordinator {
 
         // Elevate the workspace so it floats to the top of the sidebar,
         // honoring the user's Reorder on Notification preference.
-        if let reorderWorkspaceId,
-           let tabManager,
-           UserDefaultsSettingsClient(defaults: .standard).value(
-               for: SettingCatalog().app.reorderOnNotification
-           ) {
-            tabManager.moveTabToTopForNotification(reorderWorkspaceId)
+        if UserDefaultsSettingsClient(defaults: .standard).value(
+            for: SettingCatalog().app.reorderOnNotification
+        ) {
+            tabManager.moveTabToTopForNotification(resolved.workspaceId)
         }
 
         // Ring the bell (dock bounce while the app is in the background).
