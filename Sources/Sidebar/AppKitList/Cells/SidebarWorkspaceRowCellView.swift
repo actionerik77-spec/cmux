@@ -1013,9 +1013,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 #if DEBUG
         cmuxDebugLog("sidebar.row.beginInlineRename tookFocus=\(tookFocus ? 1 : 0) window=\(window == nil ? 0 : 1)")
 #endif
-        // makeFirstResponder already starts the field editor and selects the
-        // existing title. Re-selecting here can synchronously end that edit
-        // session and commit the unchanged title before the user can type.
+        // Select the field editor directly after focus. Calling selectText(_:)
+        // on the control re-enters the field-editor session and can commit the
+        // unchanged title; selecting the editor preserves the active session.
+        renameField.currentEditor()?.selectAll(nil)
         needsLayout = true
     }
 
