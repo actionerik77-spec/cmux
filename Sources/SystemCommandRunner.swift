@@ -104,11 +104,6 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             return false
         }
 
-        // Arm the app-owned observer before invoking loginwindow. The public
-        // session dictionary and distributed notifications are complementary
-        // signals, and either can be absent in a given session context.
-        _ = await Self.isScreenLockedOrObserved()
-
         // Register before invoking the private call: loginwindow can publish
         // the transition before the IPC returns, and AsyncStream buffers that
         // event until the waiting child starts consuming it.
@@ -124,7 +119,7 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
                 )
             }
             lockScreenImmediate()
-            if await Self.isScreenLockedOrObserved() {
+            if Self.isScreenLocked() {
                 group.cancelAll()
                 return true
             }
@@ -132,31 +127,51 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         }
     }
 
-    private static func lockScreenNotifications() -> AsyncStream<Void> {
+    private static func lockScreenNotifications() -> AsyncStream<Bool> {
         let center = DistributedNotificationCenter.default()
         return AsyncStream { continuation in
-            let token = center.addObserver(
+            let lockToken = center.addObserver(
                 forName: Notification.Name("com.apple.screenIsLocked"),
                 object: nil,
                 queue: nil
             ) { _ in
-                continuation.yield(())
+                continuation.yield(true)
             }
-            let tokenBox = DistributedObserverToken(center: center, token: token)
-            continuation.onTermination = { _ in tokenBox.remove() }
+            let unlockToken = center.addObserver(
+                forName: Notification.Name("com.apple.screenIsUnlocked"),
+                object: nil,
+                queue: nil
+            ) { _ in
+                continuation.yield(false)
+            }
+            let lockTokenBox = DistributedObserverToken(center: center, token: lockToken)
+            let unlockTokenBox = DistributedObserverToken(center: center, token: unlockToken)
+            continuation.onTermination = { _ in
+                lockTokenBox.remove()
+                unlockTokenBox.remove()
+            }
         }
     }
 
     private static func waitForLockNotification(
-        _ notifications: AsyncStream<Void>,
+        _ notifications: AsyncStream<Bool>,
         clock: any Clock<Duration>,
         timeout: Duration
     ) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
-                for await _ in notifications {
-                    if await Self.isScreenLockedOrObserved() {
+                for await didLock in notifications {
+                    guard didLock else { continue }
+                    switch Self.screenLockState() {
+                    case .some(true), .none:
+                        // The notification is request-local and was registered
+                        // before the call. It is a valid fallback only when
+                        // this session cannot expose the dictionary key.
                         return true
+                    case .some(false):
+                        // A delayed notification can arrive before the public
+                        // state catches up; keep waiting until the deadline.
+                        continue
                     }
                 }
                 return false
@@ -168,28 +183,22 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             let result = await group.next() ?? false
             group.cancelAll()
             // A notification wakes the confirmation, but the final decision
-            // comes from a fresh dictionary/observer read. This tolerates a
-            // delayed run-loop delivery without treating an unrelated stale
-            // notification as proof that the current request locked the Mac.
+            // comes from a fresh current-state read when the platform exposes
+            // one. This keeps an unrelated stale latch from proving a lock.
             guard result else { return false }
-            return await Self.isScreenLockedOrObserved()
+            return Self.screenLockState() ?? result
         }
+    }
+
+    private static func screenLockState() -> Bool? {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
+            return nil
+        }
+        return session["CGSSessionScreenIsLocked"] as? Bool
     }
 
     private static func isScreenLocked() -> Bool {
-        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
-            return false
-        }
-        return (session["CGSSessionScreenIsLocked"] as? Bool) ?? false
-    }
-
-    private static func isScreenLockedOrObserved() async -> Bool {
-        if isScreenLocked() {
-            return true
-        }
-        return await MainActor.run {
-            ScreenLockObserver.shared.isLockedObserved
-        }
+        screenLockState() == true
     }
 
     @discardableResult
