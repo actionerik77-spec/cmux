@@ -24785,6 +24785,9 @@ struct CMUXCLI {
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
+            let mappedSession = parsedInput.sessionId.flatMap {
+                try? sessionStore.lookup(sessionId: $0)
+            }
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -24885,7 +24888,10 @@ struct CMUXCLI {
                     ?? parsedInput.sessionId {
                     endClaudeBlockingAttentionForTurnBoundary(
                         client: client,
-                        sessionId: sessionId
+                        sessionId: sessionId,
+                        owner: parsedInput.sessionId == sessionId
+                            ? mappedSession
+                            : (try? sessionStore.lookup(sessionId: sessionId))
                     )
                 }
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
@@ -24966,7 +24972,8 @@ struct CMUXCLI {
                 if let sessionId = parsedInput.sessionId {
                     endClaudeBlockingAttentionForTurnBoundary(
                         client: client,
-                        sessionId: sessionId
+                        sessionId: sessionId,
+                        owner: mappedSession
                     )
                     _ = try? sessionStore.upsert(
                         sessionId: sessionId,
@@ -25103,7 +25110,8 @@ struct CMUXCLI {
             if let sessionId = parsedInput.sessionId {
                 endClaudeBlockingAttentionForTurnBoundary(
                     client: client,
-                    sessionId: sessionId
+                    sessionId: sessionId,
+                    owner: mappedSession
                 )
                 // A forked session's first hook is this prompt-submit — its
                 // SessionStart fired under the parent session id — so capture the
@@ -25435,7 +25443,8 @@ struct CMUXCLI {
             if let consumedSession {
                 endClaudeBlockingAttentionForTurnBoundary(
                     client: client,
-                    sessionId: consumedSession.sessionId
+                    sessionId: consumedSession.sessionId,
+                    owner: consumedSession
                 )
                 // App-visible cleanup targets the live owner of the session's
                 // pane when the resolver answered authoritatively; the
@@ -25534,22 +25543,24 @@ struct CMUXCLI {
             // Feed can block while Claude's Notification hook records Needs
             // input. Re-read after that wait so the completion path owns the
             // state that actually exists at decision time.
-            let mappedPermissionSession = parsedInput.sessionId.flatMap {
+            let postWaitPermissionSession = parsedInput.sessionId.flatMap {
                 try? sessionStore.lookup(sessionId: $0)
             }
             // Re-read after Feed waits for the user's decision: another turn
             // may have become active while this synchronous hook was blocked.
             let permissionRequestIsCurrent: Bool = {
-                guard let sessionId = parsedInput.sessionId,
-                      let currentSession = try? sessionStore.lookup(sessionId: sessionId) else {
+                guard let sessionId = parsedInput.sessionId else {
                     return true
+                }
+                guard let currentSession = postWaitPermissionSession else {
+                    return false
                 }
                 return (try? sessionStore.isCurrent(
                     sessionId: sessionId,
                     workspaceId: currentSession.workspaceId,
                     surfaceId: currentSession.surfaceId,
                     turnId: parsedInput.turnId
-                )) ?? true
+                )) ?? false
             }()
             if terminalResponse?["status"] as? String == "resolved",
                isBlockingTool,
@@ -25577,7 +25588,7 @@ struct CMUXCLI {
                     sessionStore: sessionStore,
                     routing: hookRouting,
                     telemetry: telemetry,
-                    expectedSession: mappedPermissionSession,
+                    expectedSession: postWaitPermissionSession,
                     allowResolvedState: isBlockingTool
                 )
             } else {
@@ -25592,7 +25603,7 @@ struct CMUXCLI {
                     sessionStore: sessionStore,
                     routing: hookRouting,
                     telemetry: telemetry,
-                    expectedSession: mappedPermissionSession
+                    expectedSession: postWaitPermissionSession
                 )
             }
 
@@ -25760,7 +25771,8 @@ struct CMUXCLI {
                let sessionId = parsedInput.sessionId {
                 endClaudeBlockingAttentionForTurnBoundary(
                     client: client,
-                    sessionId: sessionId
+                    sessionId: sessionId,
+                    owner: mappedSession
                 )
             }
             if let sessionId = parsedInput.sessionId {

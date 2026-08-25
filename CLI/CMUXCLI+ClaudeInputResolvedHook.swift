@@ -101,7 +101,8 @@ extension CMUXCLI {
         guard endClaudeBlockingAttention(
             client: client,
             sessionId: sessionId,
-            toolUseId: attentionRequestId
+            toolUseId: attentionRequestId,
+            owner: mappedSession
         ) else {
             // Keep the durable pending ID so a later completion or turn
             // boundary can retry releasing app-owned transient attention.

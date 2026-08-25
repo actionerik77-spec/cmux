@@ -68,6 +68,7 @@ extension TerminalController {
         }
         let remoteWorkspaceRaw = params["_cmux_remote_workspace_id"]
         let authenticatedRemoteWorkspaceId: UUID?
+        let authenticatedLocalProcessIdentity: AgentPIDProcessIdentity?
         if remoteWorkspaceRaw != nil {
             guard let remoteWorkspaceId = transientAttentionUUID(remoteWorkspaceRaw),
                   let remoteWorkspace = controlTabForSidebarMutation(id: remoteWorkspaceId),
@@ -75,15 +76,21 @@ extension TerminalController {
                 return invalidTransientAttentionOwnerResult()
             }
             authenticatedRemoteWorkspaceId = remoteWorkspaceId
+            authenticatedLocalProcessIdentity = nil
         } else {
+            guard let processIdentity = transientAttentionProcessIdentity(params) else {
+                return invalidTransientAttentionOwnerResult()
+            }
             authenticatedRemoteWorkspaceId = nil
+            authenticatedLocalProcessIdentity = processIdentity
         }
         let ended: Bool
         if (params["all_requests"] as? Bool) == true {
             ended = FeedCoordinator.shared.endTransientBlockingAttention(
                 source: source,
                 sessionId: sessionId,
-                authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId
+                authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId,
+                authenticatedLocalProcessIdentity: authenticatedLocalProcessIdentity
             )
         } else {
             guard let requestId = transientAttentionString(
@@ -103,7 +110,8 @@ extension TerminalController {
                 source: source,
                 sessionId: sessionId,
                 requestId: requestId,
-                authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId
+                authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId,
+                authenticatedLocalProcessIdentity: authenticatedLocalProcessIdentity
             )
         }
         return .ok(["ended": ended])

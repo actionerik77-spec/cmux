@@ -62,16 +62,25 @@ extension CMUXCLI {
     func endClaudeBlockingAttention(
         client: SocketClient,
         sessionId: String,
-        toolUseId: String?
+        toolUseId: String?,
+        owner: ClaudeHookSessionRecord? = nil
     ) -> Bool {
+        var params: [String: Any] = [
+            "source": "claude",
+            "session_id": sessionId,
+            "request_id": claudeBlockingAttentionRequestId(toolUseId: toolUseId),
+        ]
+        guard appendLocalAttentionOwnerParams(
+            to: &params,
+            owner: owner,
+            client: client
+        ) else {
+            return false
+        }
         do {
             _ = try client.sendV2(
                 method: "feed.attention.end",
-                params: [
-                    "source": "claude",
-                    "session_id": sessionId,
-                    "request_id": claudeBlockingAttentionRequestId(toolUseId: toolUseId),
-                ],
+                params: params,
                 responseTimeout: Self.claudeBlockingAttentionResponseTimeout
             )
             return true
@@ -91,20 +100,51 @@ extension CMUXCLI {
     /// transient request in this session without clearing pane-wide attention.
     func endClaudeBlockingAttentionForTurnBoundary(
         client: SocketClient,
-        sessionId: String
+        sessionId: String,
+        owner: ClaudeHookSessionRecord? = nil
     ) {
         // Send a session-scoped release even after an earlier boundary cleared
         // durable blocker IDs. If its first transport attempt failed, the next
         // current turn boundary can still reconcile app-owned attention.
+        var params: [String: Any] = [
+            "source": "claude",
+            "session_id": sessionId,
+            "all_requests": true,
+        ]
+        guard appendLocalAttentionOwnerParams(
+            to: &params,
+            owner: owner,
+            client: client
+        ) else {
+            return
+        }
         _ = try? client.sendV2(
             method: "feed.attention.end",
-            params: [
-                "source": "claude",
-                "session_id": sessionId,
-                "all_requests": true,
-            ],
+            params: params,
             responseTimeout: Self.claudeBlockingAttentionTurnBoundaryTimeout
         )
+    }
+
+    private func appendLocalAttentionOwnerParams(
+        to params: inout [String: Any],
+        owner: ClaudeHookSessionRecord?,
+        client: SocketClient
+    ) -> Bool {
+        guard !client.isRelayBacked else { return true }
+        guard let owner,
+              let pid = owner.pid,
+              let startSeconds = owner.pidStartSeconds,
+              let startMicroseconds = owner.pidStartMicroseconds,
+              pid > 0,
+              pid <= Int(Int32.max),
+              startSeconds >= 0,
+              (0..<1_000_000).contains(startMicroseconds) else {
+            return false
+        }
+        params["ppid"] = pid
+        params["ppid_start_seconds"] = startSeconds
+        params["ppid_start_microseconds"] = startMicroseconds
+        return true
     }
 
     /// Clears the app-owned lifecycle/status raised by a Claude permission

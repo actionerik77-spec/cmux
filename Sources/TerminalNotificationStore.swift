@@ -1467,35 +1467,43 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         var updated = notifications
         var idsToClear: [String] = []
-        updated.removeAll { existing in
-            guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
-            idsToClear.append(existing.id.uuidString)
-            return true
+        let isTransientAttention = notification.correlationKey?.hasPrefix(
+            TerminalNotification.transientAgentAttentionCorrelationPrefix
+        ) == true
+        if !isTransientAttention {
+            updated.removeAll { existing in
+                guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
+                idsToClear.append(existing.id.uuidString)
+                return true
+            }
         }
 
-        if let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[notification.tabId],
+        if !isTransientAttention,
+           let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[notification.tabId],
            existingIndicatorSurfaceId != notification.surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
         }
 
-        if shouldSuppressExternalDelivery, effects.markUnread {
+        if !isTransientAttention, shouldSuppressExternalDelivery, effects.markUnread {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
-        if effects.reorderWorkspace,
+        if !isTransientAttention, effects.reorderWorkspace,
            UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
         }
 
         updated.insert(notification, at: 0)
-        mutateWorkspaceManualUnread(false, forTabId: notification.tabId)
-        if let surfaceId = notification.surfaceId {
-            mutateSurfaceManualUnread(
-                false,
-                forTabId: notification.tabId,
-                surfaceId: surfaceId
-            )
+        if !isTransientAttention {
+            mutateWorkspaceManualUnread(false, forTabId: notification.tabId)
+            if let surfaceId = notification.surfaceId {
+                mutateSurfaceManualUnread(
+                    false,
+                    forTabId: notification.tabId,
+                    surfaceId: surfaceId
+                )
+            }
         }
         notifications = updated
         // Bypass-permissions attention is intentionally ephemeral. Its active
@@ -1970,11 +1978,12 @@ final class TerminalNotificationStore: ObservableObject {
         let ids = removed.map { $0.id.uuidString }
         notificationFeedHistory.markRead(ids: Set(removed.map(\.id)))
         notifications = kept
-        for notification in removed {
-            clearFocusedReadIndicator(
-                forTabId: notification.tabId,
-                surfaceId: notification.surfaceId
-            )
+        for notification in removed where !notifications.contains(where: {
+            $0.tabId == notification.tabId
+                && $0.surfaceId == notification.surfaceId
+                && !$0.isRead
+        }) {
+            clearFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
         removeDeliveredNotifications(withIdentifiers: ids)
         removePendingNotificationRequests(withIdentifiers: ids)

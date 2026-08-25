@@ -115,14 +115,20 @@ final class FeedTransientAttentionStore {
     func removeValues(
         source: String,
         sessionId: String,
-        authenticatedRemoteWorkspaceId: UUID?
+        authenticatedRemoteWorkspaceId: UUID?,
+        authenticatedLocalProcessIdentity: AgentPIDProcessIdentity? = nil
     ) -> [Entry] {
         removeValues { key, entry in
             guard key.source == source, key.sessionId == sessionId else {
                 return false
             }
-            guard let authenticatedRemoteWorkspaceId else { return true }
-            return entry.owner == .remoteWorkspace(authenticatedRemoteWorkspaceId)
+            if let authenticatedRemoteWorkspaceId {
+                return entry.owner == .remoteWorkspace(authenticatedRemoteWorkspaceId)
+            }
+            if let authenticatedLocalProcessIdentity {
+                return entry.owner == .localProcess(authenticatedLocalProcessIdentity)
+            }
+            return true
         }
     }
 
@@ -236,7 +242,8 @@ extension FeedCoordinator {
         source: String,
         sessionId: String,
         requestId: String,
-        authenticatedRemoteWorkspaceId: UUID? = nil
+        authenticatedRemoteWorkspaceId: UUID? = nil,
+        authenticatedLocalProcessIdentity: AgentPIDProcessIdentity? = nil
     ) -> Bool {
         let key = FeedTransientAttentionStore.Key(
             source: source,
@@ -248,6 +255,10 @@ extension FeedCoordinator {
         }
         if let authenticatedRemoteWorkspaceId,
            existing.owner != .remoteWorkspace(authenticatedRemoteWorkspaceId) {
+            return false
+        }
+        if let authenticatedLocalProcessIdentity,
+           existing.owner != .localProcess(authenticatedLocalProcessIdentity) {
             return false
         }
         guard let entry = transientAttentionStore.removeValue(for: key) else { return false }
@@ -262,12 +273,14 @@ extension FeedCoordinator {
     func endTransientBlockingAttention(
         source: String,
         sessionId: String,
-        authenticatedRemoteWorkspaceId: UUID? = nil
+        authenticatedRemoteWorkspaceId: UUID? = nil,
+        authenticatedLocalProcessIdentity: AgentPIDProcessIdentity? = nil
     ) -> Bool {
         let entries = transientAttentionStore.removeValues(
             source: source,
             sessionId: sessionId,
-            authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId
+            authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId,
+            authenticatedLocalProcessIdentity: authenticatedLocalProcessIdentity
         )
         concludeTransientBlockingAttention(entries)
         return !entries.isEmpty
