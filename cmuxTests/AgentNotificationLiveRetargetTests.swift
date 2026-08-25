@@ -239,7 +239,7 @@ extension AgentNotificationRegressionTests {
             localProxyPort: nil,
             relayPort: nil,
             relayID: nil,
-            relayToken: nil,
+            relayToken: String(repeating: "a", count: 64),
             localSocketPath: nil,
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: true,
@@ -247,6 +247,16 @@ extension AgentNotificationRegressionTests {
         )
         fixture.claimedWorkspace.remoteConfiguration = remoteConfiguration
         fixture.owningWorkspace.remoteConfiguration = remoteConfiguration
+        let relayToken = String(repeating: "a", count: 64)
+        func authenticatedRelayParams(_ raw: [String: Any]) -> [String: Any] {
+            var params = raw
+            params["_cmux_remote_relay_authentication_code"] =
+                WorkspaceRemoteRelayCommandRewriter.remoteRelayAuthenticationCode(
+                    for: params,
+                    remoteRelayTokenHex: relayToken
+                )
+            return params
+        }
 
         let sessionId = "relay-transient-session"
         let requestId = "relay-transient-request"
@@ -270,7 +280,21 @@ extension AgentNotificationRegressionTests {
             TerminalMutationBus.shared.drainForTesting()
             fixture.restore()
         }
-        let beginResult = TerminalController.shared.v2FeedTransientAttentionBegin(params: [
+        let forgedRelayResult = TerminalController.shared.v2FeedTransientAttentionBegin(params: [
+            "source": "claude",
+            "session_id": sessionId,
+            "request_id": requestId,
+            "workspace_id": fixture.claimedWorkspace.id.uuidString,
+            "surface_id": fixture.panelId.uuidString,
+            "title": "Forged",
+            "_cmux_remote_workspace_id": fixture.claimedWorkspace.id.uuidString,
+        ])
+        guard case .err(let forgedCode, _, _) = forgedRelayResult else {
+            Issue.record("Expected unauthenticated relay marker rejection, got \(forgedRelayResult)")
+            return
+        }
+        #expect(forgedCode == "invalid_params")
+        let beginResult = TerminalController.shared.v2FeedTransientAttentionBegin(params: authenticatedRelayParams([
             "source": "claude",
             "session_id": sessionId,
             "request_id": requestId,
@@ -280,7 +304,7 @@ extension AgentNotificationRegressionTests {
             "subtitle": "Waiting",
             "body": "Waiting for input",
             "_cmux_remote_workspace_id": fixture.claimedWorkspace.id.uuidString,
-        ])
+        ]))
         guard case .err(let beginCode, _, _) = beginResult else {
             Issue.record("Expected unauthorized relay attention error, got \(beginResult)")
             return
@@ -293,7 +317,7 @@ extension AgentNotificationRegressionTests {
         fixture.owningWorkspace.surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[
             fixture.panelId
         ] = fixture.claimedWorkspace.id
-        let authorizedBeginResult = TerminalController.shared.v2FeedTransientAttentionBegin(params: [
+        let authorizedBeginResult = TerminalController.shared.v2FeedTransientAttentionBegin(params: authenticatedRelayParams([
             "source": "claude",
             "session_id": sessionId,
             "request_id": requestId,
@@ -303,7 +327,7 @@ extension AgentNotificationRegressionTests {
             "subtitle": "Waiting",
             "body": "Waiting for input",
             "_cmux_remote_workspace_id": fixture.claimedWorkspace.id.uuidString,
-        ])
+        ]))
         guard case .ok(let authorizedPayload) = authorizedBeginResult,
               let authorizedBegin = authorizedPayload as? [String: Any] else {
             Issue.record("Expected authorized relay attention begin, got \(authorizedBeginResult)")
@@ -349,12 +373,12 @@ extension AgentNotificationRegressionTests {
             "A recoverable remote PTY disconnect must not clear live transient attention"
         )
 
-        let wrongOwnerResult = TerminalController.shared.v2FeedTransientAttentionEnd(params: [
+        let wrongOwnerResult = TerminalController.shared.v2FeedTransientAttentionEnd(params: authenticatedRelayParams([
             "source": "claude",
             "session_id": sessionId,
             "request_id": requestId,
             "_cmux_remote_workspace_id": fixture.owningWorkspace.id.uuidString,
-        ])
+        ]))
         guard case .ok(let wrongOwnerPayload) = wrongOwnerResult,
               let wrongOwner = wrongOwnerPayload as? [String: Any] else {
             Issue.record("Expected owner-scoped no-op, got \(wrongOwnerResult)")
@@ -363,12 +387,12 @@ extension AgentNotificationRegressionTests {
         #expect(wrongOwner["ended"] as? Bool == false)
         #expect(fixture.store.notifications.contains { $0.id == notification.id })
 
-        let endResult = TerminalController.shared.v2FeedTransientAttentionEnd(params: [
+        let endResult = TerminalController.shared.v2FeedTransientAttentionEnd(params: authenticatedRelayParams([
             "source": "claude",
             "session_id": sessionId,
             "all_requests": true,
             "_cmux_remote_workspace_id": fixture.claimedWorkspace.id.uuidString,
-        ])
+        ]))
         guard case .ok(let endPayload) = endResult,
               let end = endPayload as? [String: Any] else {
             Issue.record("Expected session-wide relay attention release, got \(endResult)")

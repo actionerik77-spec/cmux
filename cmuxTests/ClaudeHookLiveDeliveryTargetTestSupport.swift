@@ -202,10 +202,14 @@ enum ClaudeHookLiveDeliveryHarness {
                         .write(to: context.storeURL, options: .atomic)
                 }
                 if feedAttentionEndSucceeds {
+                    let ended = feedAttentionEndResult ?? false
+                    let outcome = feedAttentionEndResult == nil
+                        ? "absent"
+                        : (ended ? "ended" : "unauthorized")
                     return v2Response(
                         id: id,
                         ok: true,
-                        result: feedAttentionEndResult.map { ["ended": $0] } ?? [:]
+                        result: ["ended": ended, "outcome": outcome]
                     )
                 }
                 return v2Response(
