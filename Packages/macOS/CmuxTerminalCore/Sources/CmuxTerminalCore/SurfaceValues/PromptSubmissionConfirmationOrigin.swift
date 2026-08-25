@@ -8,4 +8,6 @@ public enum PromptSubmissionConfirmationOrigin: Equatable, Sendable {
     case unmatched
     /// A duplicate hook matched an already-confirmed app-owned submission.
     case programmaticDuplicate
+    /// An unmatched hook consumed a sequence-only app-owned boundary.
+    case programmaticUnmatched
 }

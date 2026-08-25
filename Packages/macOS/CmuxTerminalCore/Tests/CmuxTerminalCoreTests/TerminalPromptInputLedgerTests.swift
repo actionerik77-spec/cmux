@@ -186,7 +186,7 @@ import Testing
 
         #expect(
             ledger.confirmSubmission(message: "rewritten prompt")
-                == .unmatched
+                == .programmaticUnmatched
         )
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
@@ -207,7 +207,7 @@ import Testing
 
         #expect(
             ledger.confirmSubmission(message: "rewritten app prompt")
-                == .unmatched
+                == .programmaticUnmatched
         )
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
@@ -227,7 +227,7 @@ import Testing
 
         #expect(
             ledger.confirmSubmission(message: nil)
-                == .unmatched
+                == .programmaticUnmatched
         )
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
@@ -439,7 +439,8 @@ import Testing
         ledger.recordHumanInput(.submissionBoundary)
 
         #expect(
-            ledger.confirmSubmission(message: "prompt 0") == .unmatched
+            ledger.confirmSubmission(message: "prompt 0")
+                == .programmaticUnmatched
         )
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
@@ -451,7 +452,7 @@ import Testing
         // boundary before the human boundary can be confirmed.
         #expect(
             ledger.confirmSubmission(message: "rewritten prompt")
-                == .unmatched
+                == .programmaticUnmatched
         )
         // Remaining exact programmatic records still match by message without
         // consuming the later human boundary.

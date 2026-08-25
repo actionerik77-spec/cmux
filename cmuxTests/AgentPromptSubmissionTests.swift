@@ -1085,19 +1085,23 @@ struct AgentPromptSubmissionTests {
         )
         let firstAttachmentURL = URL(fileURLWithPath: "/tmp/cmux-mobile-chat-1.png")
         let secondAttachmentURL = URL(fileURLWithPath: "/tmp/cmux-mobile-chat-2.png")
+        #expect(service.reserveMobileChatAttachmentBatch(fileCount: 1))
         #expect(
             service.registerMobileChatAttachmentFiles(
                 [firstAttachmentURL],
                 sessionID: "mobile-chat-session",
                 surfaceID: "surface-mobile-chat",
+                fileCount: 1,
                 prompt: "/tmp/cmux-mobile-chat-1.png"
             )
         )
+        #expect(service.reserveMobileChatAttachmentBatch(fileCount: 1))
         #expect(
             service.registerMobileChatAttachmentFiles(
                 [secondAttachmentURL],
                 sessionID: "mobile-chat-session",
                 surfaceID: "surface-mobile-chat",
+                fileCount: 1,
                 prompt: "/tmp/cmux-mobile-chat-2.png"
             )
         )
@@ -1142,6 +1146,37 @@ struct AgentPromptSubmissionTests {
             )
         )
         #expect(cleanedURLs == [firstAttachmentURL, secondAttachmentURL])
+    }
+
+    @MainActor
+    @Test func mobileChatAttachmentReservationExpiresBeforeNewAdmission() {
+        var now = Date(timeIntervalSince1970: 10)
+        var cleanedURLs: [URL] = []
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            cleanupMobileChatAttachments: { urls in
+                cleanedURLs.append(contentsOf: urls)
+            },
+            now: { now }
+        )
+        let expiredURL = URL(fileURLWithPath: "/tmp/cmux-expiring-mobile-chat.png")
+        #expect(service.reserveMobileChatAttachmentBatch(fileCount: 1))
+        #expect(
+            service.registerMobileChatAttachmentFiles(
+                [expiredURL],
+                sessionID: "expiring-session",
+                surfaceID: "expiring-surface",
+                fileCount: 1,
+                prompt: "/tmp/cmux-expiring-mobile-chat.png"
+            )
+        )
+
+        now = now.addingTimeInterval(31 * 60)
+        #expect(service.reserveMobileChatAttachmentBatch(fileCount: 1))
+        #expect(cleanedURLs == [expiredURL])
+        service.releaseMobileChatAttachmentBatchReservation(fileCount: 1)
     }
 
     @Test func composerBusyMapsToDistinctRetryableSocketError() throws {

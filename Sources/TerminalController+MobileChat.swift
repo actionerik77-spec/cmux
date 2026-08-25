@@ -274,6 +274,16 @@ extension TerminalController {
         }
         let text = v2RawString(params, "text") ?? ""
         let attachments = params["attachments"] as? [[String: Any]] ?? []
+        let attachmentService = agentChatTranscriptService
+        var attachmentReservationHeld = false
+        defer {
+            if attachmentReservationHeld {
+                attachmentService?
+                    .releaseMobileChatAttachmentBatchReservation(
+                        fileCount: attachments.count
+                    )
+            }
+        }
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
@@ -294,15 +304,6 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        if !attachments.isEmpty,
-           let agentChatTranscriptService,
-           !agentChatTranscriptService.canStageMobileChatAttachmentBatch() {
-            return .err(
-                code: "resource_busy",
-                message: Self.chatAttachmentPreparationErrorMessage,
-                data: ["retryable": true]
-            )
-        }
         var attachmentPayloads: [MobileChatAttachmentPayload] = []
         attachmentPayloads.reserveCapacity(attachments.count)
         for attachment in attachments {
@@ -321,6 +322,19 @@ extension TerminalController {
                         (attachment["format"] as? String) ?? "png"
                 )
             )
+        }
+        if !attachments.isEmpty {
+            guard let attachmentService,
+                  attachmentService.reserveMobileChatAttachmentBatch(
+                      fileCount: attachments.count
+                  ) else {
+                return .err(
+                    code: "resource_busy",
+                    message: Self.chatAttachmentPreparationErrorMessage,
+                    data: ["retryable": true]
+                )
+            }
+            attachmentReservationHeld = true
         }
 
         // Materialize every attachment before the first terminal write. The
@@ -368,7 +382,7 @@ extension TerminalController {
         pasteParams["text"] = promptComponents.joined(separator: " ")
         let deliveredSurfaceID = pasteParams["surface_id"] as? String
             ?? surfaceID.uuidString
-        let deliveredProcessID = agentChatTranscriptService?
+        let deliveredProcessID = attachmentService?
             .sessionRecord(sessionID: sessionID)?.pid
         let submittedPrompt = promptComponents.joined(separator: " ")
         let result = v2MobileTerminalPaste(
@@ -376,20 +390,23 @@ extension TerminalController {
             rejectIfHumanComposerBusy: true
         )
         if case .ok = result,
-           let agentChatTranscriptService {
-            let registered = agentChatTranscriptService
+           let attachmentService {
+            let registered = attachmentService
                 .registerMobileChatAttachmentFiles(
                     attachmentFileURLs,
                     sessionID: sessionID,
                     surfaceID: deliveredSurfaceID,
                     processID: deliveredProcessID,
+                    fileCount: attachments.count,
                     prompt: submittedPrompt
                 )
-            if !registered {
-                GhosttyApp.terminalPasteboard
-                    .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
-            }
+            attachmentReservationHeld = false
+            _ = registered
         } else {
+            attachmentReservationHeld = false
+            attachmentService?.releaseMobileChatAttachmentBatchReservation(
+                fileCount: attachments.count
+            )
             GhosttyApp.terminalPasteboard
                 .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
         }

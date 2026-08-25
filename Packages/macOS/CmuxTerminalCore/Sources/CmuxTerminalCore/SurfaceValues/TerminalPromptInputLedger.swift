@@ -224,7 +224,7 @@ public struct TerminalPromptInputLedger: Sendable {
         // an unmatched hook consumes one older programmatic boundary, but never
         // a human boundary in the same call.
         if consumeEarliestProgrammaticBoundary() {
-            return .unmatched
+            return .programmaticUnmatched
         }
         guard let first = pendingBoundaries.first,
               case .human(let generation) = first else {

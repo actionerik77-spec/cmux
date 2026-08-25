@@ -6192,6 +6192,9 @@ class TerminalController {
                 if case .programmaticDuplicate = origin {
                     return
                 }
+                if case .programmaticUnmatched = origin {
+                    return
+                }
                 if case .unmatched = origin,
                    terminalPanel.surface
                        .hasPendingProgrammaticPromptSubmission {

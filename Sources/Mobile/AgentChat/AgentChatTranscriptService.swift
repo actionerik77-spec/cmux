@@ -133,7 +133,11 @@ final class AgentChatTranscriptService {
     private var pendingMobileChatAttachmentBatches: [
         MobileChatAttachmentBatch
     ] = []
+    private var pendingMobileChatAttachmentReservations = 0
+    private var pendingMobileChatAttachmentReservationFileCount = 0
     private static let maximumPendingMobileChatAttachmentBatches = 64
+    private static let maximumPendingMobileChatAttachmentFiles = 32
+    private static let mobileChatAttachmentExpiration: TimeInterval = 30 * 60
     /// Sessions whose transcript could not be resolved cheaply; skipped until
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
@@ -153,6 +157,8 @@ final class AgentChatTranscriptService {
         processID: Int?,
         promptDigest: [UInt8],
         promptByteCount: Int,
+        fileCount: Int,
+        createdAt: Date,
         fileURLs: [URL],
         hookConfirmed: Bool
     )
@@ -321,6 +327,7 @@ final class AgentChatTranscriptService {
     ///
     /// - Parameter event: The hook event.
     func noteHookEvent(_ event: WorkstreamEvent) {
+        expireStaleMobileChatAttachmentBatches()
         let record = registry.noteHookEvent(event)
         switch event.hookEventName {
         case .userPromptSubmit:
@@ -382,10 +389,36 @@ final class AgentChatTranscriptService {
         }
     }
 
-    /// Whether another mobile-chat attachment batch can be staged.
-    func canStageMobileChatAttachmentBatch() -> Bool {
-        pendingMobileChatAttachmentBatches.count
-            < Self.maximumPendingMobileChatAttachmentBatches
+    /// Reserves bounded attachment capacity before an async materialization.
+    func reserveMobileChatAttachmentBatch(fileCount: Int) -> Bool {
+        expireStaleMobileChatAttachmentBatches()
+        guard fileCount > 0,
+              pendingMobileChatAttachmentBatches.count
+                  + pendingMobileChatAttachmentReservations
+                  < Self.maximumPendingMobileChatAttachmentBatches,
+              pendingMobileChatAttachmentBatches.reduce(0) {
+                  $0 + $1.fileCount
+              }
+                  + pendingMobileChatAttachmentReservationFileCount
+                  + fileCount
+                  <= Self.maximumPendingMobileChatAttachmentFiles else {
+            return false
+        }
+        pendingMobileChatAttachmentReservations += 1
+        pendingMobileChatAttachmentReservationFileCount += fileCount
+        return true
+    }
+
+    /// Releases a reservation when attachment preparation or delivery fails.
+    func releaseMobileChatAttachmentBatchReservation(fileCount: Int) {
+        pendingMobileChatAttachmentReservations = max(
+            0,
+            pendingMobileChatAttachmentReservations - 1
+        )
+        pendingMobileChatAttachmentReservationFileCount = max(
+            0,
+            pendingMobileChatAttachmentReservationFileCount - fileCount
+        )
     }
 
     /// Retains materialized mobile-chat files until the receiving terminal
@@ -393,23 +426,36 @@ final class AgentChatTranscriptService {
     ///
     /// - Parameters:
     ///   - fileURLs: Owned image files referenced by one submitted prompt.
+    ///   - sessionID: Agent session that receives the prompt.
     ///   - surfaceID: Stable terminal surface receiving the prompt.
+    ///   - processID: Optional process identity captured at admission.
+    ///   - fileCount: Number of files covered by the reservation.
+    ///   - prompt: Full normalized prompt body used for hook matching.
     func registerMobileChatAttachmentFiles(
         _ fileURLs: [URL],
         sessionID: String,
         surfaceID: String,
         processID: Int? = nil,
+        fileCount: Int,
         prompt: String
     ) -> Bool {
         let normalizedSessionID = sessionID.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
         let normalizedSurfaceID = normalizedMobileChatSurfaceID(surfaceID)
+        guard pendingMobileChatAttachmentReservations > 0 else {
+            return false
+        }
+        pendingMobileChatAttachmentReservations -= 1
+        pendingMobileChatAttachmentReservationFileCount = max(
+            0,
+            pendingMobileChatAttachmentReservationFileCount - fileCount
+        )
         guard !normalizedSessionID.isEmpty,
               !normalizedSurfaceID.isEmpty,
               !fileURLs.isEmpty,
-              let promptSignature = mobileChatPromptSignature(prompt),
-              canStageMobileChatAttachmentBatch() else {
+              fileCount == fileURLs.count,
+              let promptSignature = mobileChatPromptSignature(prompt) else {
             return false
         }
         pendingMobileChatAttachmentBatches.append(
@@ -419,6 +465,8 @@ final class AgentChatTranscriptService {
                 processID: processID,
                 promptDigest: promptSignature.digest,
                 promptByteCount: promptSignature.byteCount,
+                fileCount: fileCount,
+                createdAt: now(),
                 fileURLs: fileURLs,
                 hookConfirmed: false
             )
@@ -500,6 +548,15 @@ final class AgentChatTranscriptService {
         pendingMobileChatAttachmentBatches = retained
         guard !cleanedURLs.isEmpty else { return }
         cleanupMobileChatAttachments(cleanedURLs)
+    }
+
+    private func expireStaleMobileChatAttachmentBatches() {
+        let expirationDate = now().addingTimeInterval(
+            -Self.mobileChatAttachmentExpiration
+        )
+        cleanupMobileChatAttachmentBatches { batch in
+            batch.createdAt < expirationDate
+        }
     }
 
     private func mobileChatAttachmentBatchMatches(
