@@ -74,8 +74,12 @@ final class NotificationFeedHistoryStore {
     /// durable history. Existing historical rows remain unchanged; only missing
     /// UUIDs are inserted.
     func reconcileActiveNotifications(_ activeNotifications: [TerminalNotification]) {
+        // Ephemeral agent-attention rows are intentionally live-only; exclude
+        // them at the history boundary so mobile sync and any reconciliation
+        // caller cannot persist their model-controlled prompt text.
+        let persistentNotifications = activeNotifications.filter(\.persistsInSessionSnapshot)
         let activeNotifications = Self.retainableActiveNotifications(
-            activeNotifications,
+            persistentNotifications,
             totalRetentionLimit: totalRetentionLimit
         )
         guard !activeNotifications.isEmpty else { return }

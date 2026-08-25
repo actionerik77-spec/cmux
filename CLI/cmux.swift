@@ -25431,6 +25431,20 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            if let sessionId = parsedInput.sessionId {
+                guard let currentSession = mappedSession,
+                      (try? sessionStore.isCurrent(
+                          sessionId: sessionId,
+                          workspaceId: currentSession.workspaceId,
+                          surfaceId: currentSession.surfaceId,
+                          turnId: parsedInput.turnId
+                      )) == true else {
+                    didSendFeedTelemetry = true
+                    telemetry.breadcrumb("claude-hook.session-end.stale")
+                    printClaudeHookAck()
+                    return
+                }
+            }
             let didReleaseBlockingAttention: Bool
             if let sessionId = parsedInput.sessionId {
                 didReleaseBlockingAttention = endClaudeBlockingAttentionForTurnBoundary(
