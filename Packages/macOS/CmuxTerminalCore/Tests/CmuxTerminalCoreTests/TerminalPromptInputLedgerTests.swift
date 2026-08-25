@@ -55,6 +55,28 @@ import Testing
         #expect(ledger.hasUnconfirmedHumanInput)
     }
 
+    @Test func humanHookCanPassAConfirmedProgrammaticTombstone() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordProgrammaticSubmission(
+            message: "automation prompt",
+            source: "workspace.agent_submit"
+        )
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+
+        #expect(
+            ledger.confirmSubmission(message: "automation prompt")
+                == .programmatic(source: "workspace.agent_submit")
+        )
+        #expect(ledger.hasUnconfirmedHumanInput)
+
+        #expect(ledger.confirmSubmission(message: "human prompt") == .human)
+        #expect(!ledger.hasUnconfirmedHumanInput)
+        #expect(
+            ledger.confirmSubmission(message: "automation prompt") == .unmatched
+        )
+    }
+
     @Test func humanOwnedAppSubmissionRecoversOnlyItsPriorInput() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordHumanInput(.unknown)
