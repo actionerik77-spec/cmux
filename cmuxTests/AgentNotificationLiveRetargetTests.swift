@@ -440,6 +440,26 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testRelayAttentionDoesNotStampHostPeerIntoSignedParams() {
+        let remoteWorkspaceID = UUID()
+        let params: [String: Any] = [
+            "source": "claude",
+            "session_id": "relay-session",
+            "request_id": "relay-request",
+            "_cmux_remote_workspace_id": remoteWorkspaceID.uuidString,
+        ]
+
+        let stamped = TerminalController.shared.transientAttentionParams(
+            method: "feed.attention.begin",
+            params: params,
+            peerProcessID: 123
+        )
+
+        #expect(stamped["_cmux_peer_pid"] == nil)
+        #expect(stamped["_cmux_remote_workspace_id"] as? String == remoteWorkspaceID.uuidString)
+    }
+
+    @Test
     func testSyncDeliverySupersedesPendingNotificationUnderStaleClaimedKey() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
