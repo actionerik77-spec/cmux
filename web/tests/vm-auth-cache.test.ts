@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 const getUser = mock(async (): Promise<unknown> => null);
 
@@ -42,6 +50,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setSystemTime();
   if (originalTtl === undefined) delete process.env.CMUX_VM_AUTH_CACHE_TTL_MS;
   else process.env.CMUX_VM_AUTH_CACHE_TTL_MS = originalTtl;
 });
