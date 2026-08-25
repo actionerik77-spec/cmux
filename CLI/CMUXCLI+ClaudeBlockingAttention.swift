@@ -15,6 +15,7 @@ extension CMUXCLI {
             ?? Self.legacyClaudeBlockingAttentionRequestId
     }
 
+    @discardableResult
     func beginClaudeBlockingAttention(
         client: SocketClient,
         sessionId: String,
@@ -25,7 +26,7 @@ extension CMUXCLI {
         title: String,
         subtitle: String,
         body: String
-    ) {
+    ) -> Bool {
         var params: [String: Any] = [
             "source": "claude",
             "session_id": sessionId,
@@ -45,16 +46,61 @@ extension CMUXCLI {
                   let ownerPIDStartMicroseconds = owner.pidStartMicroseconds,
                   ownerPIDStartSeconds >= 0,
                   (0..<1_000_000).contains(ownerPIDStartMicroseconds) else {
-                return
+                return false
             }
             params["ppid"] = ownerPID
             params["ppid_start_seconds"] = ownerPIDStartSeconds
             params["ppid_start_microseconds"] = ownerPIDStartMicroseconds
         }
-        _ = try? client.sendV2(
-            method: "feed.attention.begin",
-            params: params,
-            responseTimeout: Self.claudeBlockingAttentionResponseTimeout
+        do {
+            _ = try client.sendV2(
+                method: "feed.attention.begin",
+                params: params,
+                responseTimeout: Self.claudeBlockingAttentionResponseTimeout
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Keeps older cmux builds visible when the transient-attention endpoint is
+    /// unavailable. The durable Claude lifecycle already says Needs input, so
+    /// this legacy path only restores the status and targeted notification.
+    func fallbackClaudeBlockingAttention(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceId: String,
+        title: String,
+        subtitle: String,
+        body: String,
+        pid: Int?
+    ) {
+        setAgentLifecycle(
+            client: client,
+            key: Self.claudeCodeStatusKey,
+            lifecycle: .needsInput,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        try? setClaudeStatus(
+            client: client,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            pid: pid
+        )
+        let payload = notificationPayload(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
+        )
+        _ = try? sendV1Command(
+            "notify_target_async \(workspaceId) \(surfaceId) \(payload)",
+            client: client
         )
     }
 
@@ -132,6 +178,31 @@ extension CMUXCLI {
         } catch {
             return false
         }
+    }
+
+    /// Releases old-session attention claimed by the durable superseded-cleanup
+    /// queue. A failed transport leaves the candidate queued so a later Claude
+    /// hook can claim and retry it without relying on the old session's hooks.
+    @discardableResult
+    func releaseSupersededClaudeBlockingAttention(
+        client: SocketClient,
+        sessionStore: ClaudeHookSessionStore,
+        candidates: [ClaudeHookSessionRecord]
+    ) -> [ClaudeHookSessionRecord] {
+        guard !candidates.isEmpty else { return [] }
+        var released: [ClaudeHookSessionRecord] = []
+        for candidate in candidates {
+            guard endClaudeBlockingAttentionForTurnBoundary(
+                client: client,
+                sessionId: candidate.sessionId,
+                owner: candidate
+            ) else {
+                continue
+            }
+            released.append(candidate)
+        }
+        try? sessionStore.acknowledgeSupersededSessionCleanup(released)
+        return released
     }
 
     private func appendLocalAttentionOwnerParams(

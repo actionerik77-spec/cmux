@@ -24826,11 +24826,12 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
             let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
+            var supersededClearSessions: [ClaudeHookSessionRecord] = []
             if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
                 // establishes a new active boundary.
-                _ = try? sessionStore.upsert(
+                supersededClearSessions = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24841,8 +24842,9 @@ struct CMUXCLI {
                     isRestorable: false,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
                     markActive: shouldPromoteActiveSession,
-                    turnId: parsedInput.turnId
-                )
+                    turnId: parsedInput.turnId,
+                    supersedesSameProcessSession: isClearSessionStart
+                )) ?? []
                 if shouldPromoteActiveSession {
                     publishAgentSurfaceResumeBinding(
                         client: client,
@@ -24884,15 +24886,27 @@ struct CMUXCLI {
                 )
             }
             if isClearSessionStart, !suppressVisibleMutations {
-                if let sessionId = displacedBlockingAttentionSessionId
-                    ?? parsedInput.sessionId {
-                    endClaudeBlockingAttentionForTurnBoundary(
-                        client: client,
-                        sessionId: sessionId,
-                        owner: parsedInput.sessionId == sessionId
-                            ? mappedSession
-                            : (try? sessionStore.lookup(sessionId: sessionId))
-                    )
+                var cleanupCandidates = supersededClearSessions
+                if let sessionId = displacedBlockingAttentionSessionId,
+                   !cleanupCandidates.contains(where: { $0.sessionId == sessionId }),
+                   let record = try? sessionStore.lookup(sessionId: sessionId) {
+                    cleanupCandidates.append(record)
+                }
+                if let sessionId = parsedInput.sessionId,
+                   let owner = try? sessionStore.lookup(sessionId: sessionId) {
+                    cleanupCandidates.append(contentsOf: (try? sessionStore.pendingSupersededSessionCleanupCandidates(for: owner)) ?? [])
+                }
+                var seenCleanupSessionIDs: Set<String> = []
+                cleanupCandidates = cleanupCandidates.filter {
+                    seenCleanupSessionIDs.insert($0.sessionId).inserted
+                }
+                let releasedCleanupCandidates = releaseSupersededClaudeBlockingAttention(
+                    client: client,
+                    sessionStore: sessionStore,
+                    candidates: cleanupCandidates
+                )
+                if releasedCleanupCandidates.count != cleanupCandidates.count {
+                    telemetry.breadcrumb("claude-hook.session-start.clear-attention-release-pending")
                 }
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 setAgentLifecycle(
@@ -25792,7 +25806,7 @@ struct CMUXCLI {
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    beginClaudeBlockingAttention(
+                    let beganTransientAttention = beginClaudeBlockingAttention(
                         client: client,
                         sessionId: sessionId,
                         toolUseId: registeredBlockingTool.requestId,
@@ -25803,6 +25817,17 @@ struct CMUXCLI {
                         subtitle: waitingSubtitle,
                         body: needsInputBody
                     )
+                    if !beganTransientAttention {
+                        fallbackClaudeBlockingAttention(
+                            client: client,
+                            workspaceId: workspaceId,
+                            surfaceId: existingSurfaceId,
+                            title: title,
+                            subtitle: waitingSubtitle,
+                            body: needsInputBody,
+                            pid: claudePid
+                        )
+                    }
                 }
                 printClaudeHookAck()
                 return
