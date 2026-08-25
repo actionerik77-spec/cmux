@@ -132,6 +132,13 @@ final class FeedTransientAttentionStore {
         }
     }
 
+    func entries(source: String, sessionId: String) -> [Entry] {
+        entries.compactMap { key, stored in
+            guard key.source == source, key.sessionId == sessionId else { return nil }
+            return stored.entry
+        }
+    }
+
     func localProcessIdentities() -> Set<AgentPIDProcessIdentity> {
         Set(entries.values.compactMap { $0.entry.owner.localProcessIdentity })
     }
@@ -148,6 +155,12 @@ final class FeedTransientAttentionStore {
 }
 
 extension FeedCoordinator {
+    enum TransientAttentionEndResult: String, Equatable, Sendable {
+        case ended
+        case absent
+        case unauthorized
+    }
+
     /// Acquires attention for a blocker that intentionally does not create a
     /// durable Feed item (Claude's bypass-permissions question/plan fallback).
     /// The request is deduplicated by agent/session/tool identity, while the
@@ -255,25 +268,44 @@ extension FeedCoordinator {
         authenticatedRemoteWorkspaceId: UUID? = nil,
         authenticatedLocalProcessIdentity: AgentPIDProcessIdentity? = nil
     ) -> Bool {
+        endTransientBlockingAttentionResult(
+            source: source,
+            sessionId: sessionId,
+            requestId: requestId,
+            authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId,
+            authenticatedLocalProcessIdentity: authenticatedLocalProcessIdentity
+        ) == .ended
+    }
+
+    @MainActor
+    func endTransientBlockingAttentionResult(
+        source: String,
+        sessionId: String,
+        requestId: String,
+        authenticatedRemoteWorkspaceId: UUID? = nil,
+        authenticatedLocalProcessIdentity: AgentPIDProcessIdentity? = nil
+    ) -> TransientAttentionEndResult {
         let key = FeedTransientAttentionStore.Key(
             source: source,
             sessionId: sessionId,
             requestId: requestId
         )
         guard let existing = transientAttentionStore.entry(for: key) else {
-            return false
+            return .absent
         }
         if let authenticatedRemoteWorkspaceId,
            existing.owner != .remoteWorkspace(authenticatedRemoteWorkspaceId) {
-            return false
+            return .unauthorized
         }
         if let authenticatedLocalProcessIdentity,
            existing.owner != .localProcess(authenticatedLocalProcessIdentity) {
-            return false
+            return .unauthorized
         }
-        guard let entry = transientAttentionStore.removeValue(for: key) else { return false }
+        guard let entry = transientAttentionStore.removeValue(for: key) else {
+            return .absent
+        }
         concludeTransientBlockingAttention([entry])
-        return true
+        return .ended
     }
 
     /// Releases every transient request in one current agent session. This is
@@ -286,14 +318,48 @@ extension FeedCoordinator {
         authenticatedRemoteWorkspaceId: UUID? = nil,
         authenticatedLocalProcessIdentity: AgentPIDProcessIdentity? = nil
     ) -> Bool {
-        let entries = transientAttentionStore.removeValues(
+        endTransientBlockingAttentionResult(
+            source: source,
+            sessionId: sessionId,
+            authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId,
+            authenticatedLocalProcessIdentity: authenticatedLocalProcessIdentity
+        ) == .ended
+    }
+
+    @MainActor
+    func endTransientBlockingAttentionResult(
+        source: String,
+        sessionId: String,
+        authenticatedRemoteWorkspaceId: UUID? = nil,
+        authenticatedLocalProcessIdentity: AgentPIDProcessIdentity? = nil
+    ) -> TransientAttentionEndResult {
+        let matchingEntries = transientAttentionStore.entries(
+            source: source,
+            sessionId: sessionId
+        )
+        guard !matchingEntries.isEmpty else {
+            return .absent
+        }
+        let ownedEntries = matchingEntries.filter { entry in
+            if let authenticatedRemoteWorkspaceId {
+                return entry.owner == .remoteWorkspace(authenticatedRemoteWorkspaceId)
+            }
+            if let authenticatedLocalProcessIdentity {
+                return entry.owner == .localProcess(authenticatedLocalProcessIdentity)
+            }
+            return true
+        }
+        guard !ownedEntries.isEmpty else {
+            return .unauthorized
+        }
+        let removed = transientAttentionStore.removeValues(
             source: source,
             sessionId: sessionId,
             authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId,
             authenticatedLocalProcessIdentity: authenticatedLocalProcessIdentity
         )
-        concludeTransientBlockingAttention(entries)
-        return !entries.isEmpty
+        concludeTransientBlockingAttention(removed)
+        return removed.isEmpty ? .absent : .ended
     }
 
     /// Releases every transient request owned by an exited agent process.

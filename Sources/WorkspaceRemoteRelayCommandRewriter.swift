@@ -23,8 +23,12 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
             remoteWorkspaceID: remoteWorkspaceID
         )
         // Method classification is a trust boundary; decoded JSON honors escapes that raw bytes do not.
-        guard rewritten.method == "surface.resume.set" else { return rewritten.commandLine }
-        return authenticatedRemoteResumeCommandLine(rewritten.commandLine)
+        guard rewritten.method == "surface.resume.set"
+            || rewritten.method == "feed.attention.begin"
+            || rewritten.method == "feed.attention.end" else {
+            return rewritten.commandLine
+        }
+        return authenticatedRemoteRelayCommandLine(rewritten.commandLine)
     }
 
     static func authenticatesRemoteResumeParameters(
@@ -45,21 +49,52 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
         )
     }
 
-    private func authenticatedRemoteResumeCommandLine(_ commandLine: Data) -> Data {
+    static func authenticatesRemoteRelayParameters(
+        _ params: [String: Any],
+        remoteRelayTokenHex: String?
+    ) -> Bool {
+        authenticatesRemoteResumeParameters(
+            params,
+            remoteRelayTokenHex: remoteRelayTokenHex
+        )
+    }
+
+    static func remoteRelayAuthenticationCode(
+        for params: [String: Any],
+        remoteRelayTokenHex: String?
+    ) -> String? {
+        guard let remoteRelayTokenHex,
+              let relayToken = hexData(remoteRelayTokenHex),
+              let payload = authenticationPayload(params) else {
+            return nil
+        }
+        return hexString(
+            HMAC<SHA256>.authenticationCode(
+                for: payload,
+                using: SymmetricKey(data: relayToken)
+            )
+        )
+    }
+
+    private func authenticatedRemoteRelayCommandLine(_ commandLine: Data) -> Data {
         guard let line = String(data: commandLine, encoding: .utf8),
               let requestData = line.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
               var request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
-              request["method"] as? String == "surface.resume.set",
+              let method = request["method"] as? String,
+              method == "surface.resume.set"
+                || method == "feed.attention.begin"
+                || method == "feed.attention.end",
               var params = request["params"] as? [String: Any],
-              let payload = Self.authenticationPayload(params),
-              let relayToken = Self.hexData(remoteRelayTokenHex) else {
+              Self.authenticationPayload(params) != nil else {
             return commandLine
         }
-        let authenticationCode = HMAC<SHA256>.authenticationCode(
-            for: payload,
-            using: SymmetricKey(data: relayToken)
-        )
-        params[Self.authenticationCodeKey] = Self.hexString(authenticationCode)
+        guard let authenticationCode = Self.remoteRelayAuthenticationCode(
+            for: params,
+            remoteRelayTokenHex: remoteRelayTokenHex
+        ) else {
+            return commandLine
+        }
+        params[Self.authenticationCodeKey] = authenticationCode
         request["params"] = params
         guard let authenticated = try? JSONSerialization.data(withJSONObject: request) else {
             return commandLine

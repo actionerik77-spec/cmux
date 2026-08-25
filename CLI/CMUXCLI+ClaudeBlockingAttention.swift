@@ -138,7 +138,7 @@ extension CMUXCLI {
             if params["legacy_release"] as? Bool == true {
                 return true
             }
-            return response["ended"] as? Bool != false
+            return transientAttentionEndResponseSucceeded(response)
         } catch let error as CLIError where error.v2Code == "method_not_found"
                 || error.v2Code == "unrecognized_method" {
             // Older app builds never acquired transient attention, so an
@@ -183,7 +183,7 @@ extension CMUXCLI {
             if params["legacy_release"] as? Bool == true {
                 return true
             }
-            return response["ended"] as? Bool != false
+            return transientAttentionEndResponseSucceeded(response)
         } catch let error as CLIError where error.v2Code == "method_not_found"
                 || error.v2Code == "unrecognized_method" {
             return true
@@ -215,6 +215,22 @@ extension CMUXCLI {
         }
         try? sessionStore.acknowledgeSupersededSessionCleanup(released)
         return released
+    }
+
+    private func transientAttentionEndResponseSucceeded(
+        _ response: [String: Any]
+    ) -> Bool {
+        switch response["outcome"] as? String {
+        case "absent", "ended":
+            return true
+        case "unauthorized":
+            return false
+        default:
+            // Older app builds returned an empty success payload. Preserve
+            // their compatibility while treating an explicit false as a
+            // rejected/owner-mismatched release.
+            return response["ended"] as? Bool != false
+        }
     }
 
     private func appendLocalAttentionOwnerParams(

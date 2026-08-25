@@ -47,6 +47,10 @@ extension TerminalController {
             guard let remoteWorkspaceId = transientAttentionUUID(remoteWorkspaceRaw),
                   let remoteWorkspace = controlTabForSidebarMutation(id: remoteWorkspaceId),
                   remoteWorkspace.isRemoteWorkspace,
+                  WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteRelayParameters(
+                      params,
+                      remoteRelayTokenHex: remoteWorkspace.remoteConfiguration?.relayToken
+                  ),
                   AppDelegate.shared?.isRemoteTransientAttentionSurfaceAuthorized(
                       remoteWorkspaceID: remoteWorkspaceId,
                       claimedWorkspaceID: workspaceId,
@@ -110,7 +114,11 @@ extension TerminalController {
         if remoteWorkspaceRaw != nil {
             guard let remoteWorkspaceId = transientAttentionUUID(remoteWorkspaceRaw),
                   let remoteWorkspace = controlTabForSidebarMutation(id: remoteWorkspaceId),
-                  remoteWorkspace.isRemoteWorkspace else {
+                  remoteWorkspace.isRemoteWorkspace,
+                  WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteRelayParameters(
+                      params,
+                      remoteRelayTokenHex: remoteWorkspace.remoteConfiguration?.relayToken
+                  ) else {
                 return invalidTransientAttentionOwnerResult()
             }
             authenticatedRemoteWorkspaceId = remoteWorkspaceId
@@ -135,9 +143,9 @@ extension TerminalController {
         if isLegacyRelease {
             return .ok(["ended": false])
         }
-        let ended: Bool
+        let endResult: FeedCoordinator.TransientAttentionEndResult
         if (params["all_requests"] as? Bool) == true {
-            ended = FeedCoordinator.shared.endTransientBlockingAttention(
+            endResult = FeedCoordinator.shared.endTransientBlockingAttentionResult(
                 source: source,
                 sessionId: sessionId,
                 authenticatedRemoteWorkspaceId: authenticatedRemoteWorkspaceId,
@@ -157,7 +165,7 @@ extension TerminalController {
                     data: nil
                 )
             }
-            ended = FeedCoordinator.shared.endTransientBlockingAttention(
+            endResult = FeedCoordinator.shared.endTransientBlockingAttentionResult(
                 source: source,
                 sessionId: sessionId,
                 requestId: requestId,
@@ -165,7 +173,10 @@ extension TerminalController {
                 authenticatedLocalProcessIdentity: authenticatedLocalProcessIdentity
             )
         }
-        return .ok(["ended": ended])
+        return .ok([
+            "ended": endResult == .ended,
+            "outcome": endResult.rawValue,
+        ])
     }
 
     private func invalidTransientAttentionOwnerResult() -> V2CallResult {
