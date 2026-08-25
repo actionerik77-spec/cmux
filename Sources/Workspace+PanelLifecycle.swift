@@ -97,7 +97,7 @@ extension Workspace {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
-        for (statusKey, lifecycle) in lifecycleStates where lifecycle == .needsInput {
+        for statusKey in lifecycleStates.keys {
             if let statusEntry = statusEntries[statusKey] {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
