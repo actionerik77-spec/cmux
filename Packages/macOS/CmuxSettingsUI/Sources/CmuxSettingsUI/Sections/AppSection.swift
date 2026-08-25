@@ -44,6 +44,8 @@ public struct AppSection: View {
     @State private var canvasSnapping: DefaultsValueModel<Bool>
     @State private var fileEditorFontSize: DefaultsValueModel<Int>
     @State private var fileEditorFontFamily: DefaultsValueModel<String>
+    @State private var fileEditorFontFamilyDraft = ""
+    @State private var fileEditorFontFamilyDraftLoaded = false
     @State private var fileEditorLineHeight: DefaultsValueModel<Double>
     @State private var fileEditorWordWrap: DefaultsValueModel<Bool>
     @State private var iMessage: DefaultsValueModel<Bool>
@@ -147,7 +149,16 @@ public struct AppSection: View {
         }
         .task {
             startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorFontSize, fileEditorFontFamily, fileEditorLineHeight, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            if !fileEditorFontFamilyDraftLoaded {
+                fileEditorFontFamilyDraft = fileEditorFontFamily.current
+                fileEditorFontFamilyDraftLoaded = true
+            }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
+        }
+        .onChange(of: fileEditorFontFamily.current) { _, newValue in
+            if fileEditorFontFamilyDraft != newValue {
+                fileEditorFontFamilyDraft = newValue
+            }
         }
     }
 
@@ -537,7 +548,8 @@ public struct AppSection: View {
             ) {
                 TextField(
                     String(localized: "settings.app.fileEditorFontFamily.placeholder", defaultValue: "System Mono"),
-                    text: Binding(get: { fileEditorFontFamily.current }, set: { fileEditorFontFamily.set($0) })
+                    text: $fileEditorFontFamilyDraft,
+                    onCommit: { fileEditorFontFamily.set(fileEditorFontFamilyDraft) }
                 )
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
