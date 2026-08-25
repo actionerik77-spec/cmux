@@ -1,5 +1,13 @@
 import Foundation
+import CmuxFoundation
 import Observation
+
+/// Identity carried by one Lock Mac request so a late result cannot overwrite a
+/// later Sleepy Mode session or request.
+struct SleepyLockRequest: Sendable {
+    let sessionID: UUID
+    let requestID: UInt64
+}
 
 /// Shared, observable Low Power UI state. Sleepy Mode creates one overlay window
 /// per display; injecting a single instance into every `SleepyFaceView` keeps
@@ -9,9 +17,12 @@ import Observation
 @MainActor
 @Observable
 final class SleepyPowerUIState {
+    private static let lockTaskKey = "sleepyMode.lock"
+
     private var sessionID = UUID()
     private var nextLockRequestID: UInt64 = 0
     private var activeLockRequestID: UInt64?
+    @ObservationIgnored private let lockTaskStore = MainActorTaskStore<String>()
 
     /// Whether Low Power Mode is currently on (last re-read from the system).
     var isOn = false
@@ -25,18 +36,12 @@ final class SleepyPowerUIState {
 
     /// Starts a fresh overlay session and clears transient lock feedback.
     func beginSession() {
+        cancelLockRequest()
         sessionID = UUID()
-        activeLockRequestID = nil
         lockFailed = false
     }
 
-    /// Captures the current session so an asynchronous lock result cannot
-    /// update a later Sleepy Mode session.
-    func currentSessionID() -> UUID {
-        sessionID
-    }
-
-    /// Whether a Lock Mac request is currently awaiting confirmation.
+    /// Whether a Lock Mac request is currently in flight.
     var isLockBusy: Bool {
         activeLockRequestID != nil
     }
@@ -44,14 +49,38 @@ final class SleepyPowerUIState {
     /// Starts one lock request and returns its session/request identity.
     /// Concurrent overlay buttons share this gate, so an older result cannot
     /// overwrite a newer request's outcome.
-    func beginLockRequest() -> (sessionID: UUID, requestID: UInt64)? {
+    func beginLockRequest() -> SleepyLockRequest? {
         guard activeLockRequestID == nil else { return nil }
         nextLockRequestID &+= 1
         activeLockRequestID = nextLockRequestID
-        return (sessionID, nextLockRequestID)
+        return SleepyLockRequest(sessionID: sessionID, requestID: nextLockRequestID)
     }
 
-    /// Records a lock confirmation only when both the Sleepy session and the
+    /// Runs a request through the lifecycle-owned task store. Cancelling the
+    /// current session or deactivating Sleepy Mode cancels this operation before
+    /// it can publish a stale result.
+    func runLockRequest(_ request: SleepyLockRequest, using power: any SleepyPowerControlling) {
+        guard request.sessionID == sessionID,
+              activeLockRequestID == request.requestID else { return }
+
+        lockTaskStore.replaceOnMainActor(Self.lockTaskKey) { [weak self] in
+            let issued = await power.lockMacNow()
+            guard !Task.isCancelled else { return }
+            self?.recordLockResult(
+                issued,
+                for: request.sessionID,
+                requestID: request.requestID
+            )
+        }
+    }
+
+    /// Cancels an in-flight request at the Sleepy Mode lifecycle boundary.
+    func cancelLockRequest() {
+        lockTaskStore.cancel(Self.lockTaskKey)
+        activeLockRequestID = nil
+    }
+
+    /// Records the issued-request result only when both the Sleepy session and
     /// request identity are still current.
     func recordLockResult(
         _ confirmed: Bool,

@@ -137,6 +137,23 @@ struct SleepyPowerControlsLockTests {
         #expect(!state.isLockBusy)
         #expect(!state.lockFailed)
     }
+
+    /// Leaving Sleepy Mode cancels its lifecycle-owned request slot, so a
+    /// request that has not completed cannot keep the Lock Mac button busy or
+    /// publish a stale failure into a later session.
+    @MainActor
+    @Test func cancellingLockRequestReleasesTheBusyState() throws {
+        let state = SleepyPowerUIState()
+        state.beginSession()
+        let request = try #require(state.beginLockRequest())
+
+        #expect(state.isLockBusy)
+        state.cancelLockRequest()
+        #expect(!state.isLockBusy)
+
+        state.recordLockResult(false, for: request.sessionID, requestID: request.requestID)
+        #expect(!state.lockFailed)
+    }
 }
 
 /// Recording runner whose in-process lock succeeds, without touching the host.

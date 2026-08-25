@@ -1,5 +1,4 @@
 import Darwin
-import CoreGraphics
 import Foundation
 import Security
 
@@ -36,28 +35,16 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     /// like `authExec` above, so no private symbol is linked and a macOS that
     /// drops it degrades to a reported failure, not a crash. The private API has
     /// no documented return contract; established clients declare it `void`, so
-    /// cmux verifies the resulting public session state instead of interpreting
-    /// an undocumented return register as status.
+    /// cmux reports success when the request can be issued instead of waiting on
+    /// a best-effort session-state probe that can lag the actual lock.
     private static let lockScreenImmediate: LockScreenFn? = {
         guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/login", RTLD_LAZY),
               let symbol = dlsym(handle, "SACLockScreenImmediate") else { return nil }
         return unsafeBitCast(symbol, to: LockScreenFn.self)
     }()
 
-    /// The clock is injected so the bounded lock confirmation deadline can be
-    /// advanced deterministically by behavior tests without waiting in real time.
-    private let lockConfirmationClock: any Clock<Duration>
-    private let lockConfirmationTimeout: Duration
     private let privilegedQueue = DispatchQueue(label: "com.cmux.sleepyMode.privileged")
     private var authorization: AuthorizationRef?  // accessed only on privilegedQueue
-
-    init(
-        lockConfirmationClock: any Clock<Duration> = ContinuousClock(),
-        lockConfirmationTimeout: Duration = .seconds(2)
-    ) {
-        self.lockConfirmationClock = lockConfirmationClock
-        self.lockConfirmationTimeout = lockConfirmationTimeout
-    }
 
     func run(_ tool: String, _ args: [String]) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -91,8 +78,7 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     }
 
     /// Asks loginwindow to lock without blocking the caller's actor. Returns
-    /// whether loginwindow confirmed the lock within the bounded notification
-    /// deadline.
+    /// whether the private lock symbol was available and the request was issued.
     @discardableResult
     #if compiler(>=6.2)
     @concurrent
@@ -103,123 +89,8 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         guard let lockScreenImmediate = Self.lockScreenImmediate else {
             return false
         }
-
-        // Register before invoking the private call: loginwindow can publish
-        // the transition before the IPC returns, and AsyncStream buffers that
-        // event until the waiting child starts consuming it.
-        let lockNotifications = Self.lockScreenNotifications()
-        let clock = lockConfirmationClock
-        let timeout = lockConfirmationTimeout
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await Self.waitForLockNotification(
-                    lockNotifications,
-                    clock: clock,
-                    timeout: timeout
-                )
-            }
-            lockScreenImmediate()
-            if Self.isScreenLocked() {
-                group.cancelAll()
-                return true
-            }
-            return await group.next() ?? false
-        }
-    }
-
-    private static func lockScreenNotifications() -> AsyncStream<Bool> {
-        let center = DistributedNotificationCenter.default()
-        return AsyncStream { continuation in
-            let lockToken = center.addObserver(
-                forName: Notification.Name("com.apple.screenIsLocked"),
-                object: nil,
-                queue: nil
-            ) { _ in
-                continuation.yield(true)
-            }
-            let unlockToken = center.addObserver(
-                forName: Notification.Name("com.apple.screenIsUnlocked"),
-                object: nil,
-                queue: nil
-            ) { _ in
-                continuation.yield(false)
-            }
-            let lockTokenBox = DistributedObserverToken(center: center, token: lockToken)
-            let unlockTokenBox = DistributedObserverToken(center: center, token: unlockToken)
-            continuation.onTermination = { _ in
-                lockTokenBox.remove()
-                unlockTokenBox.remove()
-            }
-        }
-    }
-
-    private static func waitForLockNotification(
-        _ notifications: AsyncStream<Bool>,
-        clock: any Clock<Duration>,
-        timeout: Duration
-    ) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await didLock in notifications {
-                    guard didLock else { continue }
-                    switch Self.screenLockState() {
-                    case .some(true):
-                        return true
-                    case .none:
-                        // A notification without an authoritative dictionary
-                        // state cannot prove a security transition; fail closed.
-                        return false
-                    case .some(false):
-                        // A delayed notification can arrive before the public
-                        // state catches up; re-read on a bounded cadence until
-                        // the confirmation deadline instead of waiting for a
-                        // second lock notification that will never arrive.
-                        return await Self.waitForCurrentLockState(clock: clock)
-                    }
-                }
-                return false
-            }
-            group.addTask {
-                try? await clock.sleep(for: timeout)
-                return false
-            }
-            let result = await group.next() ?? false
-            group.cancelAll()
-            // A notification wakes the confirmation, but the final decision
-            // comes from a fresh current-state read when the platform exposes
-            // one. This keeps an unrelated stale latch from proving a lock.
-            guard result else { return false }
-            return Self.isScreenLocked()
-        }
-    }
-
-    private static func waitForCurrentLockState(clock: any Clock<Duration>) async -> Bool {
-        while !Task.isCancelled {
-            switch screenLockState() {
-            case .some(true):
-                return true
-            case .none:
-                return false
-            case .some(false):
-                do {
-                    try await clock.sleep(for: .milliseconds(50))
-                } catch {
-                    return false
-                }
-            }
-        }
-        return false
-    }
-
-    private static func screenLockState() -> Bool? {
-        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
-            return nil
-        }
-        return session["CGSSessionScreenIsLocked"] as? Bool
-    }
-
-    private static func isScreenLocked() -> Bool {
-        screenLockState() == true
+        lockScreenImmediate()
+        return true
     }
 
     @discardableResult

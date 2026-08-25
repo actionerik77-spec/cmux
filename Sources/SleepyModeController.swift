@@ -91,6 +91,7 @@ final class SleepyModeController {
     func deactivate() {
         guard isActive else { return }
         isActive = false
+        powerUIState.cancelLockRequest()
         removeScreenObserver()
         endPowerAssertions()
         tearDownOverlayWindows()
