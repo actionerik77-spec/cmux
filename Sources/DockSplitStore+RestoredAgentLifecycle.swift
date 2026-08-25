@@ -506,7 +506,7 @@ extension DockSplitStore {
         processGeneration: AgentPIDProcessIdentity? = nil
     ) -> Bool {
         var accepted = false
-        mutateAgentRuntime(panelId: panelId) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             accepted = $0.agentLifecycleReconciliationState.setHookLifecycle(
                 key: key,
                 panelId: panelId,
@@ -526,7 +526,7 @@ extension DockSplitStore {
         panelId: UUID
     ) -> Bool {
         var removed = false
-        mutateAgentRuntime(panelId: panelId) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             removed = $0.agentLifecycleReconciliationState.removeHook(
                 key: key,
                 panelId: panelId
@@ -548,7 +548,7 @@ extension DockSplitStore {
         processGeneration: AgentPIDProcessIdentity? = nil
     ) -> AgentFeedAttentionToken? {
         var token: AgentFeedAttentionToken?
-        mutateAgentRuntime(panelId: panelId) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             token = $0.agentLifecycleReconciliationState
                 .beginFeedAttention(
                     key: key,
@@ -570,7 +570,7 @@ extension DockSplitStore {
         token: AgentFeedAttentionToken
     ) -> Bool {
         var ended = false
-        mutateAgentRuntime(panelId: panelId) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             ended = $0.agentLifecycleReconciliationState
                 .endFeedAttention(
                     key: key,
@@ -585,7 +585,7 @@ extension DockSplitStore {
         key: String,
         panelId: UUID
     ) {
-        mutateAgentRuntime(panelId: panelId) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             $0.agentLifecycleReconciliationState
                 .recordUnidentifiedProcessExit(
                     key: key,
@@ -605,7 +605,7 @@ extension DockSplitStore {
         generation: AgentPIDProcessIdentity
     ) -> Bool {
         var recorded = false
-        mutateAgentRuntime(panelId: panelId) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             recorded = $0.agentLifecycleReconciliationState
                 .recordProcessExit(
                     key: key,
