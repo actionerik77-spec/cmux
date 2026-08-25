@@ -9,8 +9,19 @@ protocol SleepyPowerControlling: Sendable {
     /// unconfirmed request is canceled with its Sleepy Mode lifecycle rather
     /// than reported as a successful lock.
     @discardableResult func lockMacNow() async -> Bool
+    /// Same operation with lifecycle cancellation serialized against the
+    /// irreversible loginwindow invocation.
+    @discardableResult func lockMacNow(using gate: SleepyLockInvocationGate) async -> Bool
     /// Whether Low Power Mode is currently on.
     func isLowPowerOn() async -> Bool
     /// Enables/disables Low Power Mode; returns the re-read state.
     @discardableResult func setLowPowerMode(_ enabled: Bool) async -> Bool
+}
+
+extension SleepyPowerControlling {
+    @discardableResult
+    func lockMacNow(using gate: SleepyLockInvocationGate) async -> Bool {
+        guard await gate.invoke({}) else { return false }
+        return await lockMacNow()
+    }
 }

@@ -22,6 +22,16 @@ protocol SleepyCommandRunning: Sendable {
     @Sendable
     #endif
     nonisolated func lockScreen() async -> Bool
+
+    /// Same operation with lifecycle cancellation serialized against the
+    /// irreversible loginwindow invocation.
+    @discardableResult
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func lockScreen(using gate: SleepyLockInvocationGate) async -> Bool
 }
 
 extension SleepyCommandRunning {
@@ -35,4 +45,15 @@ extension SleepyCommandRunning {
     @Sendable
     #endif
     nonisolated func lockScreen() async -> Bool { false }
+
+    @discardableResult
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func lockScreen(using gate: SleepyLockInvocationGate) async -> Bool {
+        guard await gate.invoke({}) else { return false }
+        return await lockScreen()
+    }
 }

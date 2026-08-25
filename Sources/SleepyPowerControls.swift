@@ -47,7 +47,12 @@ final class SleepyPowerControls: SleepyPowerControlling {
     /// Mode lifecycle instead of reported as success.
     @discardableResult
     func lockMacNow() async -> Bool {
-        await runner.lockScreen()
+        await lockMacNow(using: SleepyLockInvocationGate())
+    }
+
+    @discardableResult
+    func lockMacNow(using gate: SleepyLockInvocationGate) async -> Bool {
+        await runner.lockScreen(using: gate)
     }
 
     func isLowPowerOn() async -> Bool {

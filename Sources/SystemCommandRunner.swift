@@ -102,6 +102,16 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     @Sendable
     #endif
     nonisolated func lockScreen() async -> Bool {
+        await lockScreen(using: SleepyLockInvocationGate())
+    }
+
+    @discardableResult
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func lockScreen(using gate: SleepyLockInvocationGate) async -> Bool {
         guard let lockScreenImmediate = Self.lockScreenImmediate else {
             return false
         }
@@ -113,11 +123,13 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         let lockNotifications = Self.lockScreenNotifications()
         let clock = lockConfirmationClock
         let timeout = lockConfirmationTimeout
-        guard !Task.isCancelled else {
+        let invoked = await gate.invoke {
+            lockScreenImmediate()
+        }
+        guard invoked else {
             lockNotifications.continuation.finish()
             return false
         }
-        lockScreenImmediate()
         if Self.isScreenLocked() {
             lockNotifications.continuation.finish()
             return true

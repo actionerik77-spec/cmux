@@ -160,7 +160,7 @@ struct SleepyPowerControlsLockTests {
     @MainActor
     @Test func lifecycleCancellationStopsPendingLockOperation() async throws {
         let runner = CancellableLockRunner()
-        let suiteName = "SleepyPowerControlsLockTests-(UUID().uuidString)"
+        let suiteName = "SleepyPowerControlsLockTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let controls = SleepyPowerControls(runner: runner, defaults: defaults)
@@ -176,6 +176,15 @@ struct SleepyPowerControlsLockTests {
         await runner.waitUntilCancelled()
         #expect(!state.isLockBusy)
         #expect(!state.lockFailed)
+    }
+
+    /// Cancellation wins before the actor gate can invoke the irreversible
+    /// system effect.
+    @Test func cancelledLockInvocationGateDoesNotInvoke() async {
+        let gate = SleepyLockInvocationGate()
+        await gate.cancel()
+        let invoked = await gate.invoke {}
+        #expect(!invoked)
     }
 }
 

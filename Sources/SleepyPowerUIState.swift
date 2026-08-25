@@ -15,6 +15,7 @@ final class SleepyPowerUIState {
     private var sessionID = UUID()
     private var nextLockRequestID: UInt64 = 0
     private var activeLockRequestID: UInt64?
+    @ObservationIgnored private var lockInvocationGate: SleepyLockInvocationGate?
     @ObservationIgnored private let lockTaskStore = MainActorTaskStore<String>()
 
     /// Whether Low Power Mode is currently on (last re-read from the system).
@@ -56,8 +57,11 @@ final class SleepyPowerUIState {
         guard request.sessionID == sessionID,
               activeLockRequestID == request.requestID else { return }
 
+        let gate = SleepyLockInvocationGate()
+        lockInvocationGate = gate
         lockTaskStore.replaceOnMainActor(Self.lockTaskKey) { [weak self] in
-            let issued = await power.lockMacNow()
+            guard !Task.isCancelled else { return }
+            let issued = await power.lockMacNow(using: gate)
             guard !Task.isCancelled else { return }
             self?.recordLockResult(
                 issued,
@@ -69,6 +73,10 @@ final class SleepyPowerUIState {
 
     /// Cancels an in-flight request at the Sleepy Mode lifecycle boundary.
     func cancelLockRequest() {
+        if let gate = lockInvocationGate {
+            Task { await gate.cancel() }
+            lockInvocationGate = nil
+        }
         lockTaskStore.cancel(Self.lockTaskKey)
         activeLockRequestID = nil
     }
