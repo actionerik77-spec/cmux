@@ -44,8 +44,20 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         return unsafeBitCast(symbol, to: LockScreenFn.self)
     }()
 
+    /// The clock is injected so the bounded lock confirmation deadline can be
+    /// advanced deterministically by behavior tests without waiting in real time.
+    private let lockConfirmationClock: any Clock<Duration>
+    private let lockConfirmationTimeout: Duration
     private let privilegedQueue = DispatchQueue(label: "com.cmux.sleepyMode.privileged")
     private var authorization: AuthorizationRef?  // accessed only on privilegedQueue
+
+    init(
+        lockConfirmationClock: any Clock<Duration> = ContinuousClock(),
+        lockConfirmationTimeout: Duration = .seconds(2)
+    ) {
+        self.lockConfirmationClock = lockConfirmationClock
+        self.lockConfirmationTimeout = lockConfirmationTimeout
+    }
 
     func run(_ tool: String, _ args: [String]) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -79,7 +91,8 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     }
 
     /// Asks loginwindow to lock without blocking the caller's actor. Returns
-    /// whether the private lock request could be issued.
+    /// whether loginwindow confirmed the lock within the bounded notification
+    /// deadline.
     @discardableResult
     #if compiler(>=6.2)
     @concurrent
@@ -90,13 +103,82 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         guard let lockScreenImmediate = Self.lockScreenImmediate else {
             return false
         }
-        lockScreenImmediate()
-        // The private function has a void ABI: resolving it and returning from
-        // the call only proves that a request was sent. Read the public session
-        // dictionary and fail closed when loginwindow has not published the
-        // locked state yet, so the Sleepy overlay never clears its warning on a
-        // request that may have been rejected or ignored.
-        return Self.isScreenLocked()
+
+        // Register before invoking the private call: loginwindow can publish
+        // the transition before the IPC returns, and AsyncStream buffers that
+        // event until the waiting child starts consuming it.
+        let lockNotifications = Self.lockScreenNotifications()
+        let clock = lockConfirmationClock
+        let timeout = lockConfirmationTimeout
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await Self.waitForLockNotification(
+                    lockNotifications,
+                    clock: clock,
+                    timeout: timeout
+                )
+            }
+            lockScreenImmediate()
+            if Self.isScreenLocked() {
+                group.cancelAll()
+                return true
+            }
+            return await group.next() ?? false
+        }
+    }
+
+    private static func lockScreenNotifications() -> AsyncStream<Void> {
+        let center = DistributedNotificationCenter.default()
+        return AsyncStream { continuation in
+            let token = center.addObserver(
+                forName: Notification.Name("com.apple.screenIsLocked"),
+                object: nil,
+                queue: nil
+            ) { _ in
+                continuation.yield(())
+            }
+            let tokenBox = DistributedObserverToken(center: center, token: token)
+            continuation.onTermination = { _ in tokenBox.remove() }
+        }
+    }
+
+    private static func waitForLockNotification(
+        _ notifications: AsyncStream<Void>,
+        clock: any Clock<Duration>,
+        timeout: Duration
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in notifications {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                try? await clock.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
+    /// Foundation's observer token is not Sendable, but it is only retained to
+    /// remove the observer; registration/removal are thread-safe Foundation
+    /// operations and no token state crosses the callback boundary.
+    private final class DistributedObserverToken: @unchecked Sendable {
+        private let center: DistributedNotificationCenter
+        private let token: any NSObjectProtocol
+
+        init(center: DistributedNotificationCenter, token: any NSObjectProtocol) {
+            self.center = center
+            self.token = token
+        }
+
+        func remove() {
+            center.removeObserver(token)
+        }
     }
 
     private static func isScreenLocked() -> Bool {

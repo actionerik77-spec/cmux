@@ -18,7 +18,7 @@ final class SleepyPowerUIState {
     /// True after a Lock Mac attempt reported failure, so the overlay tells the
     /// user instead of silently staying unlocked (the failure mode of
     /// https://github.com/manaflow-ai/cmux/issues/9730). Cleared when a later
-    /// attempt can issue the request or a new Sleepy Mode session begins.
+    /// attempt confirms the lock or a new Sleepy Mode session begins.
     var lockFailed = false
 
     /// Starts a fresh overlay session and clears transient lock feedback.
