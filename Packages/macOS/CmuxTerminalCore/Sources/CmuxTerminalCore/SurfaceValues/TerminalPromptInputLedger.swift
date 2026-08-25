@@ -170,53 +170,43 @@ public struct TerminalPromptInputLedger: Sendable {
         if let message,
            let messageSignature = messageSignature(message) {
             if let index = pendingBoundaries.firstIndex(where: {
-                switch $0 {
-                case .programmatic(let candidateSignature, _, _),
-                     .confirmedProgrammatic(let candidateSignature):
-                    return candidateSignature == messageSignature
-                case .human, .retiredProgrammatic:
-                    return false
-                }
+                guard case .programmatic(let candidateSignature, _, _) = $0
+                else { return false }
+                return candidateSignature == messageSignature
             }) {
-                switch pendingBoundaries[index] {
-                case .confirmedProgrammatic:
-                    // A duplicate exact hook is already accounted for. Consume
-                    // only its tombstone; never reinterpret it as human input.
-                    pendingBoundaries.remove(at: index)
-                    return .programmaticDuplicate
-                case .programmatic(
+                guard case .programmatic(
                     let candidateSignature,
                     let source,
                     let confirmsHumanInputSnapshot
-                ):
-                    let hasPendingHumanBoundary = pendingBoundaries.contains {
-                        if case .human = $0 { return true }
-                        return false
-                    }
-                    if hasPendingHumanBoundary {
-                        // Keep the duplicate-hook tombstone, but place it
-                        // behind the current boundary queue. A differently
-                        // signed hook for a later human submission must be
-                        // able to reach that human boundary without waiting
-                        // for a duplicate app hook to arrive first.
-                        pendingBoundaries.remove(at: index)
-                        pendingBoundaries.append(.confirmedProgrammatic(
-                            messageSignature: candidateSignature
-                        ))
-                        trimConfirmedProgrammaticBoundaries()
-                    } else {
-                        pendingBoundaries.remove(at: index)
-                    }
-                    if let confirmsHumanInputSnapshot,
-                       confirmsHumanInputSnapshot.epoch == humanInputEpoch {
-                        confirmHumanInputThroughGeneration(
-                            confirmsHumanInputSnapshot.generation
-                        )
-                    }
-                    return .programmatic(source: source)
-                case .human, .retiredProgrammatic:
+                ) = pendingBoundaries[index] else {
                     return .unmatched
                 }
+                // Keep a duplicate-hook tombstone even when no human boundary
+                // is currently pending. New human boundaries are inserted
+                // ahead of tombstones, while exact duplicate hooks still find
+                // and consume this record.
+                pendingBoundaries.remove(at: index)
+                pendingBoundaries.append(.confirmedProgrammatic(
+                    messageSignature: candidateSignature
+                ))
+                trimConfirmedProgrammaticBoundaries()
+                if let confirmsHumanInputSnapshot,
+                   confirmsHumanInputSnapshot.epoch == humanInputEpoch {
+                    confirmHumanInputThroughGeneration(
+                        confirmsHumanInputSnapshot.generation
+                    )
+                }
+                return .programmatic(source: source)
+            }
+            if let index = pendingBoundaries.firstIndex(where: {
+                guard case .confirmedProgrammatic(let candidateSignature) = $0
+                else { return false }
+                return candidateSignature == messageSignature
+            }) {
+                // A duplicate exact hook is already accounted for. Consume
+                // only its tombstone; never reinterpret it as human input.
+                pendingBoundaries.remove(at: index)
+                return .programmaticDuplicate
             }
         }
         // Agent versions can normalize or rewrite the prompt before emitting
@@ -293,7 +283,17 @@ public struct TerminalPromptInputLedger: Sendable {
         // delayed hook clear newer typing. Skipping this boundary remains
         // fail-closed until a later confirmed boundary or process transition.
         guard humanBoundaryCount < Self.maximumPendingBoundaries else { return }
-        pendingBoundaries.append(.human(generation: generation))
+        let boundary = TerminalPromptSubmissionBoundary.human(
+            generation: generation
+        )
+        if let firstConfirmedIndex = pendingBoundaries.firstIndex(where: {
+            if case .confirmedProgrammatic = $0 { return true }
+            return false
+        }) {
+            pendingBoundaries.insert(boundary, at: firstConfirmedIndex)
+        } else {
+            pendingBoundaries.append(boundary)
+        }
     }
 
     private mutating func removeHumanBoundaries() {

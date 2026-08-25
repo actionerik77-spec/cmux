@@ -226,7 +226,8 @@ struct TerminalSurfaceExplicitInputTests {
             _,
             _,
             _,
-            let replaySnapshot
+            let replaySnapshot,
+            _
         ) = fixture.surface.pendingSocketInputQueue[0] else {
             Issue.record("Expected one deferred compound prompt item")
             return
@@ -721,6 +722,7 @@ private extension TerminalSurface {
         pendingSocketInputQueue.compactMap { item -> [String]? in
             guard case .promptSubmission(
                 let preparationKeys,
+                _,
                 _,
                 _,
                 _,

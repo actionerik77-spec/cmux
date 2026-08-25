@@ -6174,37 +6174,53 @@ class TerminalController {
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
                 guard let workspace = tabManager.tabs.first(
                     where: { $0.id == workspaceId }
-                ),
-                      let terminalPanel = agentPromptConfirmationPanel(
-                          in: workspace,
-                          event: event
-                      ) else {
-                    // Without deterministic surface/session/process proof,
-                    // never guess which terminal owns the hook.
+                ) else {
                     return
                 }
-                let origin = terminalPanel.surface
-                    .confirmPromptSubmission(
-                        message: event.submittedPromptMessage
-                    )
-                if case .programmatic(let source) = origin {
+                if let terminalPanel = agentPromptConfirmationPanel(
+                    in: workspace,
+                    event: event
+                ) {
+                    let origin = terminalPanel.surface
+                        .confirmPromptSubmission(
+                            message: event.submittedPromptMessage
+                        )
+                    switch origin {
+                    case .programmatic(let source):
+                        _ = tabManager.handlePromptSubmit(
+                            workspaceId: workspaceId,
+                            message: event.submittedPromptMessage,
+                            iMessageModeEnabled: iMessageModeEnabled,
+                            source: source
+                        )
+                        return
+                    case .programmaticDuplicate, .programmaticUnmatched:
+                        return
+                    case .unmatched:
+                        guard !terminalPanel.surface
+                            .hasPendingProgrammaticPromptSubmission else {
+                            return
+                        }
+                    case .human:
+                        break
+                    }
+                } else if let terminalPanel = genericPromptEventPanel(
+                    in: workspace,
+                    event: event
+                ) {
+                    guard !terminalPanel.surface
+                        .hasPendingProgrammaticPromptSubmission else {
+                        return
+                    }
                     _ = tabManager.handlePromptSubmit(
                         workspaceId: workspaceId,
                         message: event.submittedPromptMessage,
-                        iMessageModeEnabled: iMessageModeEnabled,
-                        source: source
+                        iMessageModeEnabled: iMessageModeEnabled
                     )
                     return
-                }
-                if case .programmaticDuplicate = origin {
-                    return
-                }
-                if case .programmaticUnmatched = origin {
-                    return
-                }
-                if case .unmatched = origin,
-                   terminalPanel.surface
-                       .hasPendingProgrammaticPromptSubmission {
+                } else {
+                    // Without deterministic surface/session/process proof,
+                    // never guess which terminal owns the hook.
                     return
                 }
                 _ = tabManager.handlePromptSubmit(

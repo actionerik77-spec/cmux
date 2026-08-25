@@ -25,6 +25,7 @@ extension TerminalSurface {
                     _,
                     _,
                     let hookRecordingSource,
+                    _,
                     _
                 ) = input else {
                     return false
@@ -547,7 +548,8 @@ extension TerminalSurface {
         rejectIfHumanComposerBusy: Bool = true,
         hookRecordingSource: String? = nil,
         hookConfirmsHumanInput: Bool = false,
-        recordHumanPromptInput: Bool = false
+        recordHumanPromptInput: Bool = false,
+        agentInputScope: String? = nil
     ) -> PromptSubmissionSendResult {
         let data = Data(text.utf8)
         guard let submitEvent = pendingKeyEvent(for: submitKey) else {
@@ -571,6 +573,9 @@ extension TerminalSurface {
             && hookConfirmsHumanInput
             ? promptInputLedger.humanInputSnapshot
             : nil
+        let admittedAgentInputScope = recordHumanPromptInput
+            ? nil
+            : (agentInputScope ?? promptInputLedger.currentAgentScope)
         let estimatedBytes = preparationEvents.reduce(
             data.count + submitEvent.queuedByteCost
         ) { byteCount, event in
@@ -592,6 +597,7 @@ extension TerminalSurface {
                     submitEvent: submitEvent,
                     hookRecordingSource: hookRecordingSource,
                     recordHumanPromptInput: recordHumanPromptInput,
+                    admittedAgentInputScope: admittedAgentInputScope,
                     hookConfirmedHumanInputSnapshot:
                         hookConfirmedHumanInputSnapshot
                 )
@@ -611,6 +617,7 @@ extension TerminalSurface {
             submitEvent: submitEvent,
             hookRecordingSource: hookRecordingSource,
             recordHumanPromptInput: recordHumanPromptInput,
+            admittedAgentInputScope: admittedAgentInputScope,
             hookConfirmedHumanInputSnapshot:
                 hookConfirmedHumanInputSnapshot
         )
@@ -632,9 +639,14 @@ extension TerminalSurface {
         submitEvent: PendingKeyEvent,
         hookRecordingSource: String?,
         recordHumanPromptInput: Bool,
+        admittedAgentInputScope: String?,
         hookConfirmedHumanInputSnapshot:
             TerminalPromptInputLedger.HumanInputSnapshot?
     ) -> PromptSubmissionSendResult {
+        if let admittedAgentInputScope,
+           promptInputLedger.currentAgentScope != admittedAgentInputScope {
+            return .agentScopeUnavailable
+        }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else {
                 return .surfaceUnavailable
@@ -651,7 +663,8 @@ extension TerminalSurface {
                     submitKey: submitEvent,
                     hookRecordingSource: hookRecordingSource,
                     hookConfirmedHumanInputSnapshot:
-                        hookConfirmedHumanInputSnapshot
+                        hookConfirmedHumanInputSnapshot,
+                    agentInputScope: admittedAgentInputScope
                 )
             guard enqueuePendingSocketInput(pendingInput) else {
                 return .inputQueueFull
@@ -1484,8 +1497,13 @@ extension TerminalSurface {
             let text,
             let submitKey,
             let hookRecordingSource,
-            let hookConfirmedHumanInputSnapshot
+            let hookConfirmedHumanInputSnapshot,
+            let admittedAgentInputScope
         ):
+            if let admittedAgentInputScope,
+               promptInputLedger.currentAgentScope != admittedAgentInputScope {
+                return false
+            }
             for preparationKey in preparationKeys {
                 sendKeyEvent(
                     surface: surface,

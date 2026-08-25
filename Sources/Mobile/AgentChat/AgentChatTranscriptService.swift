@@ -135,6 +135,9 @@ final class AgentChatTranscriptService {
     ] = []
     private var pendingMobileChatAttachmentReservations = 0
     private var pendingMobileChatAttachmentReservationFileCount = 0
+    /// One-shot deadline that bounds owned mobile attachment retention even
+    /// when the agent never emits another hook or request.
+    private var mobileChatAttachmentExpirationTimer: DispatchSourceTimer?
     private static let maximumPendingMobileChatAttachmentBatches = 64
     private static let maximumPendingMobileChatAttachmentFiles = 32
     private static let mobileChatAttachmentExpiration: TimeInterval = 30 * 60
@@ -144,6 +147,10 @@ final class AgentChatTranscriptService {
     private var failedResolutions: Set<String> = []
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
+
+    deinit {
+        mobileChatAttachmentExpirationTimer?.cancel()
+    }
 
     private struct ProseTurnState {
         let token: AgentChatProseStreamer.TurnToken
@@ -471,6 +478,7 @@ final class AgentChatTranscriptService {
                 hookConfirmed: false
             )
         )
+        armMobileChatAttachmentExpirationTimerIfNeeded()
         return true
     }
 
@@ -546,6 +554,10 @@ final class AgentChatTranscriptService {
             }
         }
         pendingMobileChatAttachmentBatches = retained
+        if pendingMobileChatAttachmentBatches.isEmpty {
+            mobileChatAttachmentExpirationTimer?.cancel()
+            mobileChatAttachmentExpirationTimer = nil
+        }
         guard !cleanedURLs.isEmpty else { return }
         cleanupMobileChatAttachments(cleanedURLs)
     }
@@ -557,6 +569,31 @@ final class AgentChatTranscriptService {
         cleanupMobileChatAttachmentBatches { batch in
             batch.createdAt < expirationDate
         }
+        armMobileChatAttachmentExpirationTimerIfNeeded()
+    }
+
+    private func armMobileChatAttachmentExpirationTimerIfNeeded() {
+        guard mobileChatAttachmentExpirationTimer == nil,
+              !pendingMobileChatAttachmentBatches.isEmpty else {
+            return
+        }
+        // This is a genuine one-shot retention deadline, not polling: the
+        // timer fires once at the injected ownership TTL and is re-armed only
+        // while owned batches remain.
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now() + Self.mobileChatAttachmentExpiration,
+            repeating: .never
+        )
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.mobileChatAttachmentExpirationTimer = nil
+                self.expireStaleMobileChatAttachmentBatches()
+            }
+        }
+        mobileChatAttachmentExpirationTimer = timer
+        timer.resume()
     }
 
     private func mobileChatAttachmentBatchMatches(
@@ -576,10 +613,11 @@ final class AgentChatTranscriptService {
             ),
         ]
         guard eventSessionIDs.contains(batch.sessionID) else { return false }
-        if let processID = batch.processID,
-           let hookProcessID = event.ppid,
-           processID != hookProcessID {
-            return false
+        if let processID = batch.processID {
+            guard let hookProcessID = event.ppid,
+                  processID == hookProcessID else {
+                return false
+            }
         }
         guard let surfaceID = record.surfaceID ?? event.surfaceId else {
             return false

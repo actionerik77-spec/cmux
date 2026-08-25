@@ -768,7 +768,8 @@ final class TerminalPanel: Panel, ObservableObject {
             rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
             hookRecordingSource: hookRecordingSource,
             hookConfirmsHumanInput: hookConfirmsHumanInput,
-            recordHumanPromptInput: recordHumanPromptInput
+            recordHumanPromptInput: recordHumanPromptInput,
+            agentInputScope: agentInputScope
         )
     }
 

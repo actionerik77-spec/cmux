@@ -131,6 +131,108 @@ extension TerminalController {
         return nil
     }
 
+    /// Resolves a hook target for legacy conversation side effects without
+    /// requiring the narrower set of agents that support recoverable composer
+    /// automation. Identity is still checked by surface/session and process
+    /// metadata; this path never falls back to focus or uniqueness alone.
+    func genericPromptEventPanel(
+        in workspace: Workspace,
+        event: WorkstreamEvent
+    ) -> TerminalPanel? {
+        if let rawSurfaceID = event.surfaceId {
+            let normalizedSource = event.source.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            guard let normalizedSessionID = normalizedHookSessionID(
+                event.sessionId,
+                source: normalizedSource
+            ) else {
+                return nil
+            }
+            guard let surfaceID = v2UUIDAny(rawSurfaceID),
+                  let target = workspace.terminalInputTarget(
+                      forPanelID: surfaceID
+                  ),
+                  genericPromptHookMatchesKeys(
+                      workspace.agentPIDKeysByPanelId[surfaceID] ?? [],
+                      hookSource: event.source,
+                      hookSessionID: normalizedSessionID,
+                      hookPID: event.ppid,
+                      workspace: workspace,
+                      allowSessionlessKey: true
+                  ) else {
+                return nil
+            }
+            return target.panel
+        }
+
+        let normalizedSource = event.source.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard let normalizedSessionID = normalizedHookSessionID(
+            event.sessionId,
+            source: normalizedSource
+        ) else {
+            return nil
+        }
+        var matchedPanels: [TerminalPanel] = []
+        var seenPanelIDs: Set<UUID> = []
+        for (key, panelID) in workspace.agentPIDPanelIdsByKey {
+            guard genericPromptHookMatchesKeys(
+                Set([key]),
+                hookSource: normalizedSource,
+                hookSessionID: normalizedSessionID,
+                hookPID: event.ppid,
+                workspace: workspace,
+                allowSessionlessKey: false
+            ),
+                  seenPanelIDs.insert(panelID).inserted,
+                  let panel = workspace.terminalInputTarget(
+                      forPanelID: panelID
+                  )?.panel else {
+                continue
+            }
+            matchedPanels.append(panel)
+        }
+        return matchedPanels.count == 1 ? matchedPanels[0] : nil
+    }
+
+    private func genericPromptHookMatchesKeys(
+        _ keys: Set<String>,
+        hookSource: String,
+        hookSessionID: String,
+        hookPID: Int?,
+        workspace: Workspace,
+        allowSessionlessKey: Bool
+    ) -> Bool {
+        let source = hookSource.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !source.isEmpty, !hookSessionID.isEmpty else { return false }
+        let expectedStatusKey = source == "claude"
+            ? "claude_code"
+            : source
+        return keys.contains { key in
+            guard workspace.agentStatusKey(forAgentPIDKey: key)
+                    == expectedStatusKey else {
+                return false
+            }
+            if let hookPID {
+                guard agentPromptHookProcessIdentityMatches(
+                    key: key,
+                    hookPID: hookPID,
+                    workspace: workspace
+                ) else {
+                    return false
+                }
+            }
+            guard let separator = key.firstIndex(of: ".") else {
+                return allowSessionlessKey && hookPID != nil
+            }
+            return key[key.index(after: separator)...] == hookSessionID
+        }
+    }
+
     /// Resolves a surface-less hook through the exact agent session token that
     /// cmux recorded with its process. Ambiguous or stale tokens fail closed.
     private func agentPromptHookSessionPanel(

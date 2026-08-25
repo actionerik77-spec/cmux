@@ -25,7 +25,8 @@ public enum PendingSocketInput: Sendable {
         submitKey: PendingKeyEvent,
         hookRecordingSource: String?,
         hookConfirmedHumanInputSnapshot:
-            TerminalPromptInputLedger.HumanInputSnapshot?
+            TerminalPromptInputLedger.HumanInputSnapshot?,
+        agentInputScope: String?
     )
     /// One indivisible prompt submitted by a human-owned mobile composer.
     case humanPromptSubmission(
@@ -48,6 +49,7 @@ public enum PendingSocketInput: Sendable {
             let preparationKeys,
             let text,
             let submitKey,
+            _,
             _,
             _
         ):
