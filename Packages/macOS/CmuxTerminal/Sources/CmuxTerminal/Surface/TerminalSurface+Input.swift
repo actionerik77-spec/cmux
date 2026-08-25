@@ -550,6 +550,7 @@ extension TerminalSurface {
                     data: data,
                     preparationEvents: preparationEvents,
                     submitEvent: submitEvent,
+                    rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
                     hookRecordingSource: hookRecordingSource,
                     hookConfirmedHumanInputSnapshot:
                         hookConfirmedHumanInputSnapshot
@@ -568,6 +569,7 @@ extension TerminalSurface {
             data: data,
             preparationEvents: preparationEvents,
             submitEvent: submitEvent,
+            rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
             hookRecordingSource: hookRecordingSource,
             hookConfirmedHumanInputSnapshot:
                 hookConfirmedHumanInputSnapshot
@@ -588,10 +590,20 @@ extension TerminalSurface {
         data: Data,
         preparationEvents: [PendingKeyEvent],
         submitEvent: PendingKeyEvent,
+        rejectIfHumanComposerBusy: Bool,
         hookRecordingSource: String?,
         hookConfirmedHumanInputSnapshot:
             TerminalPromptInputLedger.HumanInputSnapshot?
     ) -> PromptSubmissionSendResult {
+        // A human input admitted earlier in the same clipboard epoch may only
+        // reach the ledger when its deferred replay runs. Re-check ownership
+        // immediately before writing so that replay order cannot merge that
+        // draft with this already-admitted automation transaction. The
+        // admission snapshot is deliberately not recaptured here.
+        if rejectIfHumanComposerBusy,
+           promptInputLedger.hasUnconfirmedHumanInput {
+            return .composerBusy
+        }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else {
                 return .surfaceUnavailable

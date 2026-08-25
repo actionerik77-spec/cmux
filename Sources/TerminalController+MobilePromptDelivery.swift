@@ -65,7 +65,8 @@ extension TerminalController {
         if submitKeyWasReturnIntent {
             submitKeyName = TextBoxAgentDetection.composedPromptSubmitKey(
                 containsNewline: text.contains("\n") || text.contains("\r"),
-                context: agentContext
+                context: agentContext,
+                agentInputScope: agentInputScope
             )
         }
         _ = applyMobileViewportReport(

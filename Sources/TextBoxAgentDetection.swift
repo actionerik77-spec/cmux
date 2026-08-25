@@ -97,6 +97,35 @@ enum TextBoxAgentDetection: CaseIterable, Equatable {
         isClaudeCode(context: context) && containsNewline ? "ctrl+enter" : "return"
     }
 
+    /// Chooses a submit key using the live process identity when one is
+    /// available, ignoring stale launch and restore hints in ``context``.
+    ///
+    /// A prompt-input scope starts with `agentPIDKey:<kind>`, followed by the
+    /// process identity fields. A missing scope is the transient pre-binding
+    /// case used by the legacy mobile composer path, so it retains the
+    /// caller's compatibility context.
+    static func composedPromptSubmitKey(
+        containsNewline: Bool,
+        context: String,
+        agentInputScope: String?
+    ) -> String {
+        let effectiveContext: String
+        if let agentInputScope {
+            let liveContext = String(
+                agentInputScope.prefix { character in character != "|" }
+            )
+            effectiveContext = supportsActiveAgentPrefixes(
+                context: liveContext
+            ) ? liveContext : ""
+        } else {
+            effectiveContext = context
+        }
+        return composedPromptSubmitKey(
+            containsNewline: containsNewline,
+            context: effectiveContext
+        )
+    }
+
     static func composedPromptSubmitKey(containsNewline: Bool, agentKind: ChatAgentKind) -> String {
         agentKind == .claude && containsNewline ? "ctrl+enter" : "return"
     }

@@ -32,7 +32,8 @@ extension TerminalController {
 
         let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(
             containsNewline: text.contains("\n") || text.contains("\r"),
-            context: target.agentContext
+            context: target.agentContext,
+            agentInputScope: target.agentInputScope
         )
         let result = target.panel.sendPromptSubmissionResult(
             text,
@@ -190,7 +191,12 @@ extension TerminalController {
             workspace.agentPIDKeysByPanelId[panelID] ?? [],
             sourceContext: "agentPIDKey:\(normalizedSource)",
             sessionID: normalizedSessionID,
-            allowSessionlessKey: true
+            // A current prompt scope is process-owned, but the historical
+            // `claude_code` key carries no session token. Accepting it here
+            // would let a delayed hook from a replaced Claude process clear
+            // the current composer's human boundary, so fail closed unless
+            // the registration itself is session-qualified.
+            allowSessionlessKey: false
         )
     }
 
