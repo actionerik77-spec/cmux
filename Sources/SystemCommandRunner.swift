@@ -1,4 +1,5 @@
 import Darwin
+import CoreGraphics
 import Foundation
 import Security
 
@@ -35,8 +36,8 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     /// like `authExec` above, so no private symbol is linked and a macOS that
     /// drops it degrades to a reported failure, not a crash. The private API has
     /// no documented return contract; established clients declare it `void`, so
-    /// cmux reports success when the request can be issued instead of waiting on
-    /// a best-effort session-state probe that can lag the actual lock.
+    /// cmux verifies the resulting public lock signal instead of interpreting
+    /// an undocumented return register as status.
     private static let lockScreenImmediate: LockScreenFn? = {
         guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/login", RTLD_LAZY),
               let symbol = dlsym(handle, "SACLockScreenImmediate") else { return nil }
@@ -78,7 +79,9 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     }
 
     /// Asks loginwindow to lock without blocking the caller's actor. Returns
-    /// whether the private lock symbol was available and the request was issued.
+    /// only after the public session state or the request-local lock notification
+    /// confirms the transition. Cancellation (when Sleepy Mode exits) ends an
+    /// unconfirmed request without claiming that the Mac was locked.
     @discardableResult
     #if compiler(>=6.2)
     @concurrent
@@ -89,8 +92,69 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         guard let lockScreenImmediate = Self.lockScreenImmediate else {
             return false
         }
+
+        // Register before invoking loginwindow. The distributed event is the
+        // authoritative completion signal on hosts that do not expose the
+        // `CGSSessionScreenIsLocked` dictionary key, and AsyncStream buffers it
+        // if the IPC returns before the consumer starts awaiting.
+        let lockNotifications = Self.lockScreenNotifications()
+        guard !Task.isCancelled else {
+            lockNotifications.continuation.finish()
+            return false
+        }
         lockScreenImmediate()
-        return true
+        if Self.isScreenLocked() {
+            lockNotifications.continuation.finish()
+            return true
+        }
+        let confirmed = await Self.waitForLockNotification(lockNotifications.stream)
+        lockNotifications.continuation.finish()
+        return confirmed
+    }
+
+    private static func lockScreenNotifications() -> (
+        stream: AsyncStream<Void>,
+        continuation: AsyncStream<Void>.Continuation
+    ) {
+        let center = DistributedNotificationCenter.default()
+        let (stream, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let token = center.addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"),
+            object: nil,
+            queue: nil
+        ) { _ in
+            continuation.yield(())
+        }
+        let tokenBox = DistributedObserverToken(center: center, token: token)
+        continuation.onTermination = { _ in tokenBox.remove() }
+        return (stream, continuation)
+    }
+
+    private static func waitForLockNotification(
+        _ notifications: AsyncStream<Void>
+    ) async -> Bool {
+        // AsyncStream's iterator observes task cancellation and finishes the
+        // continuation, which removes the distributed observer through
+        // `onTermination`. There is intentionally no polling/deadline here:
+        // loginwindow may publish the event after an arbitrary IPC delay, while
+        // the owning Sleepy Mode task provides the lifecycle cancellation bound.
+        for await _ in notifications {
+            return true
+        }
+        return false
+    }
+
+    private static func screenLockState() -> Bool? {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
+            return nil
+        }
+        return session["CGSSessionScreenIsLocked"] as? Bool
+    }
+
+    private static func isScreenLocked() -> Bool {
+        screenLockState() == true
     }
 
     @discardableResult

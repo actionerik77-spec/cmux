@@ -80,7 +80,7 @@ final class SleepyPowerUIState {
         activeLockRequestID = nil
     }
 
-    /// Records the issued-request result only when both the Sleepy session and
+    /// Records the lock confirmation only when both the Sleepy session and
     /// request identity are still current.
     func recordLockResult(
         _ confirmed: Bool,

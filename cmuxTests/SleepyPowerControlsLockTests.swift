@@ -154,6 +154,29 @@ struct SleepyPowerControlsLockTests {
         state.recordLockResult(false, for: request.sessionID, requestID: request.requestID)
         #expect(!state.lockFailed)
     }
+
+    /// The UI-owned task is canceled at the lifecycle boundary instead of
+    /// leaving a pending lock operation alive after the overlay closes.
+    @MainActor
+    @Test func lifecycleCancellationStopsPendingLockOperation() async throws {
+        let runner = CancellableLockRunner()
+        let suiteName = "SleepyPowerControlsLockTests-(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controls = SleepyPowerControls(runner: runner, defaults: defaults)
+        let state = SleepyPowerUIState()
+        state.beginSession()
+        let request = try #require(state.beginLockRequest())
+
+        state.runLockRequest(request, using: controls)
+        await runner.waitUntilStarted()
+        #expect(state.isLockBusy)
+
+        state.cancelLockRequest()
+        await runner.waitUntilCancelled()
+        #expect(!state.isLockBusy)
+        #expect(!state.lockFailed)
+    }
 }
 
 /// Recording runner whose in-process lock succeeds, without touching the host.
@@ -191,5 +214,52 @@ private final class LockCapableRecordingRunner: SleepyCommandRunning, @unchecked
     nonisolated func lockScreen() async -> Bool {
         lock.withLock { recordedLockScreenCalls += 1 }
         return true
+    }
+}
+
+/// Holds a cancellable in-process lock request without touching the host.
+private final class CancellableLockRunner: SleepyCommandRunning, @unchecked Sendable {
+    private let startedStream: AsyncStream<Void>
+    private let startedContinuation: AsyncStream<Void>.Continuation
+    private let cancelledStream: AsyncStream<Void>
+    private let cancelledContinuation: AsyncStream<Void>.Continuation
+
+    init() {
+        (startedStream, startedContinuation) = AsyncStream.makeStream()
+        (cancelledStream, cancelledContinuation) = AsyncStream.makeStream()
+    }
+
+    func waitUntilStarted() async {
+        var iterator = startedStream.makeAsyncIterator()
+        _ = await iterator.next()
+    }
+
+    func waitUntilCancelled() async {
+        var iterator = cancelledStream.makeAsyncIterator()
+        _ = await iterator.next()
+    }
+
+    func run(_ tool: String, _ args: [String]) async {}
+
+    func capture(_ tool: String, _ args: [String]) async -> String? { nil }
+
+    @discardableResult
+    func runPrivileged(_ tool: String, _ args: [String]) async -> Bool { false }
+
+    @discardableResult
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func lockScreen() async -> Bool {
+        startedContinuation.yield(())
+        do {
+            try await Task.sleep(for: .seconds(60))
+            return true
+        } catch {
+            cancelledContinuation.yield(())
+            return false
+        }
     }
 }

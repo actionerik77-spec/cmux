@@ -11,9 +11,9 @@ protocol SleepyCommandRunning: Sendable {
     /// Run a privileged tool via Authorization Services, awaiting its exit.
     @discardableResult func runPrivileged(_ tool: String, _ args: [String]) async -> Bool
     /// Engage the macOS login lock in-process (no subprocess exists for this
-    /// since macOS 26 removed `CGSession`). Returns whether the lock symbol was
-    /// available and the request was issued; the private API is asynchronous and
-    /// has no documented completion/status contract.
+    /// since macOS 26 removed `CGSession`). Returns only after the public lock
+    /// state or lock notification confirms the transition; cancellation ends an
+    /// unconfirmed request without claiming that the Mac was locked.
     @discardableResult
     #if compiler(>=6.2)
     @concurrent
