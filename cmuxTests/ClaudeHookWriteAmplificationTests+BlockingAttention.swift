@@ -956,4 +956,52 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(endCommands.contains { $0["request_id"] as? String == "correlated-tool" })
         #expect(endCommands.allSatisfy { $0["all_requests"] as? Bool != true })
     }
+
+    @Test func staleSessionEndReleasesOnlyWhenAnotherSessionOwnsSurface() throws {
+        let context = try AttentionHarness.makeContext(name: "stale-end-releases-old-session")
+        defer { context.cleanup() }
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let oldSessionId = "old-session"
+        let newSessionId = "new-session"
+        let now: TimeInterval = 4_102_444_800
+        let record: [String: Any] = [
+            "sessionId": oldSessionId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "cwd": context.root.path,
+            "agentLifecycle": "needsInput",
+            "pendingBlockingToolUseIds": ["old-tool"],
+            "startedAt": now,
+            "updatedAt": now,
+        ]
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [oldSessionId: record],
+            "activeSessionsBySurface": [surfaceId: [
+                "sessionId": newSessionId,
+                "updatedAt": now + 1,
+            ]],
+        ]
+        try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId]
+        )
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        let result = AttentionHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(oldSessionId)","hook_event_name":"SessionEnd","cwd":"\#(context.root.path)"}"#
+        )
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(context.state.snapshot().contains { $0.contains(#""method":"feed.attention.end""#) })
+    }
 }
