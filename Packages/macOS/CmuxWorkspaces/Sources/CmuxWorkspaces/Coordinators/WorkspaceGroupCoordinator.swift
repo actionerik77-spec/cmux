@@ -399,11 +399,15 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             var focusedWorkspaceId: UUID?
             if let selectedTabId = model.selectedTabId,
                let selectedGroupId = model.tabs.first(where: { $0.id == selectedTabId })?.groupId,
-               let selectedGroup = targetGroupsById[selectedGroupId],
-               selectedGroup.anchorWorkspaceId != selectedTabId,
-               let anchor = model.tabs.first(where: { $0.id == selectedGroup.anchorWorkspaceId }) {
-                host.selectWorkspace(anchor)
-                focusedWorkspaceId = anchor.id
+               let selectedGroup = targetGroupsById[selectedGroupId] {
+                if selectedGroup.anchorWorkspaceId == selectedTabId {
+                    // Preserve the focused anchor in the sidebar binding even
+                    // when a stale multi-selection contains only hidden rows.
+                    focusedWorkspaceId = selectedTabId
+                } else if let anchor = model.tabs.first(where: { $0.id == selectedGroup.anchorWorkspaceId }) {
+                    host.selectWorkspace(anchor)
+                    focusedWorkspaceId = anchor.id
+                }
             }
 
             if !hiddenMemberIds.isEmpty,
