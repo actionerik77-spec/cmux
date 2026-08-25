@@ -5472,7 +5472,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let payload = try client.sendV2(method: "pane.list", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                print(jsonString(formatAimedWorkspacePayload(payload, mode: idFormat)))
             } else {
                 let panes = payload["panes"] as? [[String: Any]] ?? []
                 if panes.isEmpty {
@@ -5502,7 +5502,7 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             let payload = try client.sendV2(method: "pane.surfaces", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                print(jsonString(formatAimedWorkspacePayload(payload, mode: idFormat)))
             } else {
                 let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
                 if surfaces.isEmpty {
@@ -5695,7 +5695,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let payload = try client.sendV2(method: "surface.health", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                print(jsonString(formatAimedWorkspacePayload(payload, mode: idFormat)))
             } else {
                 let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
                 if surfaces.isEmpty {
@@ -5781,7 +5781,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let payload = try client.sendV2(method: "surface.list", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                print(jsonString(formatAimedWorkspacePayload(payload, mode: idFormat)))
             } else {
                 let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
                 if surfaces.isEmpty {
@@ -5907,7 +5907,7 @@ struct CMUXCLI {
 
             let payload = try client.sendV2(method: "surface.read_text", params: params)
             if jsonOutput {
-                print(jsonString(payload))
+                print(jsonStringWithAimedWorkspace(payload))
             } else {
                 print((payload["text"] as? String) ?? "")
             }
@@ -6553,7 +6553,7 @@ struct CMUXCLI {
         let payload = try client.sendV2(method: "markdown.open", params: params)
 
         if jsonOutput {
-            print(jsonString(formatIDs(payload, mode: idFormat)))
+            print(jsonString(formatAimedWorkspacePayload(payload, mode: idFormat)))
         } else {
             let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
             let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
@@ -6608,7 +6608,7 @@ struct CMUXCLI {
         let payload = try client.sendV2(method: "project.open", params: params)
 
         if jsonOutput {
-            print(jsonString(formatIDs(payload, mode: idFormat)))
+            print(jsonString(formatAimedWorkspacePayload(payload, mode: idFormat)))
         } else {
             let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
             let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
@@ -7189,7 +7189,15 @@ struct CMUXCLI {
         mode: CLIIDFormat,
         preserveStableIDs: Bool
     ) -> Any {
-        formatIDs(object, mode: mode, preservingIDKinds: preserveStableIDs ? ["workspace"] : [])
+        let preservingIDKinds: Set<String> = preserveStableIDs ? ["workspace"] : []
+        guard let payload = object as? [String: Any] else {
+            return formatIDs(object, mode: mode, preservingIDKinds: preservingIDKinds)
+        }
+        return formatAimedWorkspacePayload(
+            payload,
+            mode: mode,
+            preservingIDKinds: preservingIDKinds
+        )
     }
 
     func intFromAny(_ value: Any?) -> Int? {
@@ -7709,7 +7717,7 @@ struct CMUXCLI {
         fallbackText: String
     ) {
         if jsonOutput {
-            print(jsonString(formatIDs(payload, mode: idFormat)))
+            print(jsonString(formatAimedWorkspacePayload(payload, mode: idFormat)))
         } else {
             print(fallbackText)
         }
@@ -7813,7 +7821,7 @@ struct CMUXCLI {
             let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
             let payload = try client.sendV2(method: "surface.resume.get", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                print(jsonString(formatAimedWorkspacePayload(payload, mode: idFormat)))
             } else if let binding = payload["resume_binding"] as? [String: Any],
                       let command = binding["command"] as? String,
                       !command.isEmpty {
@@ -8894,7 +8902,7 @@ struct CMUXCLI {
             // silently drop a user variable; reinsert it verbatim after formatting.
             var envelope = payload
             envelope.removeValue(forKey: "env")
-            var formatted = (formatIDs(envelope, mode: idFormat) as? [String: Any]) ?? envelope
+            var formatted = formatAimedWorkspacePayload(envelope, mode: idFormat)
             formatted["env"] = displayedEnv
             print(jsonString(formatted))
         } else if envStrings.isEmpty {
@@ -25160,7 +25168,7 @@ struct CMUXCLI {
 
             let payload = try client.sendV2(method: "surface.read_text", params: params)
             if jsonOutput {
-                print(jsonString(payload))
+                print(jsonStringWithAimedWorkspace(payload))
             } else {
                 print((payload["text"] as? String) ?? "")
             }
