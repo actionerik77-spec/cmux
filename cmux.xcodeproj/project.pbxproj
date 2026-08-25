@@ -9254,6 +9254,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760270000000000000001 /* AgentHibernationTranscriptGuard+TeardownTranscriptFileVersion.swift in Sources */,
 				F65760190000000000000001 /* AgentHibernationTranscriptGuard+TeardownTranscriptSnapshot.swift in Sources */,
 				F65760050000000000000001 /* AgentHibernationTranscriptGuard.swift in Sources */,
+				F65760200000000000000001 /* AgentHibernationTranscriptHookStoreFileMirror.swift in Sources */,
+				F65760210000000000000001 /* AgentHibernationTranscriptHookStoreRecord.swift in Sources */,
 				A95230000000000000000002 /* AgentIntegrationContract.swift in Sources */,
 				A77A0010A1B2C3D4E5F60001 /* AgentJournalLazyStore.swift in Sources */,
 				A77A0005A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift in Sources */,
