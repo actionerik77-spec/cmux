@@ -2349,15 +2349,17 @@ actor MobileHostConnection {
                 let isChatOrderingRequest = decoded.method == "mobile.chat.send"
                     || decoded.method == "mobile.chat.interrupt"
                     || decoded.method == "mobile.chat.answer"
-                await chatOrderingBarrier.enter(
+                let enteredChatOrderingBarrier = await chatOrderingBarrier.enter(
                     isChat: isChatOrderingRequest
                 )
-                if let response = await successResponsePayload(for: decoded) {
-                    startResponseSendTask(response)
+                if enteredChatOrderingBarrier {
+                    if let response = await successResponsePayload(for: decoded) {
+                        startResponseSendTask(response)
+                    }
+                    await chatOrderingBarrier.leave(
+                        isChat: isChatOrderingRequest
+                    )
                 }
-                await chatOrderingBarrier.leave(
-                    isChat: isChatOrderingRequest
-                )
             case .failure:
                 // Decode failures are never enqueued ordered; keep the
                 // defensive path identical to the concurrent one.

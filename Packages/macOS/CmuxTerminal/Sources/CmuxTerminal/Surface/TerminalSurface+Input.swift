@@ -625,8 +625,7 @@ extension TerminalSurface {
                 agentInputScope: admittedAgentInputScope,
                 deliveryReceipt: deliveryReceipt
             )
-        if deliveryReceipt == nil,
-           !deferredPromptSubmissionRetries.isEmpty {
+        if !deferredPromptSubmissionRetries.isEmpty {
             return .inputQueueFull
         }
 
@@ -654,7 +653,12 @@ extension TerminalSurface {
                         hookConfirmedHumanInputSnapshot,
                     deliveryReceipt: deliveryReceipt
                 )
-                if result == .queued || result == .sent {
+                if result == .sent {
+                    deliveryReceipt?.finish(.sent)
+                    if deliveryReceipt == nil {
+                        self.clearDeferredPromptSubmissionRetry()
+                    }
+                } else if result == .queued {
                     if deliveryReceipt == nil {
                         self.clearDeferredPromptSubmissionRetry()
                     }

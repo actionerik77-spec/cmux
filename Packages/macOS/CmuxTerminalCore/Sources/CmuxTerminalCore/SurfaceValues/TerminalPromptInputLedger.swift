@@ -12,6 +12,7 @@ public struct TerminalPromptInputLedger: Sendable {
     private var humanInputGeneration: UInt64 = 0
     private var confirmedHumanInputGeneration: UInt64 = 0
     private var pendingBoundaries: [TerminalPromptSubmissionBoundary] = []
+    private var hasEvictedProgrammaticTombstones = false
 
     /// Creates an empty ledger with no human input or pending boundaries.
     public init() {}
@@ -51,6 +52,7 @@ public struct TerminalPromptInputLedger: Sendable {
         humanInputGeneration = 0
         confirmedHumanInputGeneration = 0
         pendingBoundaries.removeAll(keepingCapacity: false)
+        hasEvictedProgrammaticTombstones = false
     }
 
     /// True when human input occurred after the last safely matched human
@@ -209,6 +211,15 @@ public struct TerminalPromptInputLedger: Sendable {
                 pendingBoundaries.remove(at: index)
                 return .programmaticDuplicate
             }
+        }
+        if hasEvictedProgrammaticTombstones,
+           pendingBoundaries.contains(where: { boundary in
+               if case .human = boundary { return true }
+               return false
+           }) {
+            // A delayed duplicate for an evicted app tombstone must never
+            // consume a human boundary merely because its message is unknown.
+            return .unmatched
         }
         // Agent versions can normalize or rewrite the prompt before emitting
         // their hook. Preserve hook ordering without wedging human ownership:
@@ -409,6 +420,7 @@ public struct TerminalPromptInputLedger: Sendable {
                   return false
               }) {
             pendingBoundaries.remove(at: oldestIndex)
+            hasEvictedProgrammaticTombstones = true
             confirmedCount -= 1
         }
     }

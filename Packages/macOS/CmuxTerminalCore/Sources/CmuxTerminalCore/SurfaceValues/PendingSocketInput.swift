@@ -55,6 +55,8 @@ public enum PendingSocketInput: Sendable {
             _,
             _
         ):
+            // `text` is already UTF-8 ``Data``; `Data.count` is the exact
+            // byte cost used by the pending-input budget.
             return preparationKeys.reduce(
                 text.count + submitKey.queuedByteCost
             ) { byteCount, event in
@@ -65,6 +67,7 @@ public enum PendingSocketInput: Sendable {
             let text,
             let submitKey
         ):
+            // `text` is UTF-8 ``Data``, so its count is already bytes.
             return preparationKeys.reduce(
                 text.count + submitKey.queuedByteCost
             ) { byteCount, event in

@@ -66,30 +66,64 @@ extension MobileHostRPCRequest {
 /// A chat send/answer/interrupt waits for all active terminal writes, then
 /// blocks new terminal writes until its own compound operation completes.
 actor MobileHostChatOrderingBarrier {
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private var activeNormalRequests = 0
     private var chatIsActive = false
     private var waitingChatRequests = 0
-    private var normalWaiters: [CheckedContinuation<Void, Never>] = []
-    private var chatWaiters: [CheckedContinuation<Void, Never>] = []
+    private var normalWaiters: [Waiter] = []
+    private var chatWaiters: [Waiter] = []
 
-    func enter(isChat: Bool) async {
+    func enter(isChat: Bool) async -> Bool {
         if isChat {
             guard !chatIsActive,
                   activeNormalRequests == 0,
                   chatWaiters.isEmpty else {
                 waitingChatRequests += 1
-                await withCheckedContinuation { chatWaiters.append($0) }
-                return
+                let id = UUID()
+                return await withTaskCancellationHandler {
+                    await withCheckedContinuation { continuation in
+                        guard !Task.isCancelled else {
+                            waitingChatRequests = max(
+                                0,
+                                waitingChatRequests - 1
+                            )
+                            continuation.resume(returning: false)
+                            return
+                        }
+                        chatWaiters.append(
+                            Waiter(id: id, continuation: continuation)
+                        )
+                    }
+                } onCancel: {
+                    Task { await self.cancelWaiter(id: id, isChat: true) }
+                }
             }
             chatIsActive = true
-            return
+            return true
         }
 
         guard !chatIsActive, waitingChatRequests == 0 else {
-            await withCheckedContinuation { normalWaiters.append($0) }
-            return
+            let id = UUID()
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    guard !Task.isCancelled else {
+                        continuation.resume(returning: false)
+                        return
+                    }
+                    normalWaiters.append(
+                        Waiter(id: id, continuation: continuation)
+                    )
+                }
+            } onCancel: {
+                Task { await self.cancelWaiter(id: id, isChat: false) }
+            }
         }
         activeNormalRequests += 1
+        return true
     }
 
     func leave(isChat: Bool) {
@@ -106,13 +140,27 @@ actor MobileHostChatOrderingBarrier {
         if activeNormalRequests == 0, !chatWaiters.isEmpty {
             waitingChatRequests = max(0, waitingChatRequests - 1)
             chatIsActive = true
-            chatWaiters.removeFirst().resume()
+            chatWaiters.removeFirst().continuation.resume(returning: true)
             return
         }
         guard waitingChatRequests == 0 else { return }
         while !normalWaiters.isEmpty {
             activeNormalRequests += 1
-            normalWaiters.removeFirst().resume()
+            normalWaiters.removeFirst().continuation.resume(returning: true)
         }
+    }
+
+    private func cancelWaiter(id: UUID, isChat: Bool) {
+        if isChat {
+            guard let index = chatWaiters.firstIndex(where: { $0.id == id })
+            else { return }
+            waitingChatRequests = max(0, waitingChatRequests - 1)
+            chatWaiters.remove(at: index).continuation.resume(returning: false)
+        } else {
+            guard let index = normalWaiters.firstIndex(where: { $0.id == id })
+            else { return }
+            normalWaiters.remove(at: index).continuation.resume(returning: false)
+        }
+        drainWaiters()
     }
 }
