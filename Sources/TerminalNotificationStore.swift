@@ -1978,11 +1978,17 @@ final class TerminalNotificationStore: ObservableObject {
         let ids = removed.map { $0.id.uuidString }
         notificationFeedHistory.markRead(ids: Set(removed.map(\.id)))
         notifications = kept
-        for notification in removed where !notifications.contains(where: {
-            $0.tabId == notification.tabId
-                && $0.surfaceId == notification.surfaceId
-                && !$0.isRead
-        }) {
+        for notification in removed {
+            guard notification.correlationKey?.hasPrefix(
+                TerminalNotification.transientAgentAttentionCorrelationPrefix
+            ) != true,
+            !notifications.contains(where: {
+                $0.tabId == notification.tabId
+                    && $0.surfaceId == notification.surfaceId
+                    && !$0.isRead
+            }) else {
+                continue
+            }
             clearFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
         removeDeliveredNotifications(withIdentifiers: ids)

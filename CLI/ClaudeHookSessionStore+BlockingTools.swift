@@ -28,7 +28,7 @@ extension ClaudeHookSessionStore {
     /// Caps the canonical fallback payload so a synchronous hook cannot spend
     /// unbounded time and memory serializing model-controlled tool input.
     private static let maximumBlockingToolPayloadSignatureBytes = 64 * 1024
-    private static let maximumBlockingToolPayloadSignatureDepth = 4
+    private static let maximumBlockingToolPayloadSignatureDepth = 8
     private static let maximumBlockingToolPayloadSignatureCollectionCount = 16
     private static let maximumBlockingToolPayloadSignatureStringBytes = 512
     private static let maximumBlockingToolPayloadSignatureKeyBytes = 128
