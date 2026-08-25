@@ -180,16 +180,6 @@ extension CMUXCLI {
               mappedSession.agentLifecycle == .needsInput else {
             return
         }
-        if !allowResolvedState,
-           mappedSession.pendingBlockingToolUseIds?.isEmpty == false {
-            return
-        }
-        if allowResolvedState {
-            let currentSession = try? sessionStore.lookup(sessionId: sessionId)
-            guard currentSession?.pendingBlockingToolUseIds?.isEmpty != false else {
-                return
-            }
-        }
 
         var cleanupRouting = routing
         cleanupRouting.allowsPidProbe = false
@@ -221,15 +211,18 @@ extension CMUXCLI {
             return
         }
 
-        _ = try? sessionStore.upsert(
+        guard (try? sessionStore.clearBlockingAttentionLifecycleIfEligible(
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             cwd: parsedInput.cwd,
             transcriptPath: parsedInput.transcriptPath,
-            agentLifecycle: .running,
-            clearPendingBlockingTools: true
-        )
+            expectedUpdatedAt: mappedSession.updatedAt,
+            allowRunningState: allowResolvedState
+        )) == true else {
+            telemetry.breadcrumb("claude-hook.permission-request.resume-state-changed")
+            return
+        }
         setAgentLifecycle(
             client: client,
             key: Self.claudeCodeStatusKey,

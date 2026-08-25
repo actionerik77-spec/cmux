@@ -63,6 +63,53 @@ extension ClaudeHookSessionStore {
         }
     }
 
+    /// Clears an agent-owned Needs-input lifecycle only when no blocker remains.
+    /// The eligibility check and tombstone write share one flock transaction so
+    /// an overlapping PreToolUse cannot be erased between two hook processes.
+    @discardableResult
+    func clearBlockingAttentionLifecycleIfEligible(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String?,
+        expectedUpdatedAt: TimeInterval?,
+        allowRunningState: Bool
+    ) throws -> Bool {
+        guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
+            return false
+        }
+        return try withLockedState { state in
+            guard var record = state.sessions[sessionId],
+                  record.pendingBlockingToolUseIds?.isEmpty != false else {
+                return false
+            }
+            let lifecycleIsEligible = record.agentLifecycle == .needsInput
+                || (allowRunningState && record.agentLifecycle == .running)
+            guard lifecycleIsEligible else { return false }
+            if !allowRunningState, let expectedUpdatedAt {
+                guard record.updatedAt == expectedUpdatedAt else { return false }
+            }
+            updateBlockingToolRecord(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                lifecycle: .running,
+                lastSubtitle: nil,
+                lastBody: nil,
+                now: Date.now.timeIntervalSince1970
+            )
+            record.pendingBlockingToolUseIds = []
+            record.pendingBlockingToolCorrelations = []
+            record.lastSubtitle = nil
+            record.lastBody = nil
+            state.sessions[sessionId] = record
+            return true
+        }
+    }
+
     /// Atomically records a blocking Claude tool and its Needs input lifecycle.
     /// Hooks without Claude's `tool_use_id` receive a durable synthetic request
     /// ID so concurrent legacy blockers still own distinct transient attention.

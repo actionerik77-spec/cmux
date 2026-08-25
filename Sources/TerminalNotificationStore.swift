@@ -141,6 +141,7 @@ final class TerminalNotificationStore: ObservableObject {
         var unreadCount = 0
         var unreadCountByTabId: [UUID: Int] = [:]
         var unreadByTabSurface = Set<TabSurfaceKey>()
+        var persistentUnreadByTabSurface = Set<TabSurfaceKey>()
         var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
         var latestByTabId: [UUID: TerminalNotification] = [:]
     }
@@ -1027,6 +1028,12 @@ final class TerminalNotificationStore: ObservableObject {
 
     func hasUnreadNotification(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
+    }
+
+    func hasPersistentUnreadNotification(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
+        indexes.persistentUnreadByTabSurface.contains(
+            TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        )
     }
 
     func hasUnreadNotificationRequiringPaneFlash(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
@@ -2559,6 +2566,16 @@ final class TerminalNotificationStore: ObservableObject {
                 indexes.unreadByTabSurface.insert(
                     TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId)
                 )
+            }
+            if notification.persistsInSessionSnapshot {
+                indexes.persistentUnreadByTabSurface.insert(
+                    TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
+                )
+                if let panelId = notification.panelId, panelId != notification.surfaceId {
+                    indexes.persistentUnreadByTabSurface.insert(
+                        TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId)
+                    )
+                }
             }
             if indexes.latestUnreadByTabId[notification.tabId] == nil {
                 indexes.latestUnreadByTabId[notification.tabId] = notification

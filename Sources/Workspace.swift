@@ -1964,7 +1964,10 @@ extension Workspace {
     }
 
     private func hasPersistentUnreadNotification(surfaceId: UUID?) -> Bool {
-        notificationSnapshots(surfaceId: surfaceId).contains { !$0.isRead }
+        AppDelegate.shared?.notificationStore?.hasPersistentUnreadNotification(
+            forTabId: id,
+            surfaceId: surfaceId
+        ) ?? false
     }
 
     private func restoredSessionNotifications(
