@@ -1498,10 +1498,17 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         notifications = updated
-        notificationFeedHistory.record(
-            notification,
-            supersededIDs: Set(idsToClear.compactMap { UUID(uuidString: $0) })
-        )
+        // Bypass-permissions attention is intentionally ephemeral. Its active
+        // row is cleared by correlation key and must not leak model-controlled
+        // prompt text into the durable history/feed that survives restart.
+        if notification.correlationKey?.hasPrefix(
+            TerminalNotification.transientAgentAttentionCorrelationPrefix
+        ) != true {
+            notificationFeedHistory.record(
+                notification,
+                supersededIDs: Set(idsToClear.compactMap { UUID(uuidString: $0) })
+            )
+        }
         commitCooldownReservation(cooldownReservation, at: now)
 #if DEBUG
         cmuxDebugLog(

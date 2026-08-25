@@ -25525,15 +25525,18 @@ struct CMUXCLI {
             }
             let toolName = firstString(in: rawObject, keys: ["tool_name", "toolName"])
             let isBlockingTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
-            let mappedPermissionSession = parsedInput.sessionId.flatMap {
-                try? sessionStore.lookup(sessionId: $0)
-            }
             let terminalResponse = try runFeedHook(
                 commandArgs: ["--source", "claude"],
                 client: client,
                 telemetry: telemetry,
                 stdinObject: rawObject
             )
+            // Feed can block while Claude's Notification hook records Needs
+            // input. Re-read after that wait so the completion path owns the
+            // state that actually exists at decision time.
+            let mappedPermissionSession = parsedInput.sessionId.flatMap {
+                try? sessionStore.lookup(sessionId: $0)
+            }
             // Re-read after Feed waits for the user's decision: another turn
             // may have become active while this synchronous hook was blocked.
             let permissionRequestIsCurrent: Bool = {
@@ -25566,7 +25569,8 @@ struct CMUXCLI {
                     )
                 }
             }
-            if terminalResponse?["status"] as? String == "resolved" {
+            let permissionResponseStatus = terminalResponse?["status"] as? String
+            if permissionResponseStatus == "resolved" {
                 resumeClaudeNeedsInputLifecycle(
                     client: client,
                     parsedInput: parsedInput,
@@ -25575,6 +25579,20 @@ struct CMUXCLI {
                     telemetry: telemetry,
                     expectedSession: mappedPermissionSession,
                     allowResolvedState: isBlockingTool
+                )
+            } else {
+                // A timeout/unavailable Feed bridge emits neutral `{}` and
+                // Claude falls back to its native permission prompt. Clear
+                // only the app-owned notification lifecycle for non-blocking
+                // permission requests; blocking tool IDs stay durable until
+                // their targeted PostToolUse or turn boundary arrives.
+                resumeClaudeNeedsInputLifecycle(
+                    client: client,
+                    parsedInput: parsedInput,
+                    sessionStore: sessionStore,
+                    routing: hookRouting,
+                    telemetry: telemetry,
+                    expectedSession: mappedPermissionSession
                 )
             }
 
