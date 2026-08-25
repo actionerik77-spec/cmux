@@ -25765,6 +25765,7 @@ struct CMUXCLI {
                 } else {
                     needsInputBody = describeExitPlanMode(parsedInput.object) ?? waitingBody
                 }
+                let boundedNeedsInputBody = boundedClaudeBlockingAttentionText(needsInputBody)
                 // An authoritative live resolution outranks the persisted
                 // session surface (stale after a pane move); re-preferring it
                 // would re-pollute the record and pin the blocking prompt on
@@ -25787,7 +25788,7 @@ struct CMUXCLI {
                         turnId: parsedInput.turnId,
                         rawObject: parsedInput.rawObject,
                         lastSubtitle: waitingSubtitle,
-                        lastBody: needsInputBody
+                        lastBody: boundedNeedsInputBody
                     )
                 } catch {
                     registeredBlockingTool = nil
@@ -25833,7 +25834,7 @@ struct CMUXCLI {
                             surfaceId: existingSurfaceId,
                             title: title,
                             subtitle: waitingSubtitle,
-                            body: needsInputBody,
+                            body: boundedNeedsInputBody,
                             pid: claudePid
                         )
                     case .active:

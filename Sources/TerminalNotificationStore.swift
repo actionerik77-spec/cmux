@@ -1505,7 +1505,11 @@ final class TerminalNotificationStore: ObservableObject {
         let isTransientAttention = notification.isTransientAgentAttention
         if !isTransientAttention {
             updated.removeAll { existing in
-                guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
+                guard existing.tabId == notification.tabId,
+                      existing.surfaceId == notification.surfaceId,
+                      !existing.isTransientAgentAttention else {
+                    return false
+                }
                 idsToClear.append(existing.id.uuidString)
                 return true
             }

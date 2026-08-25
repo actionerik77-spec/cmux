@@ -84,6 +84,7 @@ extension CMUXCLI {
         body: String,
         pid: Int?
     ) {
+        let boundedBody = boundedClaudeBlockingAttentionText(body)
         try? sessionStore.setLegacyBlockingAttentionFallback(
             sessionId: sessionId,
             active: true
@@ -110,13 +111,25 @@ extension CMUXCLI {
         let payload = notificationPayload(
             title: title,
             subtitle: subtitle,
-            body: body,
+            body: boundedBody,
             meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
         )
         _ = try? sendV1Command(
             "notify_target_async \(workspaceId) \(surfaceId) \(payload)",
             client: client
         )
+    }
+
+    /// Bounds model-controlled fallback text by UTF-8 bytes, matching the V2
+    /// attention body limit while preserving a valid scalar boundary.
+    func boundedClaudeBlockingAttentionText(_ value: String) -> String {
+        let maximumBytes = 4_096
+        guard value.utf8.count > maximumBytes else { return value }
+        var bounded = value
+        while bounded.utf8.count > maximumBytes - 3 {
+            bounded.removeLast()
+        }
+        return bounded + "…"
     }
 
     @discardableResult
@@ -292,6 +305,10 @@ extension CMUXCLI {
         client: SocketClient
     ) -> Bool {
         guard !client.isRelayBacked else { return true }
+        if owner?.legacyBlockingAttentionFallbackActive == true {
+            params["legacy_release"] = true
+            return true
+        }
         guard let owner,
               let pid = owner.pid,
               let startSeconds = owner.pidStartSeconds,

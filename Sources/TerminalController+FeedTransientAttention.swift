@@ -113,6 +113,12 @@ extension TerminalController {
         }
         let remoteWorkspaceRaw = params["_cmux_remote_workspace_id"]
         let isLegacyRelease = params["legacy_release"] as? Bool == true
+        if isLegacyRelease {
+            // Compatibility releases are deliberately no-ops: the CLI uses
+            // this marker only for V1 fallback UI and must not be blocked by
+            // a missing host peer PID or a transient registry miss.
+            return .ok(["ended": false, "outcome": "absent"])
+        }
         let localProcessIdentity = transientAttentionProcessIdentity(params)
         let authenticatedRemoteWorkspaceId: UUID?
         let authenticatedLocalProcessIdentity: AgentPIDProcessIdentity?
@@ -144,9 +150,6 @@ extension TerminalController {
             }
             authenticatedRemoteWorkspaceId = nil
             authenticatedLocalProcessIdentity = localProcessIdentity
-        }
-        if isLegacyRelease {
-            return .ok(["ended": false])
         }
         let endResult: FeedCoordinator.TransientAttentionEndResult
         if (params["all_requests"] as? Bool) == true {
