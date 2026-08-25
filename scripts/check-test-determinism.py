@@ -307,6 +307,7 @@ class _LexicalFrame:
     terminator: Optional[str] = None
     depth: int = 0
     escaped: bool = False
+    raw_hashes: int = 0
 
 
 @dataclass
@@ -334,30 +335,35 @@ def _string_literal_at(
     line: str,
     index: int,
     path_suffix: str,
-) -> Optional[tuple[str, Optional[str]]]:
-    """Return the delimiter and interpolation kind for a string opener."""
+) -> Optional[tuple[str, Optional[str], int]]:
+    """Return the delimiter, interpolation kind, and raw hash count."""
     character = line[index]
     if path_suffix in (".ts", ".tsx", ".js", ".mjs"):
         if character in ("'", '"'):
-            return (character, None)
+            return (character, None, 0)
         if character == "`":
-            return (character, "javascript")
+            return (character, "javascript", 0)
         return None
     if path_suffix == ".py":
         if character not in ("'", '"'):
             return None
         delimiter = character * 3 if line.startswith(character * 3, index) else character
         interpolation = "python" if "f" in _python_string_prefix(line, index) else None
-        return (delimiter, interpolation)
+        return (delimiter, interpolation, 0)
     if path_suffix == ".sh":
         if character == "'":
-            return (character, None)
+            return (character, None, 0)
         if character == '"':
-            return (character, "shell")
+            return (character, "shell", 0)
         return None
     if path_suffix == ".swift" and character == '"':
+        raw_hashes = 0
+        cursor = index - 1
+        while cursor >= 0 and line[cursor] == "#":
+            raw_hashes += 1
+            cursor -= 1
         delimiter = '"""' if line.startswith('"""', index) else character
-        return (delimiter, "swift")
+        return (delimiter, "swift", raw_hashes)
     return None
 
 
@@ -437,10 +443,12 @@ def _lex_source_line(
                 index += 1
                 continue
 
-            if frame.interpolation == "swift" and line.startswith("\\(", index):
-                executable[index:index + 2] = [" ", " "]
+            swift_interpolation = "\\" + ("#" * frame.raw_hashes) + "("
+            if frame.interpolation == "swift" and line.startswith(swift_interpolation, index):
+                interpolation_length = len(swift_interpolation)
+                executable[index:index + interpolation_length] = [" "] * interpolation_length
                 state.frames.append(_LexicalFrame(kind="code", terminator=")", depth=1))
-                index += 2
+                index += interpolation_length
                 continue
             if frame.interpolation == "shell" and line.startswith("$(", index):
                 executable[index:index + 2] = [" ", " "]
@@ -472,15 +480,16 @@ def _lex_source_line(
                 continue
 
             delimiter = frame.quote or ""
-            if delimiter and line.startswith(delimiter, index):
-                end_index = index + len(delimiter)
-                executable[index:end_index] = [" "] * len(delimiter)
+            closing_delimiter = delimiter + ("#" * frame.raw_hashes)
+            if closing_delimiter and line.startswith(closing_delimiter, index):
+                end_index = index + len(closing_delimiter)
+                executable[index:end_index] = [" "] * len(closing_delimiter)
                 state.frames.pop()
                 index = end_index
                 continue
 
             executable[index] = " "
-            if line[index] == "\\" and not (
+            if line[index] == "\\" and frame.raw_hashes == 0 and not (
                 path_suffix == ".sh" and frame.quote == "'"
             ):
                 frame.escaped = True
@@ -544,14 +553,16 @@ def _lex_source_line(
 
         literal = _string_literal_at(line, index, path_suffix)
         if literal is not None:
-            delimiter, interpolation = literal
+            delimiter, interpolation, raw_hashes = literal
+            start_index = index - raw_hashes
             end_index = index + len(delimiter)
-            executable[index:end_index] = [" "] * len(delimiter)
+            executable[start_index:end_index] = [" "] * (end_index - start_index)
             state.frames.append(
                 _LexicalFrame(
                     kind="string",
                     quote=delimiter,
                     interpolation=interpolation,
+                    raw_hashes=raw_hashes,
                 )
             )
             index = end_index
