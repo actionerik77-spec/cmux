@@ -21,12 +21,20 @@ extension TerminalController {
     /// complete, non-suspending terminal transactions in main-queue arrival
     /// order, so concurrent callers cannot interleave prompt bytes.
     nonisolated func v2WorkspaceAgentSubmit(params: [String: Any]) -> V2CallResult {
-        guard let rawWorkspaceID = params["workspace_id"] as? String,
-              let workspaceID = UUID(
-                uuidString: rawWorkspaceID.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
-              ) else {
+        guard let rawWorkspaceID = params["workspace_id"] as? String else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.workspace.agentSubmit.invalidWorkspace",
+                    defaultValue: "Missing or invalid workspace_id."
+                ),
+                data: nil
+            )
+        }
+        let workspaceID = v2MainSync {
+            v2UUIDAny(rawWorkspaceID)
+        }
+        guard let workspaceID else {
             return .err(
                 code: "invalid_params",
                 message: String(
@@ -52,12 +60,17 @@ extension TerminalController {
 
         let requestedSurfaceID: UUID?
         if let rawSurface = params["surface_id"], !(rawSurface is NSNull) {
-            guard let rawSurface = rawSurface as? String,
-                  let parsed = UUID(
-                    uuidString: rawSurface.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-                  ) else {
+            guard let rawSurface = rawSurface as? String else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.workspace.agentSubmit.invalidSurface",
+                        defaultValue: "surface_id must be a valid surface UUID."
+                    ),
+                    data: nil
+                )
+            }
+            guard let parsed = v2MainSync({ v2UUIDAny(rawSurface) }) else {
                 return .err(
                     code: "invalid_params",
                     message: String(

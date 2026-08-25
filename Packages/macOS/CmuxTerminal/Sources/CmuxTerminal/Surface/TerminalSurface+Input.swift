@@ -481,6 +481,7 @@ extension TerminalSurface {
             }
             didReceiveExplicitInput()
             hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+            didAcceptExplicitInput()
             requestInputDemandSurfaceStartIfNeeded()
             return .queued
         }
@@ -514,6 +515,7 @@ extension TerminalSurface {
             confirmsHumanInputSnapshot:
                 hookConfirmedHumanInputSnapshot
         )
+        didAcceptExplicitInput()
         return .sent
     }
 

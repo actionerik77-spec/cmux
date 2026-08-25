@@ -123,13 +123,9 @@ extension TerminalController {
         ) {
             return sessionPanel
         }
-        guard case .success(let target) = agentPromptTerminalTarget(
-            in: workspace,
-            requestedSurfaceID: nil
-        ), target.agentInputScope != nil else {
-            return nil
-        }
-        return target.panel
+        // A surface-less hook without an exact source/session match is
+        // intentionally unresolved; uniqueness is not proof of ownership.
+        return nil
     }
 
     /// Resolves a surface-less hook through the exact agent session token that
@@ -156,7 +152,8 @@ extension TerminalController {
             let matchesSession = agentPromptHookMatchesKeys(
                 keys,
                 sourceContext: sourceContext,
-                sessionID: normalizedSessionID
+                sessionID: normalizedSessionID,
+                allowSessionlessKey: false
             )
             guard matchesSession,
                   seenPanelIDs.insert(panelID).inserted,
@@ -192,14 +189,16 @@ extension TerminalController {
         return agentPromptHookMatchesKeys(
             workspace.agentPIDKeysByPanelId[panelID] ?? [],
             sourceContext: "agentPIDKey:\(normalizedSource)",
-            sessionID: normalizedSessionID
+            sessionID: normalizedSessionID,
+            allowSessionlessKey: true
         )
     }
 
     private func agentPromptHookMatchesKeys(
         _ keys: Set<String>,
         sourceContext: String,
-        sessionID: String
+        sessionID: String,
+        allowSessionlessKey: Bool
     ) -> Bool {
         keys.contains { key in
             guard TextBoxAgentDetection.representsSameAgentKind(
@@ -212,7 +211,7 @@ extension TerminalController {
                 // Claude's historical `claude_code` key is panel-scoped and
                 // has no session suffix; an explicit surface ID is the
                 // deterministic owner for that legacy registration.
-                return key == "claude_code"
+                return allowSessionlessKey && key == "claude_code"
             }
             return key[key.index(after: separator)...] == sessionID
         }
