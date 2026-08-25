@@ -2083,7 +2083,7 @@ final class TerminalNotificationStore: ObservableObject {
             .map { $0.id.uuidString }
         var usedNotificationIds = Set(notifications.filter { $0.tabId != tabId }.map(\.id))
         let restoredForTab = restoredNotifications
-            .filter { $0.tabId == tabId }
+            .filter { $0.tabId == tabId && $0.persistsInSessionSnapshot }
             .sorted(by: Self.notificationSortPrecedes)
             .map { Self.notificationWithUniqueId($0, usedIds: &usedNotificationIds) }
         let keptNotifications = notifications.filter { $0.tabId != tabId }

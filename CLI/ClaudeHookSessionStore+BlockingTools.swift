@@ -33,6 +33,54 @@ extension ClaudeHookSessionStore {
     private static let maximumBlockingToolPayloadSignatureStringBytes = 512
     private static let maximumBlockingToolPayloadSignatureKeyBytes = 128
     private static let maximumBlockingToolTurnIdBytes = 256
+    private static let maximumPermissionRequestCount = 64
+
+    /// Records one ordinary PermissionRequest without changing the agent
+    /// lifecycle. The marker lets its completion clear only its own waiter.
+    @discardableResult
+    func beginPermissionRequest(
+        sessionId: String,
+        toolUseId: String?
+    ) throws -> Bool {
+        guard let sessionId = normalizedBlockingToolIdentifier(sessionId),
+              let toolUseId = normalizedBlockingToolIdentifier(toolUseId) else {
+            return false
+        }
+        return try withLockedState { state in
+            guard var record = state.sessions[sessionId] else { return false }
+            var pending = record.pendingPermissionRequestIds ?? []
+            guard !pending.contains(toolUseId) else { return true }
+            guard pending.count < Self.maximumPermissionRequestCount else { return false }
+            pending.append(toolUseId)
+            record.pendingPermissionRequestIds = pending
+            record.updatedAt = Date.now.timeIntervalSince1970
+            state.sessions[sessionId] = record
+            return true
+        }
+    }
+
+    @discardableResult
+    func finishPermissionRequest(
+        sessionId: String,
+        toolUseId: String?
+    ) throws -> Bool {
+        guard let sessionId = normalizedBlockingToolIdentifier(sessionId),
+              let toolUseId = normalizedBlockingToolIdentifier(toolUseId) else {
+            return false
+        }
+        return try withLockedState { state in
+            guard var record = state.sessions[sessionId],
+                  var pending = record.pendingPermissionRequestIds,
+                  let index = pending.firstIndex(of: toolUseId) else {
+                return false
+            }
+            pending.remove(at: index)
+            record.pendingPermissionRequestIds = pending.isEmpty ? nil : pending
+            record.updatedAt = Date.now.timeIntervalSince1970
+            state.sessions[sessionId] = record
+            return true
+        }
+    }
 
     /// Returns the session displaced by a pane-scoped active-session boundary.
     /// Legacy workspace-only slots are accepted only when their recorded pane
@@ -106,6 +154,7 @@ extension ClaudeHookSessionStore {
             record.lastSubtitle = nil
             record.lastBody = nil
             record.legacyBlockingAttentionFallbackActive = nil
+            record.pendingPermissionRequestIds = nil
             state.sessions[sessionId] = record
             return true
         }

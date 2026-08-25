@@ -140,8 +140,9 @@ extension TabManager: NotificationDismissalHosting {
         _ notifications: [TerminalNotification],
         into hasher: inout Hasher
     ) {
-        hasher.combine(notifications.count)
-        for notification in notifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+        let persistentNotifications = notifications.filter(\.persistsInSessionSnapshot)
+        hasher.combine(persistentNotifications.count)
+        for notification in persistentNotifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
             hasher.combine(notification.id)
             hasher.combine(notification.title)
             hasher.combine(notification.subtitle)

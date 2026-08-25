@@ -153,6 +153,10 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     /// cleanup. `nil` remains compatible with records written before payload
     /// correlation existed.
     var pendingBlockingToolCorrelations: [ClaudeHookSessionStore.BlockingToolCorrelation]? = nil
+    /// PermissionRequest tool IDs currently waiting on the Feed decision.
+    /// Kept separate from blocking-tool IDs so an ordinary permission response
+    /// cannot clear a concurrent question/plan blocker.
+    var pendingPermissionRequestIds: [String]? = nil
     var lastSubtitle: String?
     var lastBody: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
@@ -25603,6 +25607,16 @@ struct CMUXCLI {
             }
             let toolName = firstString(in: rawObject, keys: ["tool_name", "toolName"])
             let isBlockingTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
+            let permissionRequestToolUseId = extractClaudeHookToolUseId(from: rawObject)
+            let permissionRequestWasRegistered: Bool
+            if !isBlockingTool, let sessionId = parsedInput.sessionId {
+                permissionRequestWasRegistered = (try? sessionStore.beginPermissionRequest(
+                    sessionId: sessionId,
+                    toolUseId: permissionRequestToolUseId
+                )) == true
+            } else {
+                permissionRequestWasRegistered = false
+            }
             let terminalResponse = try runFeedHook(
                 commandArgs: ["--source", "claude"],
                 client: client,
@@ -25650,7 +25664,23 @@ struct CMUXCLI {
                 }
             }
             let permissionResponseStatus = terminalResponse?["status"] as? String
+            let ordinaryPermissionWasResolved: Bool
+            if !isBlockingTool,
+               permissionRequestWasRegistered,
+               let sessionId = parsedInput.sessionId {
+                ordinaryPermissionWasResolved = (try? sessionStore.finishPermissionRequest(
+                    sessionId: sessionId,
+                    toolUseId: permissionRequestToolUseId
+                )) == true
+            } else {
+                ordinaryPermissionWasResolved = false
+            }
             if permissionResponseStatus == "resolved" {
+                let shouldResume = isBlockingTool || ordinaryPermissionWasResolved
+                guard shouldResume else {
+                    printClaudeHookAck()
+                    return
+                }
                 resumeClaudeNeedsInputLifecycle(
                     client: client,
                     parsedInput: parsedInput,
@@ -25666,14 +25696,16 @@ struct CMUXCLI {
                 // only the app-owned notification lifecycle for non-blocking
                 // permission requests; blocking tool IDs stay durable until
                 // their targeted PostToolUse or turn boundary arrives.
-                resumeClaudeNeedsInputLifecycle(
-                    client: client,
-                    parsedInput: parsedInput,
-                    sessionStore: sessionStore,
-                    routing: hookRouting,
-                    telemetry: telemetry,
-                    expectedSession: postWaitPermissionSession
-                )
+                if isBlockingTool || ordinaryPermissionWasResolved {
+                    resumeClaudeNeedsInputLifecycle(
+                        client: client,
+                        parsedInput: parsedInput,
+                        sessionStore: sessionStore,
+                        routing: hookRouting,
+                        telemetry: telemetry,
+                        expectedSession: postWaitPermissionSession
+                    )
+                }
             }
 
         case "pre-tool-use":
