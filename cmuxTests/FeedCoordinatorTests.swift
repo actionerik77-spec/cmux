@@ -866,7 +866,7 @@ struct FeedCoordinatorTests {
     }
 
     @Test @MainActor
-    func transientAttentionStoreEvictsItsOldestEntryAtCapacity() {
+    func transientAttentionStoreRejectsNewEntriesAtCapacity() {
         let store = FeedTransientAttentionStore()
         let processIdentity = AgentPIDProcessIdentity(
             pid: 100,
@@ -900,9 +900,14 @@ struct FeedCoordinatorTests {
         }
 
         #expect(
-            store.entry(for: firstKey) == nil,
-            "orphaned transient requests must not grow the Feed registry without a bound"
+            store.entry(for: firstKey) != nil,
+            "an active blocker must not be evicted while its durable owner remains pending"
         )
+        #expect(store.entry(for: FeedTransientAttentionStore.Key(
+            source: "claude",
+            sessionId: "session-256",
+            requestId: "request-256"
+        )) == nil)
         #expect(store.removeValues(ownerProcessIdentity: processIdentity).count == 256)
     }
 
