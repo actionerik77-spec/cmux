@@ -1,6 +1,12 @@
 import Foundation
 
 extension CMUXCLI {
+    enum ClaudeBlockingAttentionBeginResult: Equatable {
+        case active
+        case unavailable
+        case rejected
+    }
+
     private static let legacyClaudeBlockingAttentionRequestId = "legacy-session-blocker"
     /// Synchronous Claude hooks have five-second deadlines for their targeted
     /// blocking transitions; leave room for parsing and the final ack.
@@ -26,7 +32,7 @@ extension CMUXCLI {
         title: String,
         subtitle: String,
         body: String
-    ) -> Bool {
+    ) -> ClaudeBlockingAttentionBeginResult {
         var params: [String: Any] = [
             "source": "claude",
             "session_id": sessionId,
@@ -46,7 +52,7 @@ extension CMUXCLI {
                   let ownerPIDStartMicroseconds = owner.pidStartMicroseconds,
                   ownerPIDStartSeconds >= 0,
                   (0..<1_000_000).contains(ownerPIDStartMicroseconds) else {
-                return false
+                return .unavailable
             }
             params["ppid"] = ownerPID
             params["ppid_start_seconds"] = ownerPIDStartSeconds
@@ -58,9 +64,9 @@ extension CMUXCLI {
                 params: params,
                 responseTimeout: Self.claudeBlockingAttentionResponseTimeout
             )
-            return response["active"] as? Bool != false
+            return response["active"] as? Bool == false ? .rejected : .active
         } catch {
-            return false
+            return .unavailable
         }
     }
 
@@ -93,7 +99,10 @@ extension CMUXCLI {
             client: client,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            value: "Needs input",
+            value: String(
+                localized: "feed.status.needsInput",
+                defaultValue: "Needs input"
+            ),
             icon: "bell.fill",
             color: "#4C8DFF",
             pid: pid

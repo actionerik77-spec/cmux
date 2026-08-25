@@ -24987,11 +24987,14 @@ struct CMUXCLI {
                     sessionRecord: mappedSession
                 )
                 if let sessionId = parsedInput.sessionId {
-                    endClaudeBlockingAttentionForTurnBoundary(
+                    let didReleaseBlockingAttention = endClaudeBlockingAttentionForTurnBoundary(
                         client: client,
                         sessionId: sessionId,
                         owner: mappedSession
                     )
+                    if !didReleaseBlockingAttention {
+                        telemetry.breadcrumb("claude-hook.stop.attention-release-pending")
+                    }
                     _ = try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
@@ -25008,7 +25011,7 @@ struct CMUXCLI {
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                         markActive: true,
                         allowsNewSessionReplacement: true,
-                        clearPendingBlockingTools: true
+                        clearPendingBlockingTools: didReleaseBlockingAttention
                     )
                     publishAgentSurfaceResumeBinding(
                         client: client,
@@ -25125,7 +25128,7 @@ struct CMUXCLI {
                 return
             }
             if let sessionId = parsedInput.sessionId {
-                endClaudeBlockingAttentionForTurnBoundary(
+                let didReleaseBlockingAttention = endClaudeBlockingAttentionForTurnBoundary(
                     client: client,
                     sessionId: sessionId,
                     owner: mappedSession
@@ -25156,7 +25159,7 @@ struct CMUXCLI {
                     agentLifecycle: .running,
                     markActive: true,
                     turnId: parsedInput.turnId,
-                    clearPendingBlockingTools: true
+                    clearPendingBlockingTools: didReleaseBlockingAttention
                 )
                 publishAgentSurfaceResumeBinding(
                     client: client,
@@ -25809,7 +25812,7 @@ struct CMUXCLI {
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    let beganTransientAttention = beginClaudeBlockingAttention(
+                    let transientAttentionBeginResult = beginClaudeBlockingAttention(
                         client: client,
                         sessionId: sessionId,
                         toolUseId: registeredBlockingTool.requestId,
@@ -25820,7 +25823,8 @@ struct CMUXCLI {
                         subtitle: waitingSubtitle,
                         body: needsInputBody
                     )
-                    if !beganTransientAttention {
+                    switch transientAttentionBeginResult {
+                    case .unavailable:
                         fallbackClaudeBlockingAttention(
                             client: client,
                             sessionStore: sessionStore,
@@ -25832,19 +25836,26 @@ struct CMUXCLI {
                             body: needsInputBody,
                             pid: claudePid
                         )
+                    case .active:
+                        break
+                    case .rejected:
+                        telemetry.breadcrumb("claude-hook.pre-tool-use.attention-rejected")
                     }
                 }
                 printClaudeHookAck()
                 return
             }
 
+            let didReleaseLegacyBlockingAttention: Bool
             if legacyOrdinaryToolNeedsTransition,
                let sessionId = parsedInput.sessionId {
-                endClaudeBlockingAttentionForTurnBoundary(
+                didReleaseLegacyBlockingAttention = endClaudeBlockingAttentionForTurnBoundary(
                     client: client,
                     sessionId: sessionId,
                     owner: mappedSession
                 )
+            } else {
+                didReleaseLegacyBlockingAttention = true
             }
             if let sessionId = parsedInput.sessionId {
                 _ = try? sessionStore.upsert(
@@ -25855,6 +25866,7 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .running,
                     clearPendingBlockingTools: legacyOrdinaryToolNeedsTransition
+                        && didReleaseLegacyBlockingAttention
                 )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
