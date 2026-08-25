@@ -10,6 +10,8 @@ import Observation
 @Observable
 final class SleepyPowerUIState {
     private var sessionID = UUID()
+    private var nextLockRequestID: UInt64 = 0
+    private var activeLockRequestID: UInt64?
 
     /// Whether Low Power Mode is currently on (last re-read from the system).
     var isOn = false
@@ -24,6 +26,7 @@ final class SleepyPowerUIState {
     /// Starts a fresh overlay session and clears transient lock feedback.
     func beginSession() {
         sessionID = UUID()
+        activeLockRequestID = nil
         lockFailed = false
     }
 
@@ -33,9 +36,31 @@ final class SleepyPowerUIState {
         sessionID
     }
 
-    /// Records whether a lock request was issued, only for the active session.
-    func recordLockResult(_ requestWasIssued: Bool, for attemptedSessionID: UUID) {
-        guard attemptedSessionID == sessionID else { return }
-        lockFailed = !requestWasIssued
+    /// Whether a Lock Mac request is currently awaiting confirmation.
+    var isLockBusy: Bool {
+        activeLockRequestID != nil
+    }
+
+    /// Starts one lock request and returns its session/request identity.
+    /// Concurrent overlay buttons share this gate, so an older result cannot
+    /// overwrite a newer request's outcome.
+    func beginLockRequest() -> (sessionID: UUID, requestID: UInt64)? {
+        guard activeLockRequestID == nil else { return nil }
+        nextLockRequestID &+= 1
+        activeLockRequestID = nextLockRequestID
+        return (sessionID, nextLockRequestID)
+    }
+
+    /// Records a lock confirmation only when both the Sleepy session and the
+    /// request identity are still current.
+    func recordLockResult(
+        _ confirmed: Bool,
+        for attemptedSessionID: UUID,
+        requestID: UInt64
+    ) {
+        guard attemptedSessionID == sessionID,
+              activeLockRequestID == requestID else { return }
+        activeLockRequestID = nil
+        lockFailed = !confirmed
     }
 }

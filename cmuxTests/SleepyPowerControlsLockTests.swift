@@ -102,14 +102,39 @@ struct SleepyPowerControlsLockTests {
     @Test func newSessionClearsAndRejectsPriorLockFailure() {
         let state = SleepyPowerUIState()
         state.beginSession()
-        let exitedSessionID = state.currentSessionID()
-        state.recordLockResult(false, for: exitedSessionID)
+        let exitedRequest = state.beginLockRequest()!
+        state.recordLockResult(
+            false,
+            for: exitedRequest.sessionID,
+            requestID: exitedRequest.requestID
+        )
         #expect(state.lockFailed)
 
         state.beginSession()
         #expect(!state.lockFailed)
 
-        state.recordLockResult(false, for: exitedSessionID)
+        state.recordLockResult(
+            false,
+            for: exitedRequest.sessionID,
+            requestID: exitedRequest.requestID
+        )
+        #expect(!state.lockFailed)
+    }
+
+    /// A stale result from an older request must not overwrite a newer request.
+    @MainActor
+    @Test func lockResultsAreOrderedByRequestIdentity() throws {
+        let state = SleepyPowerUIState()
+        let first = try #require(state.beginLockRequest())
+        state.recordLockResult(true, for: first.sessionID, requestID: first.requestID)
+        let second = try #require(state.beginLockRequest())
+
+        state.recordLockResult(false, for: first.sessionID, requestID: first.requestID)
+        #expect(state.isLockBusy)
+        #expect(!state.lockFailed)
+
+        state.recordLockResult(true, for: second.sessionID, requestID: second.requestID)
+        #expect(!state.isLockBusy)
         #expect(!state.lockFailed)
     }
 }

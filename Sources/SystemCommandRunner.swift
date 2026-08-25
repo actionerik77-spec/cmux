@@ -170,8 +170,14 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
                         return true
                     case .some(false):
                         // A delayed notification can arrive before the public
-                        // state catches up; keep waiting until the deadline.
-                        continue
+                        // state catches up; re-read on a bounded cadence until
+                        // the confirmation deadline instead of waiting for a
+                        // second lock notification that will never arrive.
+                        do {
+                            try await clock.sleep(for: .milliseconds(50))
+                        } catch {
+                            return false
+                        }
                     }
                 }
                 return false
