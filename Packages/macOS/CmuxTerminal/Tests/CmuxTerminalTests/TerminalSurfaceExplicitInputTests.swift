@@ -167,6 +167,32 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
     }
 
+    @Test func queuedAppOwnedInputRetainsItsNonHumanOwnership() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(fixture.surface.sendAppOwnedInputResult("answer") == .queued)
+        guard let pending = fixture.surface.pendingSocketInputQueue.first else {
+            Issue.record("Expected app-owned input to remain queued on a cold surface")
+            return
+        }
+        #expect(!pending.isHumanInput)
+    }
+
+    @Test func queuedAppOwnedNamedKeyRetainsItsNonHumanOwnership() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(
+            fixture.surface.sendAppOwnedNamedKeyResult("escape") == .queued
+        )
+        guard let pending = fixture.surface.pendingSocketInputQueue.first else {
+            Issue.record("Expected app-owned key to remain queued on a cold surface")
+            return
+        }
+        #expect(!pending.isHumanInput)
+    }
+
     @Test func deferredPromptSubmissionKeepsAdmissionSnapshotAndOneCompoundItem() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
