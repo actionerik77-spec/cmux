@@ -5,8 +5,9 @@ protocol SleepyPowerControlling: Sendable {
     /// Turns the display off now (system idle-sleep assertion still holds).
     func sleepDisplayNow() async
     /// Engages the real macOS login lock; returns only after the system confirms
-    /// the transition. An unconfirmed request is canceled with its Sleepy Mode
-    /// lifecycle rather than reported as a successful lock.
+    /// the transition or the bounded confirmation deadline is reached. An
+    /// unconfirmed request is canceled with its Sleepy Mode lifecycle rather
+    /// than reported as a successful lock.
     @discardableResult func lockMacNow() async -> Bool
     /// Whether Low Power Mode is currently on.
     func isLowPowerOn() async -> Bool

@@ -44,8 +44,21 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         return unsafeBitCast(symbol, to: LockScreenFn.self)
     }()
 
+    /// The bounded grace period is only a recovery path when loginwindow never
+    /// publishes a usable confirmation. Ten seconds covers delayed IPC on busy
+    /// hosts while keeping a rejected request from disabling the UI forever.
+    private let lockConfirmationClock: any Clock<Duration>
+    private let lockConfirmationTimeout: Duration
     private let privilegedQueue = DispatchQueue(label: "com.cmux.sleepyMode.privileged")
     private var authorization: AuthorizationRef?  // accessed only on privilegedQueue
+
+    init(
+        lockConfirmationClock: any Clock<Duration> = ContinuousClock(),
+        lockConfirmationTimeout: Duration = .seconds(10)
+    ) {
+        self.lockConfirmationClock = lockConfirmationClock
+        self.lockConfirmationTimeout = lockConfirmationTimeout
+    }
 
     func run(_ tool: String, _ args: [String]) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -79,9 +92,9 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     }
 
     /// Asks loginwindow to lock without blocking the caller's actor. Returns
-    /// only after the public session state or the request-local lock notification
-    /// confirms the transition. Cancellation (when Sleepy Mode exits) ends an
-    /// unconfirmed request without claiming that the Mac was locked.
+    /// only after the public session state confirms the transition. A request
+    /// that never produces that state fails closed at the bounded confirmation
+    /// deadline, or sooner when Sleepy Mode cancels its owning task.
     @discardableResult
     #if compiler(>=6.2)
     @concurrent
@@ -98,6 +111,8 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         // `CGSSessionScreenIsLocked` dictionary key, and AsyncStream buffers it
         // if the IPC returns before the consumer starts awaiting.
         let lockNotifications = Self.lockScreenNotifications()
+        let clock = lockConfirmationClock
+        let timeout = lockConfirmationTimeout
         guard !Task.isCancelled else {
             lockNotifications.continuation.finish()
             return false
@@ -107,7 +122,11 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             lockNotifications.continuation.finish()
             return true
         }
-        let confirmed = await Self.waitForLockNotification(lockNotifications.stream)
+        let confirmed = await Self.waitForLockNotification(
+            lockNotifications.stream,
+            clock: clock,
+            timeout: timeout
+        )
         lockNotifications.continuation.finish()
         return confirmed
     }
@@ -133,15 +152,58 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     }
 
     private static func waitForLockNotification(
-        _ notifications: AsyncStream<Void>
+        _ notifications: AsyncStream<Void>,
+        clock: any Clock<Duration>,
+        timeout: Duration
     ) async -> Bool {
-        // AsyncStream's iterator observes task cancellation and finishes the
-        // continuation, which removes the distributed observer through
-        // `onTermination`. There is intentionally no polling/deadline here:
-        // loginwindow may publish the event after an arbitrary IPC delay, while
-        // the owning Sleepy Mode task provides the lifecycle cancellation bound.
-        for await _ in notifications {
-            return true
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in notifications {
+                    switch Self.screenLockState() {
+                    case .some(true):
+                        // The notification is only a wake-up; the session bit
+                        // is the authoritative proof that this request locked.
+                        return true
+                    case .none:
+                        // Do not treat an unauthenticated distributed event as
+                        // proof when the public state cannot be read.
+                        return false
+                    case .some(false):
+                        // loginwindow can publish before the dictionary catches
+                        // up. Re-read on a bounded cadence until the outer
+                        // confirmation deadline wins.
+                        return await Self.waitForCurrentLockState(clock: clock)
+                    }
+                }
+                return false
+            }
+            group.addTask {
+                try? await clock.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            guard result else { return false }
+            return Self.isScreenLocked()
+        }
+    }
+
+    private static func waitForCurrentLockState(
+        clock: any Clock<Duration>
+    ) async -> Bool {
+        while !Task.isCancelled {
+            switch screenLockState() {
+            case .some(true):
+                return true
+            case .none:
+                return false
+            case .some(false):
+                do {
+                    try await clock.sleep(for: .milliseconds(50))
+                } catch {
+                    return false
+                }
+            }
         }
         return false
     }
