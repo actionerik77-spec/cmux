@@ -73,7 +73,8 @@ import Testing
         #expect(ledger.confirmSubmission(message: "human prompt") == .human)
         #expect(!ledger.hasUnconfirmedHumanInput)
         #expect(
-            ledger.confirmSubmission(message: "automation prompt") == .unmatched
+            ledger.confirmSubmission(message: "automation prompt")
+                == .programmaticDuplicate
         )
     }
 
@@ -137,7 +138,8 @@ import Testing
         )
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
-            ledger.confirmSubmission(message: "app prompt") == .unmatched
+            ledger.confirmSubmission(message: "app prompt")
+                == .programmaticDuplicate
         )
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(ledger.confirmSubmission(message: "human prompt") == .human)

@@ -6185,6 +6185,21 @@ class TerminalController {
                         )
                         return
                     }
+                    if case .programmaticDuplicate = origin {
+                        return
+                    }
+                    if case .unmatched = origin,
+                       terminalPanel.surface
+                           .hasPendingProgrammaticPromptSubmission {
+                        return
+                    }
+                } else if let workspace = tabManager.tabs.first(
+                    where: { $0.id == workspaceId }
+                ),
+                          workspaceHasPendingProgrammaticPromptSubmission(
+                              workspace
+                          ) {
+                    return
                 }
                 _ = tabManager.handlePromptSubmit(
                     workspaceId: workspaceId,
@@ -6206,6 +6221,15 @@ class TerminalController {
             }
         default:
             break
+        }
+    }
+
+    private func workspaceHasPendingProgrammaticPromptSubmission(
+        _ workspace: Workspace
+    ) -> Bool {
+        workspace.panels.keys.contains { panelID in
+            workspace.terminalPanels(projectedFromPanelID: panelID)
+                .contains { $0.surface.hasPendingProgrammaticPromptSubmission }
         }
     }
 

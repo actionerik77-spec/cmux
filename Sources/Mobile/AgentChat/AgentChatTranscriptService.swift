@@ -115,6 +115,7 @@ final class AgentChatTranscriptService {
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
+    private let cleanupMobileChatAttachments: @MainActor ([URL]) -> Void
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
@@ -126,6 +127,12 @@ final class AgentChatTranscriptService {
     /// Highest transcript seq observed per session, used to bind live preview
     /// settlement to transcript lines that landed after the prompt started.
     private var latestTranscriptSeqBySessionID: [String: Int] = [:]
+    /// Attachment batches staged by mobile chat until an authoritative agent
+    /// hook proves that the terminal consumed the submitted paths.
+    private var pendingMobileChatAttachmentURLsBySurfaceID: [
+        String: [[URL]]
+    ] = [:]
+    private static let maximumPendingMobileChatAttachmentBatchesPerSurface = 8
     /// Sessions whose transcript could not be resolved cheaply; skipped until
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
@@ -160,6 +167,10 @@ final class AgentChatTranscriptService {
         emitEventPayload: @escaping @MainActor ([String: Any]) -> Void = { payload in
             MobileHostService.emitEvent(topic: AgentChatTranscriptService.eventTopic, payload: payload)
         },
+        cleanupMobileChatAttachments: @escaping @MainActor ([URL]) -> Void = { fileURLs in
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(fileURLs)
+        },
         now: @escaping () -> Date = { Date() },
         fallbackTranscriptPathResolver: AgentChatFallbackTranscriptResolutionCoordinator.Resolver? = nil,
         fallbackResolutionTimeout: Duration = .seconds(3)
@@ -168,6 +179,7 @@ final class AgentChatTranscriptService {
         self.resolver = resolver
         self.hasEventSubscribers = hasEventSubscribers
         self.emitEventPayload = emitEventPayload
+        self.cleanupMobileChatAttachments = cleanupMobileChatAttachments
         self.now = now
         self.fallbackResolutionCoordinator = AgentChatFallbackTranscriptResolutionCoordinator(
             transcriptResolver: resolver,
@@ -299,6 +311,14 @@ final class AgentChatTranscriptService {
     /// - Parameter event: The hook event.
     func noteHookEvent(_ event: WorkstreamEvent) {
         let record = registry.noteHookEvent(event)
+        switch event.hookEventName {
+        case .userPromptSubmit, .stop, .sessionEnd:
+            if let surfaceID = record.surfaceID ?? event.surfaceId {
+                cleanupConsumedMobileChatAttachments(forSurfaceID: surfaceID)
+            }
+        default:
+            break
+        }
         // A session (re)starting or receiving a prompt is the bounded
         // retry point for a transcript that didn't exist at first sight.
         switch event.hookEventName {
@@ -338,6 +358,46 @@ final class AgentChatTranscriptService {
         default:
             break
         }
+    }
+
+    /// Retains materialized mobile-chat files until the receiving terminal
+    /// emits an authoritative lifecycle hook.
+    ///
+    /// - Parameters:
+    ///   - fileURLs: Owned image files referenced by one submitted prompt.
+    ///   - surfaceID: Stable terminal surface receiving the prompt.
+    func registerMobileChatAttachmentFiles(
+        _ fileURLs: [URL],
+        surfaceID: String
+    ) {
+        let normalizedSurfaceID = normalizedMobileChatSurfaceID(surfaceID)
+        guard !normalizedSurfaceID.isEmpty, !fileURLs.isEmpty else { return }
+        var batches = pendingMobileChatAttachmentURLsBySurfaceID[
+            normalizedSurfaceID,
+            default: []
+        ]
+        batches.append(fileURLs)
+        while batches.count
+                > Self.maximumPendingMobileChatAttachmentBatchesPerSurface {
+            let evicted = batches.removeFirst()
+            cleanupMobileChatAttachments(evicted)
+        }
+        pendingMobileChatAttachmentURLsBySurfaceID[normalizedSurfaceID] = batches
+    }
+
+    private func cleanupConsumedMobileChatAttachments(forSurfaceID surfaceID: String) {
+        let normalizedSurfaceID = normalizedMobileChatSurfaceID(surfaceID)
+        guard let batches = pendingMobileChatAttachmentURLsBySurfaceID
+            .removeValue(forKey: normalizedSurfaceID) else {
+            return
+        }
+        cleanupMobileChatAttachments(batches.flatMap { $0 })
+    }
+
+    private func normalizedMobileChatSurfaceID(_ surfaceID: String) -> String {
+        surfaceID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 
     /// Lists chat-capable sessions.

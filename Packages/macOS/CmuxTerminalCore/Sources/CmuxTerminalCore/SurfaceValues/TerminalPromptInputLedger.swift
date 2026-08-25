@@ -59,6 +59,18 @@ public struct TerminalPromptInputLedger: Sendable {
         humanInputGeneration != confirmedHumanInputGeneration
     }
 
+    /// Whether an app-owned prompt still awaits authoritative hook matching.
+    public var hasPendingProgrammaticSubmission: Bool {
+        pendingBoundaries.contains { boundary in
+            switch boundary {
+            case .programmatic, .confirmedProgrammatic, .retiredProgrammatic:
+                return true
+            case .human:
+                return false
+            }
+        }
+    }
+
     /// The single agent-process identity that owns the current composer epoch.
     public var currentAgentScope: String? {
         agentScope
@@ -171,7 +183,7 @@ public struct TerminalPromptInputLedger: Sendable {
                     // A duplicate exact hook is already accounted for. Consume
                     // only its tombstone; never reinterpret it as human input.
                     pendingBoundaries.remove(at: index)
-                    return .unmatched
+                    return .programmaticDuplicate
                 case .programmatic(
                     let candidateSignature,
                     let source,

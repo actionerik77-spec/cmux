@@ -6,4 +6,6 @@ public enum PromptSubmissionConfirmationOrigin: Equatable, Sendable {
     case programmatic(source: String)
     /// No safely attributable submission boundary matched the hook.
     case unmatched
+    /// A duplicate hook matched an already-confirmed app-owned submission.
+    case programmaticDuplicate
 }

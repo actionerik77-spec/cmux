@@ -1071,6 +1071,35 @@ struct AgentPromptSubmissionTests {
         #expect(materializedFiles.isEmpty)
     }
 
+    @MainActor
+    @Test func mobileChatAttachmentsCleanUpAfterPromptHookConsumption() {
+        var cleanedURLs: [URL] = []
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            cleanupMobileChatAttachments: { urls in
+                cleanedURLs.append(contentsOf: urls)
+            }
+        )
+        let attachmentURL = URL(fileURLWithPath: "/tmp/cmux-mobile-chat.png")
+        service.registerMobileChatAttachmentFiles(
+            [attachmentURL],
+            surfaceID: "surface-mobile-chat"
+        )
+
+        service.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: "mobile-chat-session",
+                hookEventName: .userPromptSubmit,
+                source: "codex",
+                surfaceId: "surface-mobile-chat"
+            )
+        )
+
+        #expect(cleanedURLs == [attachmentURL])
+    }
+
     @Test func composerBusyMapsToDistinctRetryableSocketError() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()

@@ -357,11 +357,19 @@ extension TerminalController {
         }
         var pasteParams = refreshedTerminalParams
         pasteParams["text"] = promptComponents.joined(separator: " ")
+        let deliveredSurfaceID = pasteParams["surface_id"] as? String
+            ?? surfaceID.uuidString
         let result = v2MobileTerminalPaste(
             params: pasteParams,
             rejectIfHumanComposerBusy: true
         )
-        if case .err = result {
+        if case .ok = result,
+           let agentChatTranscriptService {
+            agentChatTranscriptService.registerMobileChatAttachmentFiles(
+                attachmentFileURLs,
+                surfaceID: deliveredSurfaceID
+            )
+        } else {
             GhosttyApp.terminalPasteboard
                 .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
         }

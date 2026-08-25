@@ -15,6 +15,24 @@ extension TerminalSurface {
         promptInputLedger.currentAgentScope
     }
 
+    /// Whether this surface has an app-owned prompt awaiting hook matching.
+    @MainActor
+    public var hasPendingProgrammaticPromptSubmission: Bool {
+        promptInputLedger.hasPendingProgrammaticSubmission
+            || pendingSocketInputQueue.contains { input in
+                guard case .promptSubmission(
+                    _,
+                    _,
+                    _,
+                    let hookRecordingSource,
+                    _
+                ) = input else {
+                    return false
+                }
+                return hookRecordingSource != nil
+            }
+    }
+
     /// Returns the transport-owned name for a physical manual-I/O key, if any.
     @MainActor
     public func manualInputKeyName(for event: ghostty_input_key_s) -> String? {

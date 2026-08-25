@@ -5655,10 +5655,18 @@ struct CMUXCLI {
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let windowRaw = windowOpt ?? windowId
+            let environment = ProcessInfo.processInfo.environment
+            let surfaceArg = sfArg
+                ?? (wsArg == nil && windowRaw == nil
+                    ? environment["CMUX_SURFACE_ID"]
+                    : nil)
             let workspaceArg = wsArg
-                ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
+                ?? Self.callerWorkspaceForSurfaceHandle(
+                    surfaceArg,
+                    windowRaw: windowRaw
+                )
                 ?? (windowRaw == nil
-                    ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+                    ? environment["CMUX_WORKSPACE_ID"]
                     : nil)
             let promptArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
             let text = promptArgs.joined(separator: " ")
@@ -5688,7 +5696,7 @@ struct CMUXCLI {
                 "text": text,
             ]
             if let surfaceID = try normalizeSurfaceHandle(
-                sfArg,
+                surfaceArg,
                 client: client,
                 workspaceHandle: workspaceID,
                 windowHandle: winID
