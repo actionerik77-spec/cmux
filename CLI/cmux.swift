@@ -25675,6 +25675,17 @@ struct CMUXCLI {
             } else {
                 ordinaryPermissionWasResolved = false
             }
+            // finishPermissionRequest updates the durable record's updatedAt
+            // even though it does not change the lifecycle. Reload after that
+            // mutation so the exact-version fence in the resume path observes
+            // the record it is actually cleaning up.
+            let resumePermissionSession: ClaudeHookSessionRecord?
+            if ordinaryPermissionWasResolved,
+               let sessionId = parsedInput.sessionId {
+                resumePermissionSession = try? sessionStore.lookup(sessionId: sessionId)
+            } else {
+                resumePermissionSession = postWaitPermissionSession
+            }
             if permissionResponseStatus == "resolved" {
                 let shouldResume = isBlockingTool || ordinaryPermissionWasResolved
                 guard shouldResume else {
@@ -25687,7 +25698,7 @@ struct CMUXCLI {
                     sessionStore: sessionStore,
                     routing: hookRouting,
                     telemetry: telemetry,
-                    expectedSession: postWaitPermissionSession,
+                    expectedSession: resumePermissionSession,
                     allowResolvedState: isBlockingTool
                 )
             } else {
@@ -25703,7 +25714,7 @@ struct CMUXCLI {
                         sessionStore: sessionStore,
                         routing: hookRouting,
                         telemetry: telemetry,
-                        expectedSession: postWaitPermissionSession
+                        expectedSession: resumePermissionSession
                     )
                 }
             }
