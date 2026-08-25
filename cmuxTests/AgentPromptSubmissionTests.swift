@@ -12,6 +12,60 @@ import Testing
 
 @Suite("Atomic agent prompt submission", .serialized)
 struct AgentPromptSubmissionTests {
+    @Test func deliveryLaneWaitsForActualDeliveryBeforeStartingNext() async {
+        let lane = AgentPromptSubmissionDeliveryLane()
+        let probe = AgentPromptDeliveryLaneProbe()
+        let firstWorkspaceID = UUID()
+        let firstSurfaceID = UUID()
+        let secondWorkspaceID = UUID()
+        let secondSurfaceID = UUID()
+
+        let first = Task.detached {
+            await lane.perform { receipt in
+                probe.started("first", receipt: receipt)
+                return .submitted(
+                    workspaceID: firstWorkspaceID,
+                    surfaceID: firstSurfaceID,
+                    queued: true
+                )
+            }
+        }
+        #expect(probe.waitUntilStarted(count: 1))
+
+        let second = Task.detached {
+            await lane.perform { receipt in
+                probe.started("second", receipt: receipt)
+                return .submitted(
+                    workspaceID: secondWorkspaceID,
+                    surfaceID: secondSurfaceID,
+                    queued: true
+                )
+            }
+        }
+
+        #expect(probe.waitUntilStarted(count: 1))
+        #expect(probe.startedMessages == ["first"])
+        probe.finishFirst(.sent)
+
+        #expect(
+            await first.value == .submitted(
+                workspaceID: firstWorkspaceID,
+                surfaceID: firstSurfaceID,
+                queued: false
+            )
+        )
+        #expect(probe.waitUntilStarted(count: 2))
+        #expect(probe.startedMessages == ["first", "second"])
+        probe.finishSecond(.sent)
+        #expect(
+            await second.value == .submitted(
+                workspaceID: secondWorkspaceID,
+                surfaceID: secondSurfaceID,
+                queued: false
+            )
+        )
+    }
+
     @Test func concurrentSubmissionsAcrossWorkspacesStayIntactAndGloballyFIFO() async {
         let controller = await MainActor.run { TerminalController.shared }
         let probe = await MainActor.run {

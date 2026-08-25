@@ -368,6 +368,62 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
     }
 
+    @Test func configuredControlReturnDoesNotTreatPlainReturnAsBoundary() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:claude.multiline",
+            controlReturnIsPromptSubmissionBoundary: true
+        )
+
+        #expect(fixture.surface.sendText("first line"))
+        #expect(fixture.surface.sendNamedKey("return").accepted)
+        #expect(
+            fixture.surface.confirmPromptSubmission(message: "first line")
+                == .unmatched
+        )
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(fixture.surface.sendNamedKey("ctrl+enter").accepted)
+        #expect(
+            fixture.surface.confirmPromptSubmission(message: "first line")
+                == .human
+        )
+    }
+
+    @Test func deferredPromptSubmissionRetainsItsScopeAfterAgentReplacement() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        let originalScope = "agentPIDKey:codex.deferred-original"
+        fixture.surface.synchronizePromptInputAgentScope(originalScope)
+        fixture.nativeView.shouldDeferRuntimeInput = true
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "retain this prompt",
+                submitKey: "return",
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .queued
+        )
+
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.deferred-replacement"
+        )
+        fixture.nativeView.shouldDeferRuntimeInput = false
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
+
+        #expect(
+            fixture.surface.pendingSocketInputSnapshotForTests
+                .promptSubmissionItems == 1
+        )
+        guard case .promptSubmission(
+            _, _, _, _, _, let retainedScope, _
+        ) = fixture.surface.pendingSocketInputQueue.first else {
+            Issue.record("Expected the scoped prompt to be retained")
+            return
+        }
+        #expect(retainedScope == originalScope)
+    }
+
     @Test func unconfiguredControlReturnRemainsFailClosed() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }

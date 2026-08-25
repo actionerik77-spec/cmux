@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxTerminalCore
 @testable import CmuxTerminal
 
 /// Thread-safe test probe that can hold the first synchronous delivery while a
@@ -144,6 +145,57 @@ nonisolated private extension NSCondition {
         lock()
         defer { unlock() }
         return body()
+    }
+}
+
+nonisolated final class AgentPromptDeliveryLaneProbe: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var started: [String] = []
+    private var receipts: [String: PromptSubmissionDeliveryReceipt] = [:]
+
+    var startedMessages: [String] {
+        condition.withLock { started }
+    }
+
+    func started(
+        _ message: String,
+        receipt: PromptSubmissionDeliveryReceipt
+    ) {
+        condition.withLock {
+            started.append(message)
+            receipts[message] = receipt
+            condition.broadcast()
+        }
+    }
+
+    func waitUntilStarted(count: Int) -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        let deadline = Date.now.addingTimeInterval(5)
+        while started.count < count {
+            guard condition.wait(until: deadline) else {
+                return started.count >= count
+            }
+        }
+        return true
+    }
+
+    func finishFirst(_ result: PromptSubmissionSendResult) {
+        finish("first", with: result)
+    }
+
+    func finishSecond(_ result: PromptSubmissionSendResult) {
+        finish("second", with: result)
+    }
+
+    private func finish(
+        _ message: String,
+        with result: PromptSubmissionSendResult
+    ) {
+        let receipt = condition.withLock {
+            receipts.removeValue(forKey: message)
+        }
+        receipt?.finish(result)
     }
 }
 
