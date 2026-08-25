@@ -315,7 +315,7 @@ class _SourceLexState:
     """Source-language lexical state shared by consecutive lines."""
 
     frames: list[_LexicalFrame] = field(default_factory=list)
-    in_block_comment: bool = False
+    block_comment_depth: int = 0
 
 
 def _python_string_prefix(line: str, quote_index: int) -> str:
@@ -422,16 +422,21 @@ def _lex_source_line(
     index = 0
 
     while index < len(line):
-        if state.in_block_comment:
+        if state.block_comment_depth > 0:
+            comment_start = line.find("/*", index)
             comment_end = line.find("*/", index)
-            if comment_end == -1:
+            if comment_start == -1 and comment_end == -1:
                 comment_stripped[index:] = [" "] * (len(line) - index)
                 executable[index:] = [" "] * (len(line) - index)
                 break
-            end_index = comment_end + 2
+            if comment_start != -1 and (comment_end == -1 or comment_start < comment_end):
+                end_index = comment_start + 2
+                state.block_comment_depth += 1
+            else:
+                end_index = comment_end + 2
+                state.block_comment_depth -= 1
             comment_stripped[index:end_index] = [" "] * (end_index - index)
             executable[index:end_index] = [" "] * (end_index - index)
-            state.in_block_comment = False
             index = end_index
             continue
 
@@ -516,7 +521,7 @@ def _lex_source_line(
         if supports_block_comments and line.startswith("/*", index):
             comment_stripped[index:index + 2] = [" ", " "]
             executable[index:index + 2] = [" ", " "]
-            state.in_block_comment = True
+            state.block_comment_depth = 1
             index += 2
             continue
 

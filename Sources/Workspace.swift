@@ -9412,7 +9412,8 @@ final class Workspace: Identifiable, ObservableObject {
                 clearSurfaceNotifications: true,
                 requestTransferredRemoteCleanup: true,
                 discardAgentHibernationTracking: true,
-                cleanupControllerSurfaceState: true
+                cleanupControllerSurfaceState: true,
+                recomputePortProjection: false
             )
         }
         clearAllAgentPIDs(refreshPorts: false)
@@ -12765,7 +12766,8 @@ extension Workspace: BonsplitDelegate {
             requestTransferredRemoteCleanup: false,
             discardAgentHibernationTracking: !isDetaching,
             cleanupControllerSurfaceState: !isDetaching,
-            preservesTerminalForTransfer: isDetaching
+            preservesTerminalForTransfer: isDetaching,
+            recomputePortProjection: false
         )
         if !isDetaching {
             owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)
@@ -12956,7 +12958,8 @@ extension Workspace: BonsplitDelegate {
                     clearSurfaceNotifications: true,
                     requestTransferredRemoteCleanup: true,
                     discardAgentHibernationTracking: !isDetachingCloseTransaction,
-                    cleanupControllerSurfaceState: !isDetachingCloseTransaction
+                    cleanupControllerSurfaceState: !isDetachingCloseTransaction,
+                    recomputePortProjection: false
                 )
                 if !isDetachingCloseTransaction {
                     owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)
