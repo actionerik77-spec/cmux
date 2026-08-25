@@ -2717,7 +2717,7 @@ struct TextBoxInputContainer: View {
             submitPlan.events,
             via: surface,
             atomicPromptTerminalAgentContext:
-                submitPlan.cleanupTerminalAgentContext
+                submitPlan.atomicPromptTerminalAgentContext
         ) { completionContext in
             guard completionContext.didSubmit else {
                 if submitPlan.launchContextCommand != nil {

@@ -17,24 +17,11 @@ extension TerminalController {
 
     /// Worker-lane handler for `workspace.agent_submit`.
     ///
-    /// The socket worker owns the definitive reply. `v2MainSync` serializes
-    /// complete, non-suspending terminal transactions in main-queue arrival
-    /// order, so concurrent callers cannot interleave prompt bytes.
+    /// The socket worker owns the definitive reply. One `v2MainSync` admission
+    /// covers target resolution, validation, and delivery, so concurrent
+    /// callers cannot interleave or reorder prompt transactions between hops.
     nonisolated func v2WorkspaceAgentSubmit(params: [String: Any]) -> V2CallResult {
         guard let rawWorkspaceID = params["workspace_id"] as? String else {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.workspace.agentSubmit.invalidWorkspace",
-                    defaultValue: "Missing or invalid workspace_id."
-                ),
-                data: nil
-            )
-        }
-        let workspaceID = v2MainSync {
-            v2UUIDAny(rawWorkspaceID)
-        }
-        guard let workspaceID else {
             return .err(
                 code: "invalid_params",
                 message: String(
@@ -57,8 +44,7 @@ extension TerminalController {
                 data: nil
             )
         }
-
-        let requestedSurfaceID: UUID?
+        let rawSurfaceID: String?
         if let rawSurface = params["surface_id"], !(rawSurface is NSNull) {
             guard let rawSurface = rawSurface as? String else {
                 return .err(
@@ -70,29 +56,45 @@ extension TerminalController {
                     data: nil
                 )
             }
-            guard let parsed = v2MainSync({ v2UUIDAny(rawSurface) }) else {
+            rawSurfaceID = rawSurface
+        } else {
+            rawSurfaceID = nil
+        }
+        return v2MainSync(commandKey: "workspace.agent_submit") {
+            guard let workspaceID = v2UUIDAny(rawWorkspaceID) else {
                 return .err(
                     code: "invalid_params",
                     message: String(
-                        localized: "socket.workspace.agentSubmit.invalidSurface",
-                        defaultValue: "surface_id must be a valid surface UUID."
+                        localized: "socket.workspace.agentSubmit.invalidWorkspace",
+                        defaultValue: "Missing or invalid workspace_id."
                     ),
                     data: nil
                 )
             }
-            requestedSurfaceID = parsed
-        } else {
-            requestedSurfaceID = nil
-        }
-
-        let result = v2MainSync {
-            deliverAgentPromptSubmission(
-                workspaceID: workspaceID,
-                requestedSurfaceID: requestedSurfaceID,
-                text: text
+            let requestedSurfaceID: UUID?
+            if let rawSurfaceID {
+                guard let parsed = v2UUIDAny(rawSurfaceID) else {
+                    return .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "socket.workspace.agentSubmit.invalidSurface",
+                            defaultValue: "surface_id must be a valid surface UUID."
+                        ),
+                        data: nil
+                    )
+                }
+                requestedSurfaceID = parsed
+            } else {
+                requestedSurfaceID = nil
+            }
+            return Self.agentPromptSocketResult(
+                deliverAgentPromptSubmission(
+                    workspaceID: workspaceID,
+                    requestedSurfaceID: requestedSurfaceID,
+                    text: text
+                )
             )
         }
-        return Self.agentPromptSocketResult(result)
     }
 
     nonisolated static func agentPromptSocketResult(
