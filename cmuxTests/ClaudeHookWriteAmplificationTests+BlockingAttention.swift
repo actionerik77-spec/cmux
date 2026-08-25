@@ -7,6 +7,27 @@ import Testing
 #endif
 
 extension ClaudeHookWriteAmplificationTests {
+    @Test func ordinaryPermissionMarkersAreRequestScoped() throws {
+        let context = try AttentionHarness.makeContext(name: "permission-request-correlation")
+        defer { context.cleanup() }
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
+        ])
+        let sessionId = "permission-correlation-session"
+        _ = try store.upsert(
+            sessionId: sessionId,
+            workspaceId: "11111111-1111-1111-1111-111111111111",
+            surfaceId: "22222222-2222-2222-2222-222222222222",
+            cwd: context.root.path,
+            agentLifecycle: .needsInput
+        )
+        #expect(try store.beginPermissionRequest(sessionId: sessionId, toolUseId: "permission-a"))
+        #expect(try store.beginPermissionRequest(sessionId: sessionId, toolUseId: "permission-b"))
+        #expect(try store.finishPermissionRequest(sessionId: sessionId, toolUseId: "permission-unknown") == false)
+        #expect(try store.finishPermissionRequest(sessionId: sessionId, toolUseId: "permission-a"))
+        #expect(try store.finishPermissionRequest(sessionId: sessionId, toolUseId: "permission-b"))
+    }
+
     @Test func failedAttentionEndKeepsDurableCorrelation() throws {
         let context = try AttentionHarness.makeContext(name: "attention-end-negative-ack")
         defer { context.cleanup() }
