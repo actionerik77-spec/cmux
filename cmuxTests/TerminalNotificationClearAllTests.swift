@@ -158,6 +158,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             title: "Claude Code",
             subtitle: "Permission",
             body: "Approval needed",
+            coalesces: false,
             correlationKey: claudeKey
         )
         TerminalMutationBus.shared.enqueueNotification(
@@ -165,7 +166,8 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             surfaceId: surfaceId,
             title: "Other agent",
             subtitle: "Attention",
-            body: "Keep this notification"
+            body: "Keep this notification",
+            coalesces: false
         )
         TerminalMutationBus.shared.drainForTesting()
         XCTAssertEqual(store.notifications.count, 2)
