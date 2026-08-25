@@ -200,6 +200,8 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         let commands = context.state.snapshot()
+        #expect(commands.contains { $0.hasPrefix("clear_notification_correlation ") })
+        #expect(!commands.contains { $0.hasPrefix("clear_notifications --tab=") })
         #expect(commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code running ") })
         #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") })
         let record = try AttentionHarness.sessionRecord(
@@ -261,7 +263,8 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         let commands = context.state.snapshot()
-        #expect(commands.contains { $0.hasPrefix("clear_notifications ") })
+        #expect(commands.contains { $0.hasPrefix("clear_notification_correlation ") })
+        #expect(!commands.contains { $0.hasPrefix("clear_notifications --tab=") })
         #expect(commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code running ") })
         #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") })
 
@@ -271,6 +274,157 @@ extension ClaudeHookWriteAmplificationTests {
         )
         #expect(record?["agentLifecycle"] as? String == "running")
         #expect(record?["pendingPermissionRequestIds"] == nil)
+    }
+
+    @Test func ordinaryPermissionWithoutToolUseIdResumesNotificationLifecycle() throws {
+        let context = try AttentionHarness.makeContext(name: "permission-resume-without-id")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "permission-resume-without-id-session"
+        try AttentionHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path
+        )
+        let storeData = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": [sessionId: [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId,
+                "surfaceId": surfaceId,
+                "cwd": context.root.path,
+                "agentLifecycle": "needsInput",
+                "startedAt": 4_102_444_800,
+                "updatedAt": 4_102_444_800,
+            ]],
+        ])
+        try storeData.write(to: context.storeURL)
+
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId],
+            feedTerminalDefaultStatus: "resolved"
+        )
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = AttentionHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"echo ready"},"permission_mode":"default","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        let commands = context.state.snapshot()
+        #expect(commands.contains { $0.hasPrefix("clear_notification_correlation ") })
+        #expect(commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code running ") })
+        #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") })
+        let record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["agentLifecycle"] as? String == "running")
+    }
+
+    @Test func concurrentOrdinaryPermissionRequestsKeepNeedsInputUntilLastCompletion() throws {
+        let context = try AttentionHarness.makeContext(name: "permission-concurrent-lifecycle")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "permission-concurrent-lifecycle-session"
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
+        ])
+        _ = try store.upsert(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            agentLifecycle: .needsInput
+        )
+        #expect(try store.beginPermissionRequest(sessionId: sessionId, toolUseId: "ordinary-a"))
+        #expect(try store.beginPermissionRequest(sessionId: sessionId, toolUseId: "ordinary-b"))
+
+        let mapped = try #require(try store.lookup(sessionId: sessionId))
+        #expect(try store.clearBlockingAttentionLifecycleIfEligible(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            transcriptPath: nil,
+            expectedUpdatedAt: mapped.updatedAt,
+            allowRunningState: false
+        ) == false)
+        #expect(try store.finishPermissionRequest(sessionId: sessionId, toolUseId: "ordinary-a"))
+        let afterFirst = try #require(try store.lookup(sessionId: sessionId))
+        #expect(try store.clearBlockingAttentionLifecycleIfEligible(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            transcriptPath: nil,
+            expectedUpdatedAt: afterFirst.updatedAt,
+            allowRunningState: false
+        ) == false)
+        #expect(try store.finishPermissionRequest(sessionId: sessionId, toolUseId: "ordinary-b"))
+        let afterSecond = try #require(try store.lookup(sessionId: sessionId))
+        #expect(try store.clearBlockingAttentionLifecycleIfEligible(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            transcriptPath: nil,
+            expectedUpdatedAt: afterSecond.updatedAt,
+            allowRunningState: false
+        ))
+    }
+
+    @Test func turnBoundaryClearsPermissionAndLegacyFallbackMarkers() throws {
+        let context = try AttentionHarness.makeContext(name: "permission-turn-boundary-cleanup")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "permission-turn-boundary-session"
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [sessionId: [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId,
+                "surfaceId": surfaceId,
+                "cwd": context.root.path,
+                "agentLifecycle": "needsInput",
+                "pendingPermissionRequestIds": ["stale-permission"],
+                "legacyBlockingAttentionFallbackActive": true,
+                "startedAt": 4_102_444_800,
+                "updatedAt": 4_102_444_800,
+            ]],
+        ]
+        try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
+        ])
+
+        _ = try store.upsert(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            agentLifecycle: .running,
+            clearPendingBlockingTools: true
+        )
+        let record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["pendingPermissionRequestIds"] == nil)
+        #expect(record?["legacyBlockingAttentionFallbackActive"] == nil)
     }
 
     @Test func timedOutNativePermissionClearsNotificationLifecycle() throws {

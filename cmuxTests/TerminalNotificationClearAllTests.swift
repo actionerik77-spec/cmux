@@ -123,6 +123,63 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertEqual(store.notifications.first?.surfaceId, secondPanel.id)
     }
 
+    func testCorrelationClearPreservesUnrelatedNotifications() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
+        let claudeKey = "claude-permission:test-key"
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "Claude Code",
+            subtitle: "Permission",
+            body: "Approval needed",
+            correlationKey: claudeKey
+        )
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "Other agent",
+            subtitle: "Attention",
+            body: "Keep this notification"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        XCTAssertEqual(store.notifications.count, 2)
+
+        let response = TerminalController.shared.handleSocketLine(
+            "clear_notification_correlation \(claudeKey)"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertEqual(store.notifications.first?.title, "Other agent")
+    }
+
     func testClosingPaneRemovesSurfaceNotificationContribution() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

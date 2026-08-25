@@ -103,6 +103,7 @@ enum ClaudeHookLiveDeliveryHarness {
         beforeSurfaceResolutionResponse: (@Sendable () -> Void)? = nil,
         feedExitPlanModesByRequestId: [String: String] = [:],
         feedTerminalStatusesByRequestId: [String: String] = [:],
+        feedTerminalDefaultStatus: String? = nil,
         feedExitPlanModesByPlan: [String: String] = [:],
         feedTerminalStatusesByPlan: [String: String] = [:]
     ) -> DispatchSemaphore {
@@ -161,6 +162,13 @@ enum ClaudeHookLiveDeliveryHarness {
                    let requestId = event["_opencode_request_id"] as? String {
                     if let status = feedTerminalStatusesByRequestId[requestId] {
                         return v2Response(id: id, ok: true, result: ["status": status])
+                    }
+                    if let feedTerminalDefaultStatus {
+                        return v2Response(
+                            id: id,
+                            ok: true,
+                            result: ["status": feedTerminalDefaultStatus]
+                        )
                     }
                     if let mode = feedExitPlanModesByRequestId[requestId] {
                         return v2Response(id: id, ok: true, result: [
