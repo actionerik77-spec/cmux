@@ -536,6 +536,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A969300000000000000006 /* ClaudeHookWriteAmplificationTests+SessionReset.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A969300000000000000005 /* ClaudeHookWriteAmplificationTests+SessionReset.swift */; };
 		C7A969300000000000000002 /* ClaudeHookWriteAmplificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A969300000000000000001 /* ClaudeHookWriteAmplificationTests.swift */; };
 		A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */; };
+		96ED2840D39045888845053E /* ClaudePermissionNotificationMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E72120FC7DE44B7BBA428055 /* ClaudePermissionNotificationMode.swift */; };
+		ABC16E7F20A24B06BEE3E150 /* ClaudePermissionNotificationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24919C787148414D80D1DC92 /* ClaudePermissionNotificationState.swift */; };
 		C7A533000000000000000002 /* ClaudeSessionCanonicalizationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A533000000000000000001 /* ClaudeSessionCanonicalizationContext.swift */; };
 		A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */; };
 		CE7000000000000000000001 /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7000000000000000000002 /* ClaudeWrapperResumeEnvironmentTests.swift */; };
@@ -3313,6 +3315,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C7A969300000000000000005 /* ClaudeHookWriteAmplificationTests+SessionReset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeHookWriteAmplificationTests+SessionReset.swift"; sourceTree = "<group>"; };
 		C7A969300000000000000001 /* ClaudeHookWriteAmplificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookWriteAmplificationTests.swift; sourceTree = "<group>"; };
 		A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeNotificationStatusLifecycleTests.swift; sourceTree = "<group>"; };
+		E72120FC7DE44B7BBA428055 /* ClaudePermissionNotificationMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePermissionNotificationMode.swift; sourceTree = "<group>"; };
+		24919C787148414D80D1DC92 /* ClaudePermissionNotificationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePermissionNotificationState.swift; sourceTree = "<group>"; };
 		C7A533000000000000000001 /* ClaudeSessionCanonicalizationContext.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "ClaudeSessionCanonicalizationContext.swift"; sourceTree = "<group>"; };
 		A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ClaudeStreamJSONAccumulator.swift; sourceTree = "<group>"; };
 		CE7000000000000000000002 /* ClaudeWrapperResumeEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWrapperResumeEnvironmentTests.swift; sourceTree = "<group>"; };
@@ -7462,6 +7466,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				89930007AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBindingSource.swift */,
 				C7A969320000000000000001 /* ClaudeHookSessionStore+BlockingTools.swift */,
 				E7E6505BD81B4AD082123A32 /* ClaudeHookSessionStore+PermissionNotifications.swift */,
+				E72120FC7DE44B7BBA428055 /* ClaudePermissionNotificationMode.swift */,
+				24919C787148414D80D1DC92 /* ClaudePermissionNotificationState.swift */,
 				89930005AABBCCDDEEFF0002 /* ClaudeHookSessionStore+SupersededCleanup.swift */,
 				89930004AABBCCDDEEFF0002 /* ClaudeHookSessionStoreFile.swift */,
 				61AD48A9E6C3F1BE2B547FFE /* CMUXCLI+AgentHookCatalog.swift */,
@@ -10466,6 +10472,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				50BD6A19C4BF4B8F9E4D6F7A /* ClaudeHookSessionStore+PermissionNotifications.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
+				96ED2840D39045888845053E /* ClaudePermissionNotificationMode.swift in Sources */,
+				ABC16E7F20A24B06BEE3E150 /* ClaudePermissionNotificationState.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */,
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,

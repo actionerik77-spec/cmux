@@ -14,7 +14,7 @@ extension CMUXCLI {
     /// blocking transitions; leave room for parsing and the final ack.
     private static let claudeBlockingAttentionResponseTimeout: TimeInterval = 1
     /// Session/turn cleanup also runs from Claude's one-second SessionEnd hook.
-    private static let claudeBlockingAttentionTurnBoundaryTimeout: TimeInterval = 0.5
+    static let claudeBlockingAttentionTurnBoundaryTimeout: TimeInterval = 0.5
 
     func claudeBlockingAttentionRequestId(
         toolUseId: String?
@@ -23,19 +23,13 @@ extension CMUXCLI {
             ?? Self.legacyClaudeBlockingAttentionRequestId
     }
 
-    /// Hashes a session and optional request into a stable permission-row key.
+    /// Hashes a session into the stable key for its aggregate permission row.
     func claudePermissionNotificationCorrelationKey(
-        sessionId: String,
-        requestId: String? = nil
+        sessionId: String
     ) -> String? {
         let normalized = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return nil }
-        var correlationMaterial = Data(normalized.utf8)
-        if let requestId = nonEmptyClaudeHookIdentifier(requestId) {
-            correlationMaterial.append(UInt8(0))
-            correlationMaterial.append(contentsOf: requestId.utf8)
-        }
-        let token = Data(SHA256.hash(data: correlationMaterial))
+        let token = Data(SHA256.hash(data: Data(normalized.utf8)))
             .base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
@@ -159,18 +153,19 @@ extension CMUXCLI {
         return bounded + "…"
     }
 
-    /// Clears only completed Claude permission rows, with an old-app pane
-    /// fallback. Request IDs stay retryable until every exact clear is acked.
-    func clearClaudePermissionNotifications(
+    /// Clears the one aggregate Claude permission row for a session.
+    func clearClaudePermissionNotification(
         client: SocketClient,
         workspaceId: String,
         surfaceId: String,
         sessionId: String,
-        requestIds: [String],
-        includeLegacySessionKey: Bool,
         legacyFallbackActive: Bool,
+        allowsPaneFallback: Bool = true,
         deadline: Date
     ) -> Bool {
+        guard let correlationKey = claudePermissionNotificationCorrelationKey(
+            sessionId: sessionId
+        ) else { return false }
         func remainingTimeout() -> TimeInterval {
             max(0.05, deadline.timeIntervalSinceNow)
         }
@@ -187,53 +182,55 @@ extension CMUXCLI {
                 return false
             }
         }
-
-        var correlationKeys = requestIds.compactMap {
-            claudePermissionNotificationCorrelationKey(
-                sessionId: sessionId,
-                requestId: $0
+        let targetedCommandRejected: Bool
+        do {
+            _ = try sendV1Command(
+                "clear_notification_correlation \(correlationKey)",
+                client: client,
+                responseTimeout: remainingTimeout(),
+                deadline: deadline
             )
+            targetedCommandRejected = false
+        } catch let error as CLIError where error.message.hasPrefix("ERROR:") {
+            targetedCommandRejected = true
+        } catch {
+            // A transport timeout may race an app-side clear. Do not widen it
+            // into a pane-wide fallback whose result is ambiguous.
+            return false
         }
-        if includeLegacySessionKey,
-           let legacyKey = claudePermissionNotificationCorrelationKey(sessionId: sessionId) {
-            correlationKeys.append(legacyKey)
+        guard targetedCommandRejected else { return true }
+        // Older apps could not have stored a correlation-scoped row. A stale
+        // session must not widen this compatibility miss into a pane-wide clear.
+        guard allowsPaneFallback else { return true }
+        do {
+            _ = try sendV1Command(
+                "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client,
+                responseTimeout: remainingTimeout(),
+                deadline: deadline
+            )
+            return true
+        } catch {
+            return false
         }
-        correlationKeys = Array(Set(correlationKeys)).sorted()
-        guard !correlationKeys.isEmpty else { return true }
+    }
 
-        for correlationKey in correlationKeys {
-            guard deadline.timeIntervalSinceNow > 0 else { return false }
-            let targetedCommandRejected: Bool
-            do {
-                _ = try sendV1Command(
-                    "clear_notification_correlation \(correlationKey)",
-                    client: client,
-                    responseTimeout: remainingTimeout(),
-                    deadline: deadline
-                )
-                targetedCommandRejected = false
-            } catch let error as CLIError where error.message.hasPrefix("ERROR:") {
-                targetedCommandRejected = true
-            } catch {
-                // A transport timeout may race an app-side clear. Do not widen
-                // it into a pane-wide fallback whose result is ambiguous.
-                return false
-            }
-            guard targetedCommandRejected else { continue }
-            // Compatibility with an app that predates correlation-scoped clears.
-            do {
-                _ = try sendV1Command(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client,
-                    responseTimeout: remainingTimeout(),
-                    deadline: deadline
-                )
-                return true
-            } catch {
-                return false
-            }
-        }
-        return true
+    func clearStaleClaudePermissionNotification(
+        client: SocketClient,
+        sessionId: String,
+        owner: ClaudeHookSessionRecord
+    ) -> Bool {
+        clearClaudePermissionNotification(
+            client: client,
+            workspaceId: owner.workspaceId,
+            surfaceId: owner.surfaceId,
+            sessionId: sessionId,
+            legacyFallbackActive: false,
+            allowsPaneFallback: false,
+            deadline: Date.now.addingTimeInterval(
+                Self.claudeBlockingAttentionTurnBoundaryTimeout
+            )
+        )
     }
 
     @discardableResult
@@ -445,20 +442,25 @@ extension CMUXCLI {
         routing: ClaudeHookRoutingContext,
         telemetry: CLISocketSentryTelemetry,
         expectedSession: ClaudeHookSessionRecord? = nil,
-        permissionNotificationRequestId: String? = nil,
         allowResolvedState: Bool = false
     ) {
         guard let sessionId = parsedInput.sessionId else { return }
         let mappedSession = expectedSession ?? (try? sessionStore.lookup(sessionId: sessionId))
-        guard let mappedSession,
-              mappedSession.agentLifecycle == .needsInput else {
+        guard let mappedSession else { return }
+        let latestSession = (try? sessionStore.lookup(sessionId: sessionId))
+            ?? mappedSession
+        let lifecycleIsEligible = latestSession.agentLifecycle == .needsInput
+            || (allowResolvedState && latestSession.agentLifecycle == .running)
+        guard lifecycleIsEligible,
+              latestSession.pendingBlockingToolUseIds?.isEmpty != false,
+              latestSession.pendingPermissionRequestIds?.isEmpty != false else {
             return
         }
 
         var cleanupRouting = routing
         cleanupRouting.allowsPidProbe = false
         guard let resolvedTarget = try? resolveClaudeHookDeliveryTarget(
-            mappedSession: mappedSession,
+            mappedSession: latestSession,
             routing: cleanupRouting,
             client: client
         ) else {
@@ -469,7 +471,7 @@ extension CMUXCLI {
         let resolvedSurfaceId = resolvedTarget.surfaceId
         let surfaceId = resolvedTarget.isAuthoritative
             ? resolvedSurfaceId
-            : (nonEmptyClaudeHookIdentifier(mappedSession.surfaceId) ?? resolvedSurfaceId)
+            : (nonEmptyClaudeHookIdentifier(latestSession.surfaceId) ?? resolvedSurfaceId)
         guard shouldApplyClaudeHookVisibleMutation(
             sessionStore: sessionStore,
             sessionId: sessionId,
@@ -478,7 +480,8 @@ extension CMUXCLI {
             surfaceId: resolvedTarget.isAuthoritative ? resolvedSurfaceId : nil,
             telemetry: telemetry
         ), !shouldSuppressNestedAgentVisibleMutations(
-            currentAgentPID: mappedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment),
+            currentAgentPID: latestSession.pid
+                ?? claudeAgentPID(from: ProcessInfo.processInfo.environment),
             env: ProcessInfo.processInfo.environment
         ) else {
             telemetry.breadcrumb("claude-hook.permission-request.resume-stale")
@@ -488,65 +491,24 @@ extension CMUXCLI {
         let cleanupDeadline = Date.now.addingTimeInterval(
             Self.claudeBlockingAttentionResponseTimeout
         )
-        var activeRequestIds = Set(
-            (mappedSession.pendingBlockingToolUseIds ?? [])
-                + (mappedSession.pendingPermissionRequestIds ?? [])
-        )
-        let currentPermissionRequestId = nonEmptyClaudeHookIdentifier(
-            permissionNotificationRequestId
-        )
-        if let currentPermissionRequestId {
-            activeRequestIds.remove(currentPermissionRequestId)
-        }
-        var cleanupRequestIds = (
-            mappedSession.pendingPermissionNotificationCleanupRequestIds ?? []
-        ).filter { !activeRequestIds.contains($0) }
-        if cleanupRequestIds.isEmpty,
-           activeRequestIds.isEmpty,
-           let currentPermissionRequestId {
-            // A prompt resolved before Claude's delayed Notification hook fired.
-            // Preserve the historic harmless final clear without adding one
-            // clear per still-overlapping, unnotified permission request.
-            cleanupRequestIds.append(currentPermissionRequestId)
-        }
-        let cleanupRequestIdSet = Set(cleanupRequestIds)
-        guard clearClaudePermissionNotifications(
+        guard clearClaudePermissionNotification(
             client: client,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             sessionId: sessionId,
-            requestIds: cleanupRequestIds,
-            includeLegacySessionKey:
-                currentPermissionRequestId == nil
-                    && mappedSession.pendingPermissionNotificationCleanupRequestIds?.isEmpty
-                        != false,
-            legacyFallbackActive: mappedSession.legacyBlockingAttentionFallbackActive == true,
+            legacyFallbackActive: latestSession.legacyBlockingAttentionFallbackActive == true,
             deadline: cleanupDeadline
         ) else {
             telemetry.breadcrumb("claude-hook.permission-request.resume-clear-pending")
             return
         }
-        do {
-            try sessionStore.acknowledgePermissionNotificationCleanup(
-                sessionId: sessionId,
-                requestIds: cleanupRequestIdSet
-            )
-        } catch {
-            telemetry.breadcrumb(
-                "claude-hook.permission-request.resume-ack-pending",
-                data: ["error": String(describing: error)]
-            )
-            return
-        }
-        let postCleanupSession = (try? sessionStore.lookup(sessionId: sessionId))
-            ?? mappedSession
         guard (try? sessionStore.clearBlockingAttentionLifecycleIfEligible(
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             cwd: parsedInput.cwd,
             transcriptPath: parsedInput.transcriptPath,
-            expectedUpdatedAt: postCleanupSession.updatedAt,
+            expectedUpdatedAt: latestSession.updatedAt,
             allowRunningState: allowResolvedState
         )) == true else {
             telemetry.breadcrumb("claude-hook.permission-request.resume-state-changed")
@@ -569,7 +531,7 @@ extension CMUXCLI {
             value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
             icon: "bolt.fill",
             color: "#4C8DFF",
-            pid: mappedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment),
+            pid: latestSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment),
             responseTimeout: max(0.05, cleanupDeadline.timeIntervalSinceNow),
             deadline: cleanupDeadline
         )

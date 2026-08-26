@@ -2,11 +2,10 @@ import Foundation
 
 extension ClaudeHookSessionStore {
     private static let maximumPermissionRequestCount = 64
-    private static let maximumPermissionNotificationRequestCount = 256
 
     /// Records one ordinary PermissionRequest without changing the agent
-    /// lifecycle. Claude's PermissionRequest payload does not include
-    /// `tool_use_id`, so an omitted ID receives a bounded synthetic marker.
+    /// lifecycle. Claude omits `tool_use_id`, so an omitted ID receives a
+    /// bounded synthetic marker used only for the pending-owner count.
     @discardableResult
     func registerPermissionRequest(
         sessionId: String,
@@ -20,21 +19,19 @@ extension ClaudeHookSessionStore {
         return try withLockedState { state in
             guard var record = state.sessions[sessionId] else { return nil }
             var pending = record.pendingPermissionRequestIds ?? []
-            let requestAlreadyPending = pending.contains(requestId)
-            let notificationAlreadyTracked =
-                record.pendingPermissionNotificationRequestIds?.contains(requestId) == true
-                || record.pendingPermissionNotificationCleanupRequestIds?.contains(requestId) == true
-            if requestAlreadyPending && notificationAlreadyTracked {
+            if pending.contains(requestId) {
+                guard record.permissionNotificationMode != .sessionAggregate else {
+                    return requestId
+                }
+                record.permissionNotificationMode = .sessionAggregate
+                record.updatedAt = Date.now.timeIntervalSince1970
+                state.sessions[sessionId] = record
                 return requestId
             }
-            guard requestAlreadyPending || pending.count < Self.maximumPermissionRequestCount,
-                  enqueuePermissionNotificationRequestId(requestId, in: &record) else {
-                return nil
-            }
-            if !requestAlreadyPending {
-                pending.append(requestId)
-                record.pendingPermissionRequestIds = pending
-            }
+            guard pending.count < Self.maximumPermissionRequestCount else { return nil }
+            pending.append(requestId)
+            record.pendingPermissionRequestIds = pending
+            record.permissionNotificationMode = .sessionAggregate
             record.updatedAt = Date.now.timeIntervalSince1970
             state.sessions[sessionId] = record
             return requestId
@@ -66,95 +63,39 @@ extension ClaudeHookSessionStore {
             }
             pending.remove(at: index)
             record.pendingPermissionRequestIds = pending.isEmpty ? nil : pending
-            removePermissionNotificationRequestId(toolUseId, from: &record)
             record.updatedAt = Date.now.timeIntervalSince1970
             state.sessions[sessionId] = record
             return true
         }
     }
 
-    /// Atomically assigns the oldest unmatched PermissionRequest to one delayed
-    /// Claude Notification hook. The cleanup list remains durable until the app
-    /// acknowledges that exact correlation key.
-    func claimPermissionNotificationRequestId(sessionId: String) throws -> String? {
-        guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
-            return nil
-        }
-        return try withLockedState { state in
-            guard var record = state.sessions[sessionId],
-                  var pending = record.pendingPermissionNotificationRequestIds,
-                  !pending.isEmpty else {
-                return nil
-            }
-            let requestId = pending.removeFirst()
-            var cleanup = record.pendingPermissionNotificationCleanupRequestIds ?? []
-            guard cleanup.contains(requestId)
-                || cleanup.count < Self.maximumPermissionNotificationRequestCount else {
-                return nil
-            }
-            if !cleanup.contains(requestId) {
-                cleanup.append(requestId)
-            }
-            record.pendingPermissionNotificationRequestIds = pending.isEmpty ? nil : pending
-            record.pendingPermissionNotificationCleanupRequestIds = cleanup
-            record.updatedAt = Date.now.timeIntervalSince1970
-            state.sessions[sessionId] = record
-            return requestId
-        }
-    }
-
-    /// Retires exact notification cleanup markers only after the app confirms
-    /// their correlated rows are gone. A transport timeout leaves them retryable.
-    func acknowledgePermissionNotificationCleanup(
-        sessionId: String,
-        requestIds: Set<String>
-    ) throws {
-        guard let sessionId = normalizedBlockingToolIdentifier(sessionId),
-              !requestIds.isEmpty else {
-            return
-        }
+    func markPermissionNotificationAggregation(sessionId: String) throws {
+        guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else { return }
         try withLockedState { state in
             guard var record = state.sessions[sessionId],
-                  let cleanup = record.pendingPermissionNotificationCleanupRequestIds else {
+                  record.permissionNotificationMode != .sessionAggregate else {
                 return
             }
-            let remaining = cleanup.filter { !requestIds.contains($0) }
-            guard remaining != cleanup else { return }
-            record.pendingPermissionNotificationCleanupRequestIds = remaining.isEmpty
-                ? nil
-                : remaining
+            record.permissionNotificationMode = .sessionAggregate
             record.updatedAt = Date.now.timeIntervalSince1970
             state.sessions[sessionId] = record
         }
     }
 
-    @discardableResult
-    func enqueuePermissionNotificationRequestId(
-        _ requestId: String,
-        in record: inout ClaudeHookSessionRecord
-    ) -> Bool {
-        guard let requestId = normalizedBlockingToolIdentifier(requestId) else {
-            return false
+    func permissionNotificationState(
+        sessionId: String
+    ) throws -> ClaudePermissionNotificationState {
+        guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
+            return .legacyUncorrelated
         }
-        var pending = record.pendingPermissionNotificationRequestIds ?? []
-        guard !pending.contains(requestId) else { return true }
-        guard pending.count < Self.maximumPermissionNotificationRequestCount else {
-            return false
+        return try withLockedState { state in
+            guard let record = state.sessions[sessionId],
+                  record.permissionNotificationMode == .sessionAggregate else {
+                return .legacyUncorrelated
+            }
+            let hasPendingOwner = record.pendingPermissionRequestIds?.isEmpty == false
+                || record.pendingBlockingToolUseIds?.isEmpty == false
+            return hasPendingOwner ? .pending : .settled
         }
-        pending.append(requestId)
-        record.pendingPermissionNotificationRequestIds = pending
-        return true
-    }
-
-    func removePermissionNotificationRequestId(
-        _ requestId: String,
-        from record: inout ClaudeHookSessionRecord
-    ) {
-        guard let requestId = normalizedBlockingToolIdentifier(requestId),
-              let pending = record.pendingPermissionNotificationRequestIds else {
-            return
-        }
-        let remaining = pending.filter { $0 != requestId }
-        record.pendingPermissionNotificationRequestIds = remaining.isEmpty ? nil : remaining
     }
 }

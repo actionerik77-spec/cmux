@@ -70,8 +70,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         correlationKey?.hasPrefix(Self.transientAgentAttentionCorrelationPrefix) == true
     }
 
-    /// Whether this row intentionally coexists with another notification on
-    /// the same surface until its exact correlation key is cleared.
+    /// Whether this row coexists with unrelated surface notifications while a
+    /// newer row with the same session correlation replaces it.
     var preservesSiblingNotifications: Bool {
         correlationKey?.hasPrefix(Self.scopedAgentPermissionCorrelationPrefix) == true
     }

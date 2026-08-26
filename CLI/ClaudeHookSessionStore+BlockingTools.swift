@@ -108,8 +108,6 @@ extension ClaudeHookSessionStore {
             record.lastBody = nil
             record.legacyBlockingAttentionFallbackActive = nil
             record.pendingPermissionRequestIds = nil
-            record.pendingPermissionNotificationRequestIds = nil
-            record.pendingPermissionNotificationCleanupRequestIds = nil
             state.sessions[sessionId] = record
             return true
         }
@@ -131,45 +129,6 @@ extension ClaudeHookSessionStore {
             record.legacyBlockingAttentionFallbackActive = nextValue
             record.updatedAt = Date.now.timeIntervalSince1970
             state.sessions[sessionId] = record
-        }
-    }
-
-    /// Registers the exact blocking request whose delayed Notification hook may
-    /// create a permission row. Claude omits `tool_use_id` from PermissionRequest,
-    /// so this uses the same payload/turn correlation as blocker resolution.
-    func registerBlockingToolPermissionRequest(
-        sessionId: String,
-        toolUseId: String?,
-        rawObject: [String: Any]?,
-        turnId: String? = nil
-    ) throws -> String? {
-        guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
-            return nil
-        }
-        return try withLockedState { state in
-            guard var record = state.sessions[sessionId],
-                  let storedPending = record.pendingBlockingToolUseIds else {
-                return nil
-            }
-            let pending = normalizedBlockingToolUseIds(storedPending)
-            guard let requestId = correlatedBlockingToolUseId(
-                explicitToolUseId: normalizedBlockingToolIdentifier(toolUseId),
-                rawObject: rawObject,
-                record: record,
-                incomingTurnId: turnId
-            ), pending.contains(requestId) else {
-                return nil
-            }
-            if record.pendingPermissionNotificationRequestIds?.contains(requestId) == true
-                || record.pendingPermissionNotificationCleanupRequestIds?.contains(requestId) == true {
-                return requestId
-            }
-            guard enqueuePermissionNotificationRequestId(requestId, in: &record) else {
-                return nil
-            }
-            record.updatedAt = Date.now.timeIntervalSince1970
-            state.sessions[sessionId] = record
-            return requestId
         }
     }
 
@@ -398,7 +357,6 @@ extension ClaudeHookSessionStore {
             record.pendingBlockingToolCorrelations =
                 (record.pendingBlockingToolCorrelations ?? [])
                 .filter { $0.toolUseId != toolUseId }
-            removePermissionNotificationRequestId(toolUseId, from: &record)
             record.agentLifecycle = remaining.isEmpty
                 && record.pendingPermissionRequestIds?.isEmpty != false
                 ? .running

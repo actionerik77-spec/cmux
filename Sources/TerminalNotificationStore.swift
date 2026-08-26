@@ -1509,7 +1509,17 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         var idsToClear: [String] = []
         let isTransientAttention = notification.isTransientAgentAttention
-        if !isTransientAttention && !notification.preservesSiblingNotifications {
+        if notification.preservesSiblingNotifications {
+            // Claude's delayed Notification payload has no request identity.
+            // Keep one honest session aggregate while preserving unrelated rows.
+            updated.removeAll { existing in
+                guard existing.correlationKey == notification.correlationKey else {
+                    return false
+                }
+                idsToClear.append(existing.id.uuidString)
+                return true
+            }
+        } else if !isTransientAttention {
             updated.removeAll { existing in
                 guard existing.tabId == notification.tabId,
                       existing.surfaceId == notification.surfaceId,

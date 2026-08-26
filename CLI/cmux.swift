@@ -157,12 +157,9 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     /// Kept separate from blocking-tool IDs so an ordinary permission response
     /// cannot clear a concurrent question/plan blocker.
     var pendingPermissionRequestIds: [String]? = nil
-    /// FIFO request IDs awaiting Claude's delayed `permission_prompt`
-    /// Notification hook. The hook atomically moves one ID into the cleanup list.
-    var pendingPermissionNotificationRequestIds: [String]? = nil
-    /// Request IDs whose native permission rows were emitted and still require
-    /// an acknowledged correlation-scoped clear.
-    var pendingPermissionNotificationCleanupRequestIds: [String]? = nil
+    /// Non-nil after this session uses the current PermissionRequest integration.
+    /// Legacy records stay nil so older catch-all wrappers remain compatible.
+    var permissionNotificationMode: ClaudePermissionNotificationMode? = nil
     var lastSubtitle: String?
     var lastBody: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
@@ -738,8 +735,6 @@ final class ClaudeHookSessionStore {
                 // markers and any legacy V1 fallback notice. Both belong to
                 // the completed turn and must not gate the next one.
                 record.pendingPermissionRequestIds = nil
-                record.pendingPermissionNotificationRequestIds = nil
-                record.pendingPermissionNotificationCleanupRequestIds = nil
                 record.legacyBlockingAttentionFallbackActive = nil
             }
             let superseded: [ClaudeHookSessionRecord]
@@ -25377,16 +25372,37 @@ struct CMUXCLI {
             // payload, so don't put it on the wire: the app parser accepts only
             // the three known category literals, keeping the reserved suffix
             // grammar as narrow as possible.
+            let permissionNotificationState: ClaudePermissionNotificationState?
             let notificationCorrelationKey: String?
             if notifyCategory == .needsPermission,
                let sessionId = parsedInput.sessionId {
-                let permissionRequestId = try? sessionStore
-                    .claimPermissionNotificationRequestId(sessionId: sessionId)
+                permissionNotificationState = try? sessionStore.permissionNotificationState(
+                    sessionId: sessionId
+                )
+                if permissionNotificationState == .settled {
+                    telemetry.breadcrumb("claude-hook.notification.permission-settled")
+                    printClaudeHookAck()
+                    return
+                }
+                if permissionNotificationState == .pending {
+                    // Notification has no request identity. Keep its row honest:
+                    // it represents the session's aggregate permission state.
+                    summary = (
+                        subtitle: String(
+                            localized: "agent.generic.notification.subtitle.permission",
+                            defaultValue: "Permission"
+                        ),
+                        body: String(
+                            localized: "agent.generic.notification.body.approvalNeeded",
+                            defaultValue: "Approval needed"
+                        )
+                    )
+                }
                 notificationCorrelationKey = claudePermissionNotificationCorrelationKey(
-                    sessionId: sessionId,
-                    requestId: permissionRequestId
+                    sessionId: sessionId
                 )
             } else {
+                permissionNotificationState = nil
                 notificationCorrelationKey = nil
             }
             let payload = notificationPayload(
@@ -25430,6 +25446,24 @@ struct CMUXCLI {
                 )
             }
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            if permissionNotificationState == .pending,
+               let sessionId = parsedInput.sessionId,
+               let postDeliveryState = try? sessionStore.permissionNotificationState(
+                   sessionId: sessionId
+               ), postDeliveryState != .pending {
+                let deadline = Date.now.addingTimeInterval(
+                    Self.claudeBlockingAttentionTurnBoundaryTimeout
+                )
+                _ = clearClaudePermissionNotification(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId,
+                    legacyFallbackActive: false,
+                    allowsPaneFallback: false,
+                    deadline: deadline
+                )
+            }
             printClaudeHookAck()
         case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, routing: hookRouting, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
@@ -25529,6 +25563,15 @@ struct CMUXCLI {
                             sessionId: sessionId,
                             owner: currentSession
                         )
+                        if !clearStaleClaudePermissionNotification(
+                            client: client,
+                            sessionId: sessionId,
+                            owner: currentSession
+                        ) {
+                            telemetry.breadcrumb(
+                                "claude-hook.session-end.permission-clear-pending"
+                            )
+                        }
                     }
                     didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.session-end.stale")
@@ -25654,23 +25697,18 @@ struct CMUXCLI {
             let isBlockingTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
             let permissionRequestToolUseId = extractClaudeHookToolUseId(from: rawObject)
             let permissionRequestId: String?
-            if let sessionId = parsedInput.sessionId {
-                if isBlockingTool {
-                    permissionRequestId = try? sessionStore
-                        .registerBlockingToolPermissionRequest(
-                            sessionId: sessionId,
-                            toolUseId: permissionRequestToolUseId,
-                            rawObject: rawObject,
-                            turnId: parsedInput.turnId
-                        )
-                } else {
-                    permissionRequestId = try? sessionStore.registerPermissionRequest(
-                        sessionId: sessionId,
-                        toolUseId: permissionRequestToolUseId
-                    )
-                }
+            if !isBlockingTool, let sessionId = parsedInput.sessionId {
+                permissionRequestId = try? sessionStore.registerPermissionRequest(
+                    sessionId: sessionId,
+                    toolUseId: permissionRequestToolUseId
+                )
             } else {
                 permissionRequestId = nil
+                if isBlockingTool, let sessionId = parsedInput.sessionId {
+                    try? sessionStore.markPermissionNotificationAggregation(
+                        sessionId: sessionId
+                    )
+                }
             }
             var feedObject = rawObject
             if extractClaudeHookToolUseId(from: rawObject) == nil,
@@ -25713,8 +25751,7 @@ struct CMUXCLI {
                 do {
                     _ = try sessionStore.resolveBlockingToolPermissionRequest(
                         sessionId: sessionId,
-                        toolUseId: permissionRequestId
-                            ?? extractClaudeHookToolUseId(from: rawObject),
+                        toolUseId: extractClaudeHookToolUseId(from: rawObject),
                         rawObject: rawObject,
                         turnId: parsedInput.turnId
                     )
@@ -25727,7 +25764,10 @@ struct CMUXCLI {
             }
             let permissionResponseStatus = terminalResponse?["status"] as? String
             let ordinaryPermissionWasResolved: Bool
+            // A native fallback has no request-level completion callback. Keep
+            // its owner until Stop/UserPromptSubmit proves the turn advanced.
             if !isBlockingTool,
+               permissionResponseStatus == "resolved",
                let permissionRequestId,
                let sessionId = parsedInput.sessionId {
                 ordinaryPermissionWasResolved = (try? sessionStore.finishPermissionRequest(
@@ -25761,15 +25801,15 @@ struct CMUXCLI {
                     routing: hookRouting,
                     telemetry: telemetry,
                     expectedSession: resumePermissionSession,
-                    permissionNotificationRequestId: permissionRequestId,
                     allowResolvedState: isBlockingTool
                 )
             } else {
                 // A timeout/unavailable Feed bridge emits neutral `{}` and
                 // Claude falls back to its native permission prompt. Clear
                 // only the app-owned notification lifecycle for non-blocking
-                // permission requests; blocking tool IDs stay durable until
-                // their targeted PostToolUse or turn boundary arrives.
+                // permission requests that actually reached a terminal Feed
+                // decision. Native-fallback and blocking owners stay durable
+                // until their next authoritative lifecycle boundary.
                 if isBlockingTool || ordinaryPermissionWasResolved {
                     resumeClaudeNeedsInputLifecycle(
                         client: client,
@@ -25777,8 +25817,7 @@ struct CMUXCLI {
                         sessionStore: sessionStore,
                         routing: hookRouting,
                         telemetry: telemetry,
-                        expectedSession: resumePermissionSession,
-                        permissionNotificationRequestId: permissionRequestId
+                        expectedSession: resumePermissionSession
                     )
                 }
             }
