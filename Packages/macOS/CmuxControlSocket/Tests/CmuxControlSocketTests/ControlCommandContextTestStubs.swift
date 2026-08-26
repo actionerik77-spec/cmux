@@ -221,7 +221,8 @@ extension ControlWorkspaceGroupContext {
             allChildrenAreAnchors: "",
             workspaceIsOtherGroupAnchor: "",
             invalidReferenceWorkspace: "invalid reference workspace",
-            closeWorkspacesMustBeBoolean: "close workspaces must be boolean"
+            closeWorkspacesMustBeBoolean: "close workspaces must be boolean",
+            emptyPinnedCannotUngroup: "empty pinned group cannot be ungrouped"
         )
     }
 

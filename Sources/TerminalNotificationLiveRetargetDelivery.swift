@@ -18,6 +18,7 @@ extension TerminalController {
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
         agent: TerminalNotificationPolicyAgentContext? = nil,
+        correlationKey: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) -> UUID? {
         let target: (tabId: UUID, surfaceId: UUID?)
@@ -61,6 +62,7 @@ extension TerminalController {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            correlationKey: correlationKey,
             agent: agent
         )
     }
@@ -80,6 +82,7 @@ extension TerminalNotificationStore {
         body: String,
         replyShape: TerminalNotificationReplyShape,
         agent: TerminalNotificationPolicyAgentContext? = nil,
+        correlationKey: String? = nil,
         notificationGeneration: UInt64
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
@@ -106,6 +109,7 @@ extension TerminalNotificationStore {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: true,
+            correlationKey: correlationKey,
             notificationGeneration: notificationGeneration,
             agent: agent
         )
