@@ -53,7 +53,7 @@ extension SleepyCommandRunning {
     @Sendable
     #endif
     nonisolated func lockScreen(using gate: SleepyLockInvocationGate) async -> Bool {
-        guard await gate.invoke({}) else { return false }
+        guard gate.invoke({}) else { return false }
         return await lockScreen()
     }
 }

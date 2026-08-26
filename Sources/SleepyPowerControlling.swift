@@ -21,7 +21,7 @@ protocol SleepyPowerControlling: Sendable {
 extension SleepyPowerControlling {
     @discardableResult
     func lockMacNow(using gate: SleepyLockInvocationGate) async -> Bool {
-        guard await gate.invoke({}) else { return false }
+        guard gate.invoke({}) else { return false }
         return await lockMacNow()
     }
 }

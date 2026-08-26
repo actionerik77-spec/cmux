@@ -182,8 +182,8 @@ struct SleepyPowerControlsLockTests {
     /// system effect.
     @Test func cancelledLockInvocationGateDoesNotInvoke() async {
         let gate = SleepyLockInvocationGate()
-        await gate.cancel()
-        let invoked = await gate.invoke {}
+        gate.cancel()
+        let invoked = gate.invoke {}
         #expect(!invoked)
     }
 }

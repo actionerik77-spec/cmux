@@ -74,7 +74,7 @@ final class SleepyPowerUIState {
     /// Cancels an in-flight request at the Sleepy Mode lifecycle boundary.
     func cancelLockRequest() {
         if let gate = lockInvocationGate {
-            Task { await gate.cancel() }
+            gate.cancel()
             lockInvocationGate = nil
         }
         lockTaskStore.cancel(Self.lockTaskKey)
