@@ -501,7 +501,7 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(record?["legacyBlockingAttentionFallbackActive"] == nil)
     }
 
-    @Test func timedOutNativePermissionClearsNotificationLifecycle() throws {
+    @Test func timedOutNativePermissionRetainsLifecycleUntilTurnBoundary() throws {
         let context = try AttentionHarness.makeContext(name: "permission-native-fallback")
         defer { context.cleanup() }
 
@@ -547,10 +547,11 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         let commands = context.state.snapshot()
-        #expect(commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code running ") })
-        #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") })
+        #expect(!commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code running ") })
+        #expect(!commands.contains { $0.hasPrefix("set_status claude_code Running ") })
         let record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
-        #expect(record?["agentLifecycle"] as? String == "running")
+        #expect(record?["agentLifecycle"] as? String == "needsInput")
+        #expect((record?["pendingPermissionRequestIds"] as? [String])?.count == 1)
     }
 
     @Test func deniedPlanDoesNotPoisonTheNextBlockingTool() throws {
