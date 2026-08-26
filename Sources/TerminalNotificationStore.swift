@@ -1164,7 +1164,9 @@ final class TerminalNotificationStore: ObservableObject {
                 clickAction: clickAction,
                 notificationID: reservedNotificationID
             )
-            return reservedNotificationID
+            return notifications.contains { $0.id == reservedNotificationID }
+                ? reservedNotificationID
+                : nil
         }
         guard let policyRequestId = prepareNotificationPolicyRequestId(
             preRegisteredPolicyRequestId: preRegisteredPolicyRequestId,
@@ -1184,7 +1186,9 @@ final class TerminalNotificationStore: ObservableObject {
                 clickAction: clickAction,
                 notificationID: reservedNotificationID
             )
-            return reservedNotificationID
+            return notifications.contains { $0.id == reservedNotificationID }
+                ? reservedNotificationID
+                : nil
         }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1235,7 +1239,10 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         inFlightPolicyRequests.attach(task: task, to: policyRequestId)
-        return reservedNotificationID
+        // Policy hooks run asynchronously. Until their result is applied the
+        // reserved identifier is not yet dismissible, so do not expose it as
+        // a creation handle.
+        return nil
     }
 
     private func completePolicyRequest(_ policyRequestId: UUID, request: TerminalNotificationPolicyRequest, envelope: TerminalNotificationPolicyEnvelope, cooldownReservation: NotificationCooldownReservation?, scrollPosition: TerminalNotificationScrollPosition?, clickAction: TerminalNotificationClickAction?, notificationID: UUID) {
@@ -1376,6 +1383,7 @@ final class TerminalNotificationStore: ObservableObject {
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
+    @discardableResult
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
@@ -1385,9 +1393,9 @@ final class TerminalNotificationStore: ObservableObject {
         clickAction: TerminalNotificationClickAction?,
         notificationID: UUID,
         policyRequestId: UUID?
-    ) {
+    ) -> Bool {
         let payload = envelope.notification
-        applyNotification(
+        return applyNotification(
             request: TerminalNotificationPolicyRequest(
                 tabId: request.tabId,
                 surfaceId: request.surfaceId,
@@ -1413,6 +1421,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
+    @discardableResult
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
         effects: TerminalNotificationPolicyEffects,
@@ -1422,9 +1431,12 @@ final class TerminalNotificationStore: ObservableObject {
         clickAction: TerminalNotificationClickAction?,
         notificationID: UUID,
         policyRequestId: UUID? = nil
-    ) {
-        guard inFlightPolicyRequests.claim(policyRequestId) else { return }
-        guard let request = notificationPolicyRequestAtLiveOwner(request) else { restoreCooldownReservation(cooldownReservation); return }
+    ) -> Bool {
+        guard inFlightPolicyRequests.claim(policyRequestId) else { return false }
+        guard let request = notificationPolicyRequestAtLiveOwner(request) else {
+            restoreCooldownReservation(cooldownReservation)
+            return false
+        }
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
             surfaceId: request.surfaceId
@@ -1454,7 +1466,7 @@ final class TerminalNotificationStore: ObservableObject {
                 now: now,
                 cooldownReservation: cooldownReservation
             )
-            return
+            return true
         }
 
 #if DEBUG
@@ -1477,6 +1489,7 @@ final class TerminalNotificationStore: ObservableObject {
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
+        return false
     }
     private func recordNotification(
         _ notification: TerminalNotification,
