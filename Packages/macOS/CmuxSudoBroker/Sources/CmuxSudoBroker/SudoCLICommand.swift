@@ -192,7 +192,7 @@ public struct SudoCLICommand {
                 approvalTimeoutNote: failureMessages.approvalTimedOut
             )
         } catch {
-            if let result = store.result(id: request.id) {
+            if let result = store.authoritativeResult(id: request.id) {
                 return resultCode(.result(result), requestID: request.id)
             }
             let disposition = try? store.settlePendingTimeout(
@@ -317,6 +317,8 @@ public struct SudoCLICommand {
         case .standardInput:
             do {
                 data = try io.readStandardInput(overflowSentinelLimit)
+            } catch SudoBoundedInputReader.Failure.tooLarge {
+                throw SudoCLICommandError(message: messages.scriptTooLarge, exitCode: 2)
             } catch {
                 throw SudoCLICommandError(message: messages.inputReadFailed, exitCode: 2)
             }

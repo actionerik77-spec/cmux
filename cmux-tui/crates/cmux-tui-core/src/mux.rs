@@ -64,8 +64,8 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
     ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot, TerminalLifecycle, TerminalRegistrySnapshot,
-    WorkspaceMutation, WorkspaceRegistry,
+    ResourcePatchCommit, ResourceTopologySnapshot, TerminalLifecycle, TerminalOnExit,
+    TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -1177,6 +1177,7 @@ struct TerminalReservationRequest {
     fingerprint: Value,
     expected_generation: Option<String>,
     expected_revision: Option<u64>,
+    on_exit: TerminalOnExit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2679,6 +2680,7 @@ impl Mux {
                         lifecycle: TerminalLifecycle::Launching,
                         launch_spec: serde_json::json!({"legacy_import":true}),
                         exit: None,
+                        on_exit: TerminalOnExit::Close,
                     };
                     let mut registry = self.workspace_registry.lock().unwrap();
                     let revision = commit_terminal_transition(
@@ -4779,11 +4781,12 @@ impl Mux {
         self.journal_ingress.flush_terminal()
     }
 
-    pub(crate) fn install_journal_writer(
+    pub(crate) fn spawn_journal_writer(
         &self,
-        writer: crate::journal_ingress::JournalWriter,
+        name: &str,
+        task: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<()> {
-        self.journal_ingress.install_writer(writer)
+        self.journal_ingress.spawn_writer(name, task)
     }
 
     #[cfg(test)]
@@ -6159,6 +6162,10 @@ impl Mux {
                 lifecycle: TerminalLifecycle::Launching,
                 launch_spec,
                 exit: None,
+                on_exit: reservation
+                    .as_ref()
+                    .map(|reservation| reservation.on_exit)
+                    .unwrap_or_default(),
             };
             let reserve_replayed = {
                 let mut registry = self.workspace_registry.lock().unwrap();
@@ -6291,6 +6298,7 @@ impl Mux {
                 lifecycle: TerminalLifecycle::Launching,
                 launch_spec,
                 exit: None,
+                on_exit: reservation.on_exit,
             };
             {
                 let mut registry = self.workspace_registry.lock().unwrap();
@@ -7477,6 +7485,22 @@ impl Mux {
         incarnation: &str,
         workspace_key: &str,
     ) -> anyhow::Result<SurfaceId> {
+        self.seed_running_terminal_with_on_exit_for_test(
+            terminal_id,
+            incarnation,
+            workspace_key,
+            TerminalOnExit::Close,
+        )
+    }
+
+    #[cfg(all(test, unix))]
+    pub(crate) fn seed_running_terminal_with_on_exit_for_test(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        incarnation: &str,
+        workspace_key: &str,
+        on_exit: TerminalOnExit,
+    ) -> anyhow::Result<SurfaceId> {
         let mut registry = self.workspace_registry.lock().unwrap();
         commit_terminal_transition(
             &mut registry,
@@ -7489,6 +7513,7 @@ impl Mux {
                 lifecycle: TerminalLifecycle::Launching,
                 launch_spec: serde_json::json!({}),
                 exit: None,
+                on_exit,
             },
         )?;
         commit_terminal_lifecycle(
@@ -8589,7 +8614,25 @@ impl Mux {
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
-        let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
+        self.finalize_terminal_journal("shutdown");
+        self.journal_kernel.shutdown();
+        if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
+            runtime.shutdown();
+        }
+    }
+
+    fn finalize_terminal_journal(&self, context: &str) {
+        if self.journal_ingress.is_closed() {
+            if let Err(error) = self.journal_ingress.close_and_join() {
+                eprintln!("cmux-tui: await session journal writer during {context}: {error:#}");
+            }
+            return;
+        }
+        // Finalization can run while unwinding from a failed operation. A
+        // panic while holding the state lock poisons it, but cleanup must not
+        // panic again (for example, when a test simulates a daemon crash).
+        let surfaces =
+            unique_surface_runtimes(&self.state.lock().unwrap_or_else(PoisonError::into_inner));
         let terminal_reader_deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
         let mut terminal_gaps = surfaces
             .iter()
@@ -8597,6 +8640,19 @@ impl Mux {
             .collect::<Vec<_>>();
         for surface in surfaces {
             terminal_gaps.extend(surface.finish_terminal_reader(terminal_reader_deadline));
+        }
+        if self.journal_ingress.is_current_writer_thread() {
+            if !terminal_gaps.is_empty() {
+                eprintln!(
+                    "cmux-tui: {context} on the session journal writer could not durably record \
+                     {} terminal output gap(s)",
+                    terminal_gaps.len()
+                );
+            }
+            if let Err(error) = self.journal_ingress.close_and_join() {
+                eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
+            }
+            return;
         }
         for gap in terminal_gaps {
             if let Err(error) = self.journal_ingress.send_durable(
@@ -8607,7 +8663,7 @@ impl Mux {
                     reason: gap.reason,
                 },
             ) {
-                eprintln!("cmux-tui: record terminal output gap during shutdown: {error:#}");
+                eprintln!("cmux-tui: record terminal output gap during {context}: {error:#}");
             }
         }
         // Each terminal reader has drained or its journal capture gate has
@@ -8616,14 +8672,10 @@ impl Mux {
         // still owns the registry; the closed gate prevents a timed-out reader
         // from inserting output after the barrier.
         if let Err(error) = self.flush_terminal_journal() {
-            eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
+            eprintln!("cmux-tui: flush terminal journal during {context}: {error:#}");
         }
         if let Err(error) = self.journal_ingress.close_and_join() {
-            eprintln!("cmux-tui: stop session journal writer during shutdown: {error:#}");
-        }
-        self.journal_kernel.shutdown();
-        if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
-            runtime.shutdown();
+            eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
         }
     }
 
@@ -9034,11 +9086,18 @@ impl Mux {
                 }
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
-                    drop(budget);
-                    self.cancel_kitty_image_surface_reservation(surface);
-                    anyhow::bail!(
-                        "timed out waiting for existing terminals to release Kitty image quota"
-                    );
+                    // Kitty graphics are optional. Keep the terminal admission
+                    // alive when an existing host does not acknowledge its
+                    // quota update in time. The worker can apply the target
+                    // limits after the outstanding update recovers.
+                    let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
+                        anyhow::anyhow!("Kitty image budget reservation disappeared")
+                    })?;
+                    entry.owns_quota = false;
+                    entry.applied = KittyGraphicsLimits::disabled();
+                    Self::rebalance_kitty_image_budget_owners(&mut budget);
+                    self.kitty_image_budget_changed.notify_all();
+                    break KittyGraphicsLimits::disabled();
                 }
                 let (next, _) =
                     self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
@@ -9489,7 +9548,11 @@ impl Mux {
 
             failure_streak = failure_streak.saturating_add(1);
             let retry_exhausted = failure_streak >= KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS;
-            if failure_streak == 1 || failure_streak.is_power_of_two() || retry_exhausted {
+            // A transient retry is internal recovery. Publishing it as a
+            // graphics status overwrites the user's status bar for a routine
+            // topology change, even when the next attempt succeeds. Surface
+            // only the terminal failure after the retry budget is exhausted.
+            if retry_exhausted {
                 let omitted = failures.len().saturating_sub(8);
                 let mut summary = failures.into_iter().take(8).collect::<Vec<_>>().join("; ");
                 if omitted > 0 {
@@ -10873,6 +10936,7 @@ impl Mux {
             expected_generation,
             expected_revision,
             mutation,
+            None,
         )
     }
 
@@ -10888,6 +10952,7 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        on_exit: Option<TerminalOnExit>,
     ) -> anyhow::Result<TerminalPlacementResult> {
         let workspace_key = self
             .state
@@ -10906,6 +10971,7 @@ impl Mux {
             cwd.as_deref(),
             name.as_deref(),
             size,
+            on_exit,
         )?;
         let replay =
             { self.workspace_registry.lock().unwrap().replay_terminal(mutation, &fingerprint)? };
@@ -10925,6 +10991,7 @@ impl Mux {
             fingerprint,
             expected_generation: expected_generation.map(str::to_string),
             expected_revision,
+            on_exit: on_exit.unwrap_or_default(),
         };
         let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
             workspace,
@@ -12910,10 +12977,20 @@ impl Mux {
         } else {
             terminal_exit_snapshot_in_state(&registry, &state, terminal_id)?
         };
+        // The keep policy commits the identical exit latch but leaves the
+        // views and the live screen surface in place. This only holds while
+        // the runtime terminal emulator is alive: after a daemon restart the
+        // in-memory VT is gone, so reconciliation degrades a kept-exited
+        // terminal to the normal detach below.
+        let keep_live_views = terminal.on_exit == TerminalOnExit::Keep
+            && public_terminal_id
+                .as_ref()
+                .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id));
         let detach_projection = if matches!(
             terminal.lifecycle,
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-        ) {
+        ) || keep_live_views
+        {
             None
         } else if let Some(public_terminal_id) = public_terminal_id.as_ref() {
             self.terminal_exit_detach_projection_locked(
@@ -14067,9 +14144,11 @@ impl Mux {
                         spec.cwd.as_deref(),
                         None,
                         size,
+                        None,
                     )?,
                     expected_generation: None,
                     expected_revision: None,
+                    on_exit: TerminalOnExit::Close,
                 };
                 let surface = self.spawn_surface_in_workspace_reserved(
                     workspace_key,
@@ -14864,13 +14943,19 @@ fn terminal_create_fingerprint(
     cwd: Option<&str>,
     name: Option<&str>,
     size: Option<(u16, u16)>,
+    on_exit: Option<TerminalOnExit>,
 ) -> anyhow::Result<Value> {
-    let request = serde_json::json!({
+    let mut request = serde_json::json!({
         "argv": argv,
         "cwd": cwd,
         "name": name,
         "size": size,
     });
+    // Absent stays absent: a stored creation intent minted before the exit
+    // policy existed must recompute its original digest after an upgrade.
+    if let Some(on_exit) = on_exit {
+        request["on_exit"] = Value::String(on_exit.as_str().to_string());
+    }
     let digest = Sha256::digest(serde_json::to_vec(&request)?);
     let request_sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     Ok(serde_json::json!({
@@ -15461,12 +15546,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
-        if let Ok(state) = self.state.get_mut() {
-            let deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
-            for surface in unique_surface_runtimes(state) {
-                let _ = surface.shutdown_for_daemon(deadline);
-            }
-        }
+        self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
             && let Some(runtime) = runtime.take()
@@ -18886,6 +18966,7 @@ mod tests {
             Some(&cwd),
             Some(&name),
             Some((80, 24)),
+            Some(TerminalOnExit::Keep),
         )
         .unwrap();
         assert!(!serde_json::to_string(&fingerprint).unwrap().contains(sentinel));
@@ -18924,6 +19005,7 @@ mod tests {
                         lifecycle: TerminalLifecycle::Launching,
                         launch_spec: serde_json::json!({"command_present":true}),
                         exit: None,
+                        on_exit: TerminalOnExit::Close,
                     },
                     &serde_json::json!({"terminal_id":TERMINAL}),
                 )
@@ -19394,6 +19476,86 @@ mod tests {
     }
 
     #[test]
+    fn kitty_quota_timeout_degrades_a_new_terminal_instead_of_rejecting_it() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let gate = gate.clone();
+            let first_id = first.id;
+            move |surface, limits, _deadline| {
+                if surface.id == first_id && limits == kitty_image_limits_for_capacity(1) {
+                    let _ = started_sender.try_send(());
+                    let (released, changed) = &*gate;
+                    let mut released = released.lock().unwrap();
+                    while !*released {
+                        released = changed.wait(released).unwrap();
+                    }
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }
+        }));
+
+        close_terminal_runtime_for_test(&mux, &second);
+        started_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("Kitty quota shrink did not start");
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let creating_mux = mux.clone();
+        let creator = std::thread::spawn(move || {
+            let _ = sender.send(creating_mux.new_tab(Some(pane), None, Some((80, 24))));
+        });
+        let created = receiver
+            .recv_timeout(
+                crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT
+                    .saturating_add(Duration::from_secs(1)),
+            )
+            .expect("terminal creation did not resolve after the Kitty quota timeout")
+            .expect("Kitty quota timeout rejected terminal creation");
+        assert_eq!(
+            created.with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap()).unwrap(),
+            0,
+            "a timed-out Kitty quota reservation must start with graphics disabled"
+        );
+        {
+            let budget = mux.kitty_image_budget.lock().unwrap();
+            let entry = budget.entries.get(&created.id).expect("degraded reservation was removed");
+            assert_eq!(
+                entry.applied,
+                KittyGraphicsLimits::disabled(),
+                "a timed-out Kitty quota reservation must stay disabled while admitted"
+            );
+        }
+
+        {
+            let (released, changed) = &*gate;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        creator.join().unwrap();
+        *mux.kitty_image_budget_operation.lock().unwrap() = None;
+        wait_for_kitty_image_budget(&mux);
+        assert!(
+            created.with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap()).unwrap()
+                > 0,
+            "a degraded terminal was not promoted after the quota worker recovered"
+        );
+        close_terminal_runtime_for_test(&mux, &created);
+        close_terminal_runtime_for_test(&mux, &first);
+    }
+
+    #[test]
     fn kitty_quota_restoration_uses_linear_bucket_updates() {
         let mux = test_mux();
         let applications = Arc::new(AtomicUsize::new(0));
@@ -19634,6 +19796,7 @@ mod tests {
             }
         }));
 
+        let events = mux.subscribe();
         close_terminal_runtime_for_test(&mux, &second);
         let deadline = Instant::now() + Duration::from_secs(1);
         while attempts.load(Ordering::Acquire) < 2 && Instant::now() < deadline {
@@ -19643,6 +19806,13 @@ mod tests {
         assert!(
             attempts.load(Ordering::Acquire) >= 2,
             "Kitty quota worker stopped after a transient failure"
+        );
+        assert!(
+            !events.try_iter().any(|event| matches!(
+                event,
+                MuxEvent::GraphicsStatus(GraphicsStatus::KittyImageBudgetUpdateFailed { .. })
+            )),
+            "transient Kitty quota failures must stay out of the status bar"
         );
         wait_for_kitty_image_budget(&mux);
     }
@@ -24457,6 +24627,7 @@ mod tests {
                         lifecycle: TerminalLifecycle::Launching,
                         launch_spec: serde_json::json!({"command_present":true}),
                         exit: None,
+                        on_exit: TerminalOnExit::Close,
                     },
                     &serde_json::json!({"terminal_id":TERMINAL}),
                 )
@@ -24573,6 +24744,7 @@ mod tests {
             lifecycle: TerminalLifecycle::Launching,
             launch_spec: serde_json::json!({"command":["/bin/sh"]}),
             exit: None,
+            on_exit: TerminalOnExit::Close,
         };
         {
             let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
@@ -24747,6 +24919,175 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// A keep-policy terminal only retains its views while the in-memory VT
+    /// is alive. After a daemon restart the surface is gone, so restart
+    /// reconciliation degrades the kept terminal to the normal detach while
+    /// preserving the exact durable exit receipt.
+    #[cfg(unix)]
+    #[test]
+    fn restart_degrades_keep_policy_terminal_to_the_normal_detach() {
+        use std::fs::{File, OpenOptions};
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        const TERMINAL: &str = "0000000000004000800000000000004b";
+        const INCARNATION: &str = "1000000000004000800000000000004b";
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-keep-exit-restart-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "recover-keep-exit";
+        let workspace = RegistryWorkspace {
+            id: 1,
+            public_id: restore_workspace_id(43),
+            key: "workspace-keep-exit".into(),
+            name: "Keep".into(),
+            group_key: session.into(),
+        };
+        let screen = restore_screen_id(43);
+        let pane = restore_pane_id(43);
+        let tab = restore_tab_id(43);
+        let terminal_public_id = restore_terminal_id(43);
+        let terminal = RegistryTerminal {
+            terminal_id: TERMINAL.into(),
+            workspace_key: workspace.key.clone(),
+            incarnation: None,
+            lifecycle: TerminalLifecycle::Launching,
+            launch_spec: serde_json::json!({"command":["/bin/sh"]}),
+            exit: None,
+            on_exit: TerminalOnExit::Keep,
+        };
+        {
+            let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+            registry
+                .commit_resource_patch(
+                    &WorkspaceMutation::new("seed-keep-exit", "test").unwrap(),
+                    "workspace.create",
+                    &serde_json::json!({"fixture":"keep-exit"}),
+                    None,
+                    Some(0),
+                    &ResourcePatch {
+                        changes: vec![
+                            ResourceChange::UpsertWorkspace {
+                                workspace: workspace.clone(),
+                                position: 0,
+                                active_screen: Some(screen.clone()),
+                            },
+                            ResourceChange::UpsertScreen(RegistryScreen {
+                                public_id: screen.clone(),
+                                workspace_id: workspace.public_id.clone(),
+                                position: 0,
+                                name: None,
+                                layout: RegistryLayoutNode::Leaf { pane: pane.clone() },
+                                active_pane: pane.clone(),
+                                zoomed_pane: None,
+                                auto_layout: None,
+                                viewport: RegistryViewport::default(),
+                            }),
+                            ResourceChange::UpsertPane(RegistryPane {
+                                public_id: pane.clone(),
+                                screen_id: screen.clone(),
+                                name: None,
+                                active_tab: Some(tab.clone()),
+                                creation_ordinal: 1,
+                            }),
+                            ResourceChange::UpsertTerminal {
+                                public_id: terminal_public_id.clone(),
+                                terminal,
+                            },
+                            ResourceChange::UpsertTab(RegistryTab {
+                                public_id: tab.clone(),
+                                pane_id: pane.clone(),
+                                position: 0,
+                                content_id: ContentPublicId::Terminal(terminal_public_id.clone()),
+                                name: None,
+                                browser_url: None,
+                                terminal_id: Some(TERMINAL.into()),
+                            }),
+                            ResourceChange::SetWorkspaceOrder {
+                                workspace_ids: vec![workspace.public_id.clone()],
+                            },
+                            ResourceChange::SetScreenOrder {
+                                workspace_id: workspace.public_id.clone(),
+                                screen_ids: vec![screen],
+                            },
+                            ResourceChange::SetTabOrder {
+                                pane_id: pane,
+                                tab_ids: vec![tab.clone()],
+                            },
+                            ResourceChange::SetActiveWorkspace {
+                                workspace_id: Some(workspace.public_id),
+                            },
+                        ],
+                    },
+                    &serde_json::json!({"created":true}),
+                    &serde_json::json!([{"kind":"fixture.created"}]),
+                )
+                .unwrap();
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "seed-running-terminal",
+                TERMINAL,
+                TerminalLifecycle::Running,
+                Some(INCARNATION),
+                None,
+            )
+            .unwrap();
+        }
+
+        let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+        std::fs::create_dir_all(&host_root).unwrap();
+        std::fs::set_permissions(&host_root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 3 },
+            exited_at_ms: 7_654_321,
+        };
+        let sidecar = crate::terminal_host_runtime::TerminalHostExitRecord::new(
+            &TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
+            exit,
+        );
+        let sidecar_path = sidecar.record_path(&host_root);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&sidecar_path)
+            .unwrap();
+        file.write_all(&serde_json::to_vec(&sidecar).unwrap()).unwrap();
+        file.sync_all().unwrap();
+        File::open(&host_root).unwrap().sync_all().unwrap();
+
+        let options =
+            SurfaceOptions { terminal_host_root: Some(host_root), ..SurfaceOptions::default() };
+        let mux = Mux::open_persistent(session, options, &root).unwrap();
+        let waited = mux.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
+        assert_eq!(waited["state"], "exited");
+        assert_eq!(waited["outcome"], serde_json::json!({"kind":"exit","code":3}));
+        let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+        assert_eq!(resolved.surface, None, "restart must not resurrect the kept screen");
+        let events = mux.resource_events_after(1).unwrap();
+        let changes = events
+            .batches
+            .iter()
+            .flat_map(|batch| batch.changes.as_array().unwrap().clone())
+            .collect::<Vec<_>>();
+        assert!(changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "tab"
+                && change["id"] == tab.as_str()
+        }));
+        assert!(!changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"] == terminal_public_id.as_str()
+        }));
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn restart_keeps_exited_terminal_as_detached_receipt_until_explicit_close() {
@@ -24783,6 +25124,7 @@ mod tests {
                 lifecycle: TerminalLifecycle::Launching,
                 launch_spec: serde_json::json!({}),
                 exit: None,
+                on_exit: TerminalOnExit::Close,
             };
             commit_terminal_transition(
                 &mut registry,
@@ -24936,6 +25278,69 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn keep_policy_exit_latches_the_receipt_but_retains_tab_and_screen_surface() {
+        const TERMINAL: &str = "0000000000004000800000000000004a";
+        const INCARNATION: &str = "1000000000004000800000000000004a";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("keep-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000104a".into()),
+                None,
+            )
+            .unwrap();
+        let surface = mux
+            .seed_running_terminal_with_on_exit_for_test(
+                TERMINAL,
+                INCARNATION,
+                &workspace.key,
+                TerminalOnExit::Keep,
+            )
+            .unwrap();
+        let pane = mux.with_state(|state| state.pane_of(surface).unwrap());
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 7 },
+            exited_at_ms: 9_999_999,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+
+        mux.surface_exited(surface);
+
+        // The durable latch is identical to the close policy.
+        let waited = mux.wait_for_terminal_exit(&terminal, Some(Duration::ZERO)).unwrap();
+        assert_eq!(waited["state"], "exited");
+        assert_eq!(waited["outcome"], serde_json::json!({"kind":"exit","code":7}));
+        let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+        // The views and the runtime screen surface stay behind it.
+        assert_eq!(resolved.surface, Some(surface));
+        mux.with_state(|state| {
+            assert!(state.surfaces.contains_key(&surface));
+            assert_eq!(state.panes[&pane].tabs, vec![surface]);
+        });
+
+        // Re-observed exits stay first-writer-wins, and detach reconciliation
+        // is a no-op while the runtime surface lives.
+        let revision = mux.workspace_registry.lock().unwrap().resource_revision().unwrap();
+        mux.surface_exited(surface);
+        assert!(!mux.detach_exited_terminal_topology(TERMINAL).unwrap());
+        assert_eq!(mux.workspace_registry.lock().unwrap().resource_revision().unwrap(), revision);
+        mux.with_state(|state| {
+            assert_eq!(state.panes[&pane].tabs, vec![surface]);
+        });
+
+        // Explicit close still cleans the kept terminal up completely.
+        mux.close_terminal(TERMINAL, INCARNATION).unwrap();
+        let closed = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(closed.terminal.lifecycle, TerminalLifecycle::Tombstoned);
+        assert_eq!(closed.surface, None);
+        mux.with_state(|state| assert!(!state.surfaces.contains_key(&surface)));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn failed_exit_detach_retry_does_not_keep_mux_alive() {
         const TERMINAL: &str = "0000000000004000800000000000003e";
         const INCARNATION: &str = "1000000000004000800000000000003e";
@@ -24989,6 +25394,7 @@ mod tests {
                 lifecycle: TerminalLifecycle::Launching,
                 launch_spec: serde_json::json!({}),
                 exit: None,
+                on_exit: TerminalOnExit::Close,
             },
         )
         .unwrap();
@@ -25065,6 +25471,7 @@ mod tests {
                 lifecycle: TerminalLifecycle::Launching,
                 launch_spec: serde_json::json!({"command_present":true}),
                 exit: None,
+                on_exit: TerminalOnExit::Close,
             };
             commit_terminal_transition(
                 &mut registry,
@@ -25118,6 +25525,7 @@ mod tests {
                     lifecycle: TerminalLifecycle::Launching,
                     launch_spec: serde_json::json!({}),
                     exit: None,
+                    on_exit: TerminalOnExit::Close,
                 },
             )
             .unwrap();
@@ -25194,6 +25602,7 @@ mod tests {
                     lifecycle: TerminalLifecycle::Launching,
                     launch_spec: serde_json::json!({}),
                     exit: None,
+                    on_exit: TerminalOnExit::Close,
                 },
             )
             .unwrap();
@@ -25235,6 +25644,7 @@ mod tests {
                     lifecycle: TerminalLifecycle::Launching,
                     launch_spec: serde_json::json!({}),
                     exit: None,
+                    on_exit: TerminalOnExit::Close,
                 },
             )
             .unwrap();
@@ -25299,6 +25709,7 @@ mod tests {
                     lifecycle: TerminalLifecycle::Launching,
                     launch_spec: serde_json::json!({}),
                     exit: None,
+                    on_exit: TerminalOnExit::Close,
                 },
             )
             .unwrap();
@@ -25342,6 +25753,7 @@ mod tests {
                     lifecycle: TerminalLifecycle::Launching,
                     launch_spec: serde_json::json!({}),
                     exit: None,
+                    on_exit: TerminalOnExit::Close,
                 },
             )
             .unwrap();
@@ -25408,6 +25820,7 @@ mod tests {
                     lifecycle: TerminalLifecycle::Launching,
                     launch_spec: serde_json::json!({"command_present":true}),
                     exit: None,
+                    on_exit: TerminalOnExit::Close,
                 },
             )
             .unwrap();
@@ -25612,6 +26025,7 @@ mod tests {
                     lifecycle: TerminalLifecycle::Launching,
                     launch_spec: serde_json::json!({}),
                     exit: None,
+                    on_exit: TerminalOnExit::Close,
                 },
             )
             .unwrap();

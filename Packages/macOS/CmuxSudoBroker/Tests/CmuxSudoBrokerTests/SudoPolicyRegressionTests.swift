@@ -1,4 +1,5 @@
 @testable import CmuxSudoBroker
+import CryptoKit
 import Darwin
 import Foundation
 import Testing
@@ -34,6 +35,45 @@ struct SudoPolicyRegressionTests {
         #expect(SudoCLITimeoutDisposition.resolve(phase: .executing) == .approvedExecution)
     }
 
+    @Test("Marker matcher preserves the earliest overlapping marker")
+    func markerMatcherChoosesEarliestStart() {
+        let matcher = SudoExecutionMarkerMatcher(
+            markers: [
+                (bytes: Array("abcd".utf8), kind: .authentication),
+                (bytes: Array("bc".utf8), kind: .readiness),
+            ]
+        )
+
+        let result = matcher.scan(
+            ArraySlice(Array("xabcd".utf8)),
+            isFinal: true
+        )
+
+        #expect(result.match?.offset == 1)
+        #expect(result.match?.markerIndex == 0)
+    }
+
+    @Test("Exit waiter handles reused PID generations without trapping")
+    func exitWaiterHandlesDuplicatePIDGenerations() {
+        let first = SudoProcessIdentity(
+            processIdentifier: 7_777,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let second = SudoProcessIdentity(
+            processIdentifier: 7_777,
+            startSeconds: 11,
+            startMicroseconds: 2
+        )
+        let inspector = TestSudoProcessInspector(runningIdentities: Set([first, second]))
+        let waiter = SudoProcessExitWaiter(inspector: inspector)
+
+        let survivors = waiter.survivors(among: [first, second], after: 0)
+
+        #expect(survivors.count == 1)
+        #expect(survivors.first == second)
+    }
+
     @Test("Bundle scopes cannot escape the sudo spool root")
     func reservedBundleScopes() {
         let applicationSupport = URL(
@@ -48,6 +88,138 @@ struct SudoPolicyRegressionTests {
             #expect(paths.base.lastPathComponent == "com.cmuxterm.app")
             #expect(paths.base.deletingLastPathComponent().lastPathComponent == "sudo")
         }
+    }
+
+    @Test("Filesystem discovery applies pending request count and byte bounds")
+    func pendingDiscoveryHonorsResourcePolicy() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let writer = SudoSpoolStore(
+            paths: fixture.paths,
+            resourcePolicy: SudoResourcePolicy(
+                maximumPendingRequestCount: 8,
+                maximumPendingScriptBytes: 2 * 1_024 * 1_024
+            )
+        )
+        for index in 0..<4 {
+            let request = SudoRequest(
+                id: "discovery-\(index)",
+                reason: "test",
+                requesterIdentity: SudoTestFixture.defaultRequesterIdentity,
+                requesterCommand: "test-agent",
+                currentDirectory: "/tmp",
+                createdAt: .now
+            )
+            try writer.enqueue(
+                SudoPendingRequest(
+                    request: request,
+                    script: String(repeating: "x", count: 10)
+                )
+            )
+        }
+        let bounded = SudoSpoolStore(
+            paths: fixture.paths,
+            resourcePolicy: SudoResourcePolicy(
+                maximumPendingRequestCount: 2,
+                maximumPendingScriptBytes: 25
+            )
+        )
+
+        let snapshots = bounded.pendingRequests()
+
+        #expect(snapshots.map(\.request.id) == ["discovery-0", "discovery-1"])
+        #expect(snapshots.reduce(0) { $0 + $1.script.utf8.count } <= 25)
+    }
+
+    @Test("A preexisting result cannot settle a live request")
+    func preexistingResultIsNotAuthoritative() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let request = try fixture.enqueue(id: "preexisting-result", createdAt: .now)
+        _ = try fixture.store.writeResultIfAbsent(
+            SudoResult(id: request.id, status: .completed, exitCode: 0)
+        )
+
+        #expect(fixture.store.authoritativeResult(id: request.id) == nil)
+        #expect(fixture.store.pendingRequests().map(\.request.id) == [request.id])
+        do {
+            _ = try fixture.store.settle(
+                SudoResult(
+                    id: request.id,
+                    status: .failed,
+                    errorCode: .requesterUnavailable
+                )
+            )
+            Issue.record("Expected a preexisting live result to be rejected")
+        } catch SudoSpoolError.resultAlreadyExists {
+            // Expected: a live request cannot trust an unrelated result writer.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        let boundedStore = SudoSpoolStore(
+            paths: fixture.paths,
+            resourcePolicy: SudoResourcePolicy(
+                maximumPendingRequestCount: 1,
+                maximumPendingScriptBytes: 1_024
+            )
+        )
+        let secondRequest = SudoRequest(
+            id: "preexisting-result-second",
+            reason: "test",
+            requesterIdentity: SudoTestFixture.defaultRequesterIdentity,
+            requesterCommand: "test-agent",
+            currentDirectory: "/tmp",
+            createdAt: .now
+        )
+        #expect(throws: SudoSpoolError.requestCapacityExceeded) {
+            try boundedStore.enqueue(
+                SudoPendingRequest(request: secondRequest, script: "echo second\n")
+            )
+        }
+    }
+
+    @Test("Spool startup completes a partially archived terminal result")
+    func partialSettlementIsReconciled() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let request = try fixture.enqueue(id: "partial-settlement", createdAt: .now)
+        let result = SudoResult(id: request.id, status: .completed, exitCode: 0)
+        _ = try fixture.store.writeResultIfAbsent(result)
+        let resultURL = fixture.paths.results.appendingPathComponent("\(request.id).json")
+        let commitmentURL = fixture.paths.results.appendingPathComponent("\(request.id).commit")
+        let resultData = try Data(contentsOf: resultURL)
+        try Data(SHA256.hash(data: resultData)).write(to: commitmentURL, options: .atomic)
+
+        try fixture.store.ensureDirectories()
+
+        #expect(fixture.store.authoritativeResult(id: request.id)?.exitCode == 0)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: fixture.paths.results.appendingPathComponent("\(request.id).commit").path
+            )
+        )
+        #expect(fixture.store.state(id: request.id) == nil)
+    }
+
+    @Test("Spool startup commits a result archived before its marker")
+    func archivedResultWithoutCommitmentIsReconciled() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let request = try fixture.enqueue(id: "archived-without-marker", createdAt: .now)
+        _ = try fixture.store.writeResultIfAbsent(
+            SudoResult(id: request.id, status: .completed, exitCode: 0)
+        )
+        try FileManager.default.removeItem(
+            at: fixture.paths.requests.appendingPathComponent("\(request.id).json")
+        )
+        try FileManager.default.removeItem(
+            at: fixture.paths.requests.appendingPathComponent("\(request.id).sh")
+        )
+
+        try fixture.store.ensureDirectories()
+
+        #expect(fixture.store.authoritativeResult(id: request.id)?.exitCode == 0)
     }
 
     @Test("Helper environment excludes unrelated inherited secrets")
@@ -155,6 +327,31 @@ struct SudoPolicyRegressionTests {
         #expect(try Data(contentsOf: outputURL) == Data("beforeafter".utf8))
     }
 
+    @Test("Output collector retains marker-leading ordinary output in one bounded prefix")
+    func markerLeadingOrdinaryOutputIsRetained() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.paths.results.appendingPathComponent("underscore-output.txt")
+        let outputDescriptor = Darwin.open(
+            outputURL.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+            mode_t(0o600)
+        )
+        try #require(outputDescriptor >= 0)
+        defer { Darwin.close(outputDescriptor) }
+        var collector = SudoExecutionOutputCollector(
+            outputDescriptor: outputDescriptor,
+            readinessMarker: nil,
+            controlMarkers: SudoExecutionControlMarkers()
+        )
+        let ordinaryOutput = Data(repeating: UInt8(ascii: "_"), count: 64 * 1_024)
+
+        try collector.consume(ordinaryOutput)
+        try collector.finish()
+
+        #expect(try Data(contentsOf: outputURL) == ordinaryOutput)
+    }
+
     @Test("Reviewed-script capability is anonymous and byte exact")
     func reviewedScriptCapability() throws {
         let fixture = try SudoTestFixture()
@@ -248,11 +445,12 @@ struct SudoPolicyRegressionTests {
         let oldDate = Date.now.addingTimeInterval(-48 * 60 * 60)
 
         try Data("archived secret\n".utf8).write(to: archiveURL)
-        _ = try fixture.store.writeResultIfAbsent(
+        _ = try fixture.store.settle(
             SudoResult(id: id, status: .completed, exitCode: 0)
         )
         try Data().write(to: lockURL)
-        for url in [archiveURL, resultURL, lockURL] {
+        let commitmentURL = fixture.paths.results.appendingPathComponent("\(id).commit")
+        for url in [archiveURL, resultURL, commitmentURL, lockURL] {
             try FileManager.default.setAttributes(
                 [.modificationDate: oldDate],
                 ofItemAtPath: url.path
@@ -263,6 +461,7 @@ struct SudoPolicyRegressionTests {
 
         #expect(!FileManager.default.fileExists(atPath: archiveURL.path))
         #expect(!FileManager.default.fileExists(atPath: resultURL.path))
+        #expect(!FileManager.default.fileExists(atPath: commitmentURL.path))
         #expect(!FileManager.default.fileExists(atPath: lockURL.path))
     }
 
