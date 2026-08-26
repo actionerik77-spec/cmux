@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CMUXAgentLaunch
 #if canImport(cmux_cli)
 @testable import cmux_cli
 #elseif canImport(cmux_DEV)
