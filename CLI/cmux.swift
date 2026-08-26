@@ -240,9 +240,11 @@ private struct CodexMonitorLeaseRecord: Codable {
 final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+    private static let maxSessionIdBytes = 512
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxRememberedTerminalBackgroundWorkIdsPerTurn = 64
     private static let maxStructuredBackgroundWorkIdBytes = 512
+    private static let maxStructuredBackgroundWorkTurnIdBytes = 512
     private static let maxActiveBackgroundWorkIdsPerTurn = 64
     private static let maxStructuredBackgroundWorkTurns = 32
     private static let maxAutoNameRecentMessages = 24
@@ -398,7 +400,9 @@ final class ClaudeHookSessionStore {
             var overflowTurnKeys = Set(
                 record.backgroundWorkOverflowTurnKeys ?? []
             )
-            let normalizedTurnId = normalizeOptional(turnId)
+            let normalizedTurnId = normalizedStructuredBackgroundWorkTurnId(
+                turnId
+            )
             let turnIsTerminal = normalizedTurnId.map { terminalTurnId in
                 terminalPromptTurnSet(from: record).contains(terminalTurnId)
             } ?? false
@@ -662,7 +666,9 @@ final class ClaudeHookSessionStore {
                 turnKey: turnKey
             )
             guard activeWorkCount > 0 else { return 0 }
-            let normalizedTurnId = normalizeOptional(turnId)
+            let normalizedTurnId = normalizedStructuredBackgroundWorkTurnId(
+                turnId
+            )
             var deferredSettlementsByTurn =
                 record.deferredTurnSettlementsByTurn ?? [:]
             if deferredSettlementsByTurn[turnKey] == nil,
@@ -2344,7 +2350,9 @@ final class ClaudeHookSessionStore {
     }
 
     private func normalizeSessionId(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.utf8.count <= Self.maxSessionIdBytes else { return "" }
+        return normalized
     }
 
     private func normalizeOptional(_ value: String?) -> String? {
@@ -2355,7 +2363,18 @@ final class ClaudeHookSessionStore {
     }
 
     private func structuredBackgroundWorkTurnKey(_ turnId: String?) -> String {
-        normalizeOptional(turnId) ?? ""
+        normalizedStructuredBackgroundWorkTurnId(turnId) ?? ""
+    }
+
+    private func normalizedStructuredBackgroundWorkTurnId(
+        _ turnId: String?
+    ) -> String? {
+        guard let normalized = normalizeOptional(turnId),
+              normalized.utf8.count
+                <= Self.maxStructuredBackgroundWorkTurnIdBytes else {
+            return nil
+        }
+        return normalized
     }
 
     private func hasStructuredBackgroundWorkState(
@@ -29391,7 +29410,6 @@ struct CMUXCLI {
         sessionId: String,
         settlement: AgentDeferredTurnSettlement,
         socketPath: String?,
-        socketPassword: String?,
         telemetry: CLISocketSentryTelemetry
     ) -> Bool {
         guard let replay = CodexTranscriptMonitorStopReplay(
@@ -29413,7 +29431,6 @@ struct CMUXCLI {
             payload: replay.payload,
             settlement: settlement,
             socketPath: socketPath,
-            socketPassword: socketPassword,
             telemetry: telemetry
         )
     }
@@ -29463,7 +29480,6 @@ struct CMUXCLI {
         sessionId: String,
         settlement: AgentDeferredTurnSettlement,
         socketPath: String?,
-        socketPassword: String?,
         telemetry: CLISocketSentryTelemetry
     ) -> Bool {
         guard let replay = makeGenericDeferredTurnSettlementReplay(
@@ -29479,7 +29495,6 @@ struct CMUXCLI {
             payload: replay.payload,
             settlement: settlement,
             socketPath: socketPath,
-            socketPassword: socketPassword,
             telemetry: telemetry
         )
     }
@@ -29490,7 +29505,6 @@ struct CMUXCLI {
         payload: String,
         settlement: AgentDeferredTurnSettlement,
         socketPath: String?,
-        socketPassword: String?,
         telemetry: CLISocketSentryTelemetry
     ) -> Bool {
 
@@ -29514,9 +29528,10 @@ struct CMUXCLI {
         ] {
             replayEnvironment.removeValue(forKey: key)
         }
-        if let socketPassword = normalizedHookValue(socketPassword) {
-            replayEnvironment["CMUX_SOCKET_PASSWORD"] = socketPassword
-        }
+        // Never place the control-socket password in the replay child's
+        // environment: same-UID processes can inspect it while the child is
+        // alive. The child resolves the scoped password file/keychain through
+        // its normal `--socket` authentication path instead.
         processArguments += ["hooks", agentName] + commandArguments
         let result = CLIProcessRunner.runProcess(
             executablePath: executablePath,
@@ -35208,6 +35223,18 @@ export default CMUXSessionRestore;
         return inferredAgentPID() ?? Int(getppid())
     }
 
+    /// Keeps identifiers used as durable structured-work keys bounded without
+    /// truncating them into a value that could collide with a real turn.
+    private func boundedStructuredBackgroundWorkIdentifier(
+        _ value: String?
+    ) -> String? {
+        guard let normalized = normalizedHookValue(value),
+              normalized.utf8.count <= 512 else {
+            return nil
+        }
+        return normalized
+    }
+
     private func stableFallbackFeedSessionId(
         source: String,
         rawObject: [String: Any],
@@ -37234,9 +37261,11 @@ export default CMUXSessionRestore;
             print(compactedFeedOutput)
             return
         }
-        let sessionId = firstString(
-            in: stdinObj,
-            keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
+        let sessionId = boundedStructuredBackgroundWorkIdentifier(
+            firstString(
+                in: stdinObj,
+                keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
+            )
         ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
         if source == BuiltInAgentIntegration.cursor.feedSourceName {
             if rawEvent == "preToolUse",
@@ -37371,14 +37400,16 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         eventName: hookEventName,
                         workId: stableWorkId ?? "",
-                        turnId: firstString(
-                            in: stdinObj,
-                            keys: [
-                                "turn_id",
-                                "turnId",
-                                "generation_id",
-                                "generationId",
-                            ]
+                        turnId: boundedStructuredBackgroundWorkIdentifier(
+                            firstString(
+                                in: stdinObj,
+                                keys: [
+                                    "turn_id",
+                                    "turnId",
+                                    "generation_id",
+                                    "generationId",
+                                ]
+                            )
                         ),
                         processGeneration: AgentPIDProcessIdentity(
                             agentTurnPID: agentPid
@@ -37403,7 +37434,6 @@ export default CMUXSessionRestore;
                             sessionId: sessionId,
                             settlement: settlement,
                             socketPath: client?.socketPath ?? socketPath,
-                            socketPassword: socketPassword,
                             telemetry: telemetry
                         )
                     } else if let def = Self.agentDef(named: source) {
@@ -37412,7 +37442,6 @@ export default CMUXSessionRestore;
                             sessionId: sessionId,
                             settlement: settlement,
                             socketPath: client?.socketPath ?? socketPath,
-                            socketPassword: socketPassword,
                             telemetry: telemetry
                         )
                     } else {
