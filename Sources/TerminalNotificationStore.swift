@@ -1585,7 +1585,7 @@ final class TerminalNotificationStore: ObservableObject {
         deliverNotificationSideEffects(
             notification,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-            effects: effectiveEffects
+            effects: effects
         )
     }
 
