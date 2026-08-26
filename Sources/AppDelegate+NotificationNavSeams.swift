@@ -333,7 +333,7 @@ extension AppDelegate {
         excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> Bool {
         guard !notification.isTransientAgentAttention else { return false }
-        notification.notificationNavigationSnapshot
+        return notification.notificationNavigationSnapshot
         .isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
             excludingWorkspaceId: excludedWorkspaceId
