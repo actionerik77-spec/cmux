@@ -174,6 +174,11 @@ extension FeedCoordinator {
         subtitle: String,
         body: String
     ) -> Bool {
+        // Deliberately keep this owner memory-only. A relaunch cannot safely
+        // re-authenticate a persisted local PID generation or remote relay
+        // owner before replaying model-controlled text; replaying a stale
+        // permission prompt is worse than requiring the next Claude lifecycle
+        // boundary to re-establish visible attention.
         let key = FeedTransientAttentionStore.Key(
             source: source,
             sessionId: sessionId,

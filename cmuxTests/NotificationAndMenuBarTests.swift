@@ -753,10 +753,22 @@ final class NotificationDockBadgeTests: XCTestCase {
         )
         var readNotification = terminalNotification
         readNotification.isRead = true
+        let transientNotification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            correlationKey: TerminalNotification.transientAgentAttentionCorrelationPrefix + "test",
+            title: "Claude Code",
+            subtitle: "Needs input",
+            body: "Transient blocker",
+            createdAt: Date(),
+            isRead: false
+        )
 
         XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(clickActionNotification))
         XCTAssertTrue(AppDelegate.shouldOpenFromJumpToLatestUnread(terminalNotification))
         XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(readNotification))
+        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(transientNotification))
         XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(
             terminalNotification,
             excludingNotificationId: terminalNotification.id

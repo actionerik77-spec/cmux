@@ -288,9 +288,11 @@ extension AppDelegate {
 
     var orderedNotificationsForNav: [NotificationNavSnapshot] {
         guard let notificationStore else { return [] }
-        return notificationStore.notifications.map { notification in
-            notification.notificationNavigationSnapshot
-        }
+        return notificationStore.notifications
+            .filter { !$0.isTransientAgentAttention }
+            .map { notification in
+                notification.notificationNavigationSnapshot
+            }
     }
 
     var workspaceUnreadIndicatorIdsForNav: Set<UUID> {
@@ -330,6 +332,7 @@ extension AppDelegate {
         excludingNotificationId excludedNotificationId: UUID? = nil,
         excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> Bool {
+        guard !notification.isTransientAgentAttention else { return false }
         notification.notificationNavigationSnapshot
         .isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
