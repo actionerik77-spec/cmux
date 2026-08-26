@@ -1,5 +1,6 @@
 import Darwin
 import CoreGraphics
+import CmuxFoundation
 import Foundation
 import Security
 
@@ -48,7 +49,8 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     private let lockStateReader: @Sendable () -> Bool?
     private let lockNotificationSourceFactory: @Sendable () -> (
         stream: AsyncStream<Void>,
-        continuation: AsyncStream<Void>.Continuation
+        continuation: AsyncStream<Void>.Continuation,
+        arm: @Sendable () -> Void
     )
     /// The bounded grace period is only a recovery path when loginwindow never
     /// publishes a usable confirmation. Ten seconds covers delayed IPC on busy
@@ -78,7 +80,8 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         lockStateReader: @escaping @Sendable () -> Bool?,
         lockNotificationSourceFactory: @escaping @Sendable () -> (
             stream: AsyncStream<Void>,
-            continuation: AsyncStream<Void>.Continuation
+            continuation: AsyncStream<Void>.Continuation,
+            arm: @Sendable () -> Void
         )
     ) {
         self.lockConfirmationClock = lockConfirmationClock
@@ -142,14 +145,16 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     nonisolated func lockScreen(using gate: SleepyLockInvocationGate) async -> Bool {
         guard let lockScreenInvoker else { return false }
 
-        // Register before invoking loginwindow. The distributed event is only a
-        // wake-up hint; the session bit remains the sole success authority.
-        // AsyncStream buffers the hint if IPC returns before the consumer starts.
+        // Register before invoking loginwindow, then arm the source at the same
+        // gate-owned commit point as the irreversible call. Pre-request events
+        // are ignored. The session bit remains authoritative when available;
+        // the armed event is a fallback only when that de-facto key is absent.
         let lockNotifications = lockNotificationSourceFactory()
         let clock = lockConfirmationClock
         let timeout = lockConfirmationTimeout
         let stateReader = lockStateReader
         let invoked = gate.invoke {
+            lockNotifications.arm()
             lockScreenInvoker()
         }
         guard invoked else {
@@ -172,9 +177,11 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
 
     private static func lockScreenNotifications() -> (
         stream: AsyncStream<Void>,
-        continuation: AsyncStream<Void>.Continuation
+        continuation: AsyncStream<Void>.Continuation,
+        arm: @Sendable () -> Void
     ) {
         let center = DistributedNotificationCenter.default()
+        let isArmed = AtomicBooleanGate(false)
         let (stream, continuation) = AsyncStream<Void>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
@@ -183,11 +190,16 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             object: nil,
             queue: nil
         ) { _ in
+            guard isArmed.loadAcquire() else { return }
             continuation.yield(())
         }
         let tokenBox = DistributedObserverToken(center: center, token: token)
         continuation.onTermination = { _ in tokenBox.remove() }
-        return (stream, continuation)
+        return (
+            stream: stream,
+            continuation: continuation,
+            arm: { isArmed.storeRelease(true) }
+        )
     }
 
     private static func waitForLockConfirmation(
@@ -209,10 +221,10 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
                         // covers the delayed transition.
                         continue
                     case .none:
-                        // A global distributed notification is not proof of
-                        // this request's lock; use it only to trigger another
-                        // authoritative read and keep waiting for the state bit.
-                        continue
+                        // This stream was armed at the request's invocation
+                        // commit point, so it can confirm on macOS/session
+                        // contexts that omit the de-facto dictionary key.
+                        return true
                     }
                 }
                 return false
@@ -238,8 +250,9 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             case .some(true):
                 return true
             case .none:
-                // Never claim a lock without the authoritative session bit.
-                return false
+                // Only the request-scoped notification path can produce a true
+                // result without the de-facto dictionary key.
+                return true
             case .some(false):
                 return false
             }

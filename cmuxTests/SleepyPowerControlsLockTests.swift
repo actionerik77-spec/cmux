@@ -68,6 +68,33 @@ private final class LockInvocationProbe: @unchecked Sendable {
     }
 }
 
+/// Models the production notification source's request-scoped arming boundary.
+private final class ArmedLockNotificationSource: @unchecked Sendable {
+    // Safety: every access to the mutable arming state is serialized by `lock`;
+    // AsyncStream and its continuation provide their own cross-task safety.
+    private let lock = NSLock()
+    private var isArmed = false
+    private let events = AsyncStream<Void>.makeStream()
+
+    func makeSource() -> (
+        stream: AsyncStream<Void>,
+        continuation: AsyncStream<Void>.Continuation,
+        arm: @Sendable () -> Void
+    ) {
+        (
+            stream: events.stream,
+            continuation: events.continuation,
+            arm: { [self] in lock.withLock { isArmed = true } }
+        )
+    }
+
+    func yield() {
+        if lock.withLock({ isArmed }) {
+            events.continuation.yield(())
+        }
+    }
+}
+
 @Suite("Sleepy Mode lock")
 struct SleepyPowerControlsLockTests {
     /// Regression for https://github.com/manaflow-ai/cmux/issues/9730: macOS 26
@@ -139,12 +166,12 @@ struct SleepyPowerControlsLockTests {
     @Test func lockScreenWaitsForAuthoritativeStateTransition() async {
         let invocation = LockInvocationProbe()
         let state = LockStateScript([false, true])
-        let source = AsyncStream<Void>.makeStream()
+        let source = ArmedLockNotificationSource()
         let runner = SystemCommandRunner(
             lockConfirmationTimeout: .seconds(1),
             lockScreenInvoker: { invocation.record() },
             lockStateReader: { state.read() },
-            lockNotificationSourceFactory: { source }
+            lockNotificationSourceFactory: { source.makeSource() }
         )
 
         let confirmed = await runner.lockScreen()
@@ -158,25 +185,33 @@ struct SleepyPowerControlsLockTests {
     /// closed and cleans up the notification stream.
     @Test func lockScreenTimesOutWithoutAuthoritativeConfirmation() async {
         let invocation = LockInvocationProbe()
-        let source = AsyncStream<Void>.makeStream()
+        let source = ArmedLockNotificationSource()
+        let invocationObserved = AsyncStream<Void>.makeStream()
         let runner = SystemCommandRunner(
             lockConfirmationTimeout: .milliseconds(100),
-            lockScreenInvoker: { invocation.record() },
+            lockScreenInvoker: {
+                invocation.record()
+                invocationObserved.continuation.yield(())
+            },
             lockStateReader: { false },
-            lockNotificationSourceFactory: { source }
+            lockNotificationSourceFactory: { source.makeSource() }
         )
 
-        let confirmed = await runner.lockScreen()
+        let task = Task { await runner.lockScreen() }
+        var iterator = invocationObserved.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        source.yield()
+        let confirmed = await task.value
 
         #expect(!confirmed)
         #expect(invocation.invocationCount == 1)
     }
 
-    /// A globally distributed notification is only a wake-up hint. It must not
-    /// suppress the failure path when the authoritative state remains absent.
-    @Test func lockScreenDoesNotTrustNotificationWithoutStateConfirmation() async {
+    /// A notification armed at the invocation boundary confirms the lock when
+    /// the current macOS/session context omits the de-facto dictionary key.
+    @Test func lockScreenUsesRequestScopedNotificationWhenStateIsUnavailable() async {
         let invocation = LockInvocationProbe()
-        let source = AsyncStream<Void>.makeStream()
+        let source = ArmedLockNotificationSource()
         let invocationObserved = AsyncStream<Void>.makeStream()
         let runner = SystemCommandRunner(
             lockConfirmationTimeout: .milliseconds(100),
@@ -185,29 +220,43 @@ struct SleepyPowerControlsLockTests {
                 invocationObserved.continuation.yield(())
             },
             lockStateReader: { nil },
-            lockNotificationSourceFactory: { source }
+            lockNotificationSourceFactory: { source.makeSource() }
         )
 
         let task = Task { await runner.lockScreen() }
         var iterator = invocationObserved.stream.makeAsyncIterator()
         _ = await iterator.next()
-        source.continuation.yield(())
+        source.yield()
 
         let confirmed = await task.value
 
-        #expect(!confirmed)
+        #expect(confirmed)
         #expect(invocation.invocationCount == 1)
+    }
+
+    /// A notification observed before the request is armed cannot confirm it.
+    @Test func lockScreenIgnoresNotificationBeforeInvocation() async {
+        let source = ArmedLockNotificationSource()
+        source.yield()
+        let runner = SystemCommandRunner(
+            lockConfirmationTimeout: .milliseconds(20),
+            lockScreenInvoker: {},
+            lockStateReader: { nil },
+            lockNotificationSourceFactory: { source.makeSource() }
+        )
+
+        #expect(await runner.lockScreen() == false)
     }
 
     /// Lifecycle cancellation is checked before the irreversible invocation,
     /// so a request canceled before the runner starts cannot lock the host.
     @Test func lockScreenHonorsCancellationBeforeInvocation() async {
         let invocation = LockInvocationProbe()
-        let source = AsyncStream<Void>.makeStream()
+        let source = ArmedLockNotificationSource()
         let runner = SystemCommandRunner(
             lockScreenInvoker: { invocation.record() },
             lockStateReader: { true },
-            lockNotificationSourceFactory: { source }
+            lockNotificationSourceFactory: { source.makeSource() }
         )
         let gate = SleepyLockInvocationGate()
         gate.cancel()
@@ -223,7 +272,7 @@ struct SleepyPowerControlsLockTests {
     @Test(.timeLimit(.minutes(1)))
     func lockScreenCancellationStopsPendingConfirmation() async {
         let invocation = LockInvocationProbe()
-        let source = AsyncStream<Void>.makeStream()
+        let source = ArmedLockNotificationSource()
         let invocationObserved = AsyncStream<Void>.makeStream()
         let runner = SystemCommandRunner(
             lockConfirmationTimeout: .seconds(60),
@@ -232,7 +281,7 @@ struct SleepyPowerControlsLockTests {
                 invocationObserved.continuation.yield(())
             },
             lockStateReader: { false },
-            lockNotificationSourceFactory: { source }
+            lockNotificationSourceFactory: { source.makeSource() }
         )
 
         let task = Task { await runner.lockScreen() }
