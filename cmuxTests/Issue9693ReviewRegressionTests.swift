@@ -217,7 +217,8 @@ extension AgentNotificationRegressionTests {
             surfaceId: surfaceId,
             title: "Unrelated",
             subtitle: "Completed",
-            body: "Keep me"
+            body: "Keep me",
+            retargetsToLiveSurfaceOwner: false
         )
         store.addNotification(
             tabId: tabId,
@@ -225,6 +226,7 @@ extension AgentNotificationRegressionTests {
             title: "Claude Code",
             subtitle: "Permission",
             body: "First aggregate",
+            retargetsToLiveSurfaceOwner: false,
             cooldownKey: correlationKey
         )
         store.addNotification(
@@ -233,6 +235,7 @@ extension AgentNotificationRegressionTests {
             title: "Claude Code",
             subtitle: "Permission",
             body: "Second aggregate",
+            retargetsToLiveSurfaceOwner: false,
             cooldownKey: correlationKey
         )
 
