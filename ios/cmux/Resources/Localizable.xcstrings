@@ -6150,13 +6150,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use a DEV iPhone build with any DEV Mac build."
+            "value": "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use this DEV iPhone build with its same-tag DEV Mac build or a granted tag."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "BETA、INTERNAL、または App Store アプリは Stable または Nightly と一緒に使用してください。DEV iPhone ビルドは任意の DEV Mac ビルドと一緒に使用できます。"
+            "value": "BETA、INTERNAL、または App Store アプリは Stable または Nightly と一緒に使用してください。この DEV iPhone ビルドは同じタグの DEV Mac ビルド、または許可されたタグと一緒に使用できます。"
           }
         }
       }
@@ -6184,13 +6184,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+            "value": "A DEV iPhone build connects to its same-tag DEV Mac build, plus tags granted with 'cmux mobile compatible-tags'. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "DEV iPhone ビルドは任意の DEV Mac ビルドに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
+            "value": "DEV iPhone ビルドは同じタグの DEV Mac ビルドと、「cmux mobile compatible-tags」で許可されたタグに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
           }
         }
       }
@@ -14605,13 +14605,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sort By"
+            "value": "Sort Computers By"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "並べ替え"
+            "value": "コンピュータの並べ替え"
           }
         }
       }
@@ -19614,6 +19614,74 @@
         }
       }
     },
+    "mobile.onboarding.push.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get a push when an agent is waiting, and reply right from the Lock Screen."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが待っているときにプッシュ通知が届き、ロック画面からそのまま返信できます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を有効にする"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今はしない"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.push.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Know the moment an agent needs you"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが必要とした瞬間にわかる"
+          }
+        }
+      }
+    },
     "mobile.onboarding.ready.body": {
       "extractionState": "manual",
       "localizations": {
@@ -19973,7 +20041,7 @@
     "mobile.connections.visibilityToggle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show this computer on this iPhone"}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータをこのiPhoneに表示"}}}},
     "mobile.workspaces.macPicker.allConnections": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"All Computers"}},"ja":{"stringUnit":{"state":"translated","value":"すべてのコンピュータ"}}}},
     "mobile.workspaces.macPicker.connectionLabel": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ"}}}},
-    "mobile.workspaces.sort.connectionOrder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Order"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ順"}}}},
+    "mobile.workspaces.sort.connectionOrder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Custom Order"}},"ja":{"stringUnit":{"state":"translated","value":"カスタム順"}}}},
     "mobile.connections.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No computers yet. Iroh finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, choose Tailscale in the computer's configuration."}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータがありません。Irohで表示されるのは、Mac版cmux 0.64.20以降を実行しているMacです。両方のデバイスで同じcmuxアカウントにサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、コンピュータの設定でTailscaleを選択してください。"}}}},
     "mobile.connections.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."}},"ja":{"stringUnit":{"state":"translated","value":"各コンピュータは、それぞれの設定で選んだ接続方法で接続します。コンピュータをオフにすると、そのワークスペースがこのiPhoneで非表示になります。コンピュータはアカウントにサインインしたままです。"}}}},
     "mobile.connections.method.debug": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Debug"}},"ja":{"stringUnit":{"state":"translated","value":"デバッグ"}}}},
@@ -20147,6 +20215,111 @@
             "value": "cmux"
           }
         }
+      }
+    },
+    "mobile.connectionsUpdate.direct.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "On your LAN, WireGuard, or any other network: add the addresses where a computer is reachable and dial exactly those, with no fallback." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LANやWireGuardなど、コンピュータに到達できるアドレスを追加すると、そのアドレスだけに接続します。フォールバックはありません。" } }
+      }
+    },
+    "mobile.connectionsUpdate.direct.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New: Direct addresses" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新機能: ダイレクトアドレス" } }
+      }
+    },
+    "mobile.connectionsUpdate.iroh.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Same authenticated, end-to-end encrypted connection, now with a clearer name. The app-wide setting moved out of Settings." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "認証付きのエンドツーエンド暗号化接続はそのままに、名前がわかりやすくなりました。アプリ全体の設定は「設定」から移動しました。" } }
+      }
+    },
+    "mobile.connectionsUpdate.iroh.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Auto-Connect is now Iroh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動接続は「Iroh」になりました" } }
+      }
+    },
+    "mobile.connectionsUpdate.perComputer.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Each computer now picks how this iPhone reaches it: Iroh, Tailscale Only, or Direct. Set it in Computers → your computer → Connection Method." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "各コンピュータごとに、このiPhoneからの接続方法（Iroh・Tailscaleのみ・ダイレクト）を選べるようになりました。「コンピュータ」→ コンピュータを選択 →「接続方法」で設定できます。" } }
+      }
+    },
+    "mobile.connectionsUpdate.perComputer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Per-computer methods" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンピュータごとの接続方法" } }
+      }
+    },
+    "mobile.connectionsUpdate.releaseLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1.0.5 · August 2026" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1.0.5 · 2026年8月" } }
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「Tailscaleのみ」を選ぶと、足りない設定とペアリングコードのスキャンをその場で案内します。勝手に画面が開くことはありません。" } }
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tailscale, on your terms" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tailscaleは自分のペースで" } }
+      }
+    },
+    "mobile.connectionsUpdate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "What's New in cmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxの新機能" } }
+      }
+    },
+    "mobile.settings.whatsNew": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "What's New" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新機能" } }
+      }
+    },
+    "mobile.whatsNew.announcementBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Announcement" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "お知らせ" } }
+      }
+    },
+    "mobile.whatsNew.cta": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Continue" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "続ける" } }
+      }
+    },
+    "mobile.whatsNew.webRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Try Again" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再試行" } }
+      }
+    },
+    "mobile.whatsNew.webUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This page needs an internet connection." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このページの表示にはインターネット接続が必要です。" } }
       }
     }
   },

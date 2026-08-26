@@ -67,8 +67,15 @@ extension TerminalSurface {
 
     /// Notifies the pane host that user-initiated terminal input is about to be sent.
     @MainActor
-    public func didReceiveExplicitInput() {
+    @discardableResult
+    public func didReceiveExplicitInput() -> Bool {
+        var cancelledDeferredAdmission = false
+        if cancelsStartupRestoreAdmissionOnExplicitInput,
+           startupRestoreAdmissionPhase == .awaitingAdmission {
+            cancelledDeferredAdmission = cancelStartupRestoreAdmissionForExplicitInput()
+        }
         paneHost.terminalSurfaceDidReceiveExplicitInput()
+        return cancelledDeferredAdmission
     }
 
     /// Routes programmatic input through the view-owned clipboard sequencer.
@@ -321,10 +328,28 @@ extension TerminalSurface {
         ) {
             return true
         }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return false }
+            let queued = enqueuePendingSocketInput(.keyText(text))
+            if queued {
+                requestInputDemandSurfaceStartIfNeeded()
+                didAcceptExplicitInput()
+            }
+            return queued
+        }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
             return false
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return false }
+
+        return sendKeyText(text, to: liveSurface)
+    }
+
+    @MainActor
+    private func sendKeyText(
+        _ text: String,
+        to liveSurface: ghostty_surface_t
+    ) -> Bool {
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -1853,6 +1878,8 @@ extension TerminalSurface {
                 text: text,
                 submitEvent: submitKey
             )
+        case .keyText(let text):
+            _ = sendKeyText(text, to: surface)
         }
         return .delivered
     }

@@ -536,6 +536,7 @@ extension Workspace {
             )
         }
         if !preservesTerminalForTransfer {
+            removeDeferredAgentResumeRestore(panelId: panelId)
             terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(
                 panelID: panelId
             )

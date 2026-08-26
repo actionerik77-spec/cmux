@@ -35,6 +35,8 @@ public enum PendingSocketInput: Sendable {
         text: Data,
         submitKey: PendingKeyEvent
     )
+    /// Raw key text to replay as one Ghostty key event.
+    case keyText(String)
 
     /// The byte cost this entry contributes to the pending-input budget.
     public var estimatedBytes: Int {
@@ -73,6 +75,8 @@ public enum PendingSocketInput: Sendable {
             ) { byteCount, event in
                 byteCount + event.queuedByteCost
             }
+        case .keyText(let text):
+            return max(text.utf8.count, 1)
         }
     }
 
@@ -83,7 +87,7 @@ public enum PendingSocketInput: Sendable {
     /// policy used by the prompt ledger.
     public var isHumanInput: Bool {
         switch self {
-        case .pasteText, .inputText, .key:
+        case .pasteText, .inputText, .key, .keyText:
             true
         case .appOwnedInputText,
              .appOwnedKey,
