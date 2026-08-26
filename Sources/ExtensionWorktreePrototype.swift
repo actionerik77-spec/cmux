@@ -18,32 +18,7 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
     /// inside the new workspace's interactive shell. This is *setup*, never the
     /// workspace's primary process.
     let setupCommand: String
-
-    init(
-        projectRootPath: String,
-        worktreePath: String,
-        branchName: String,
-        workspaceTitle: String,
-        createdHead: String,
-        generatedArtifactRelativePath: String,
-        generatedArtifactContents: Data,
-        worktreeDeviceID: UInt64? = nil,
-        worktreeFileID: UInt64? = nil,
-        setupCommand: String
-    ) {
-        self.projectRootPath = projectRootPath
-        self.worktreePath = worktreePath
-        self.branchName = branchName
-        self.workspaceTitle = workspaceTitle
-        self.createdHead = createdHead
-        self.generatedArtifactRelativePath = generatedArtifactRelativePath
-        self.generatedArtifactContents = generatedArtifactContents
-        self.worktreeDeviceID = worktreeDeviceID
-        self.worktreeFileID = worktreeFileID
-        self.setupCommand = setupCommand
-    }
 }
-
 /// Arguments for spawning a workspace in a freshly created worktree.
 ///
 /// A workspace closes the moment its main process exits, so the worktree
