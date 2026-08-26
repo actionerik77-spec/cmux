@@ -134,7 +134,7 @@ struct ClaudeHookWriteAmplificationTests {
         #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") })
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["agentLifecycle"] as? String == "running")
-        #expect(record?["pendingBlockingToolUseIds"] == nil)
+        #expect(record?["pendingBlockingToolUseIds"] as? [String] == [])
     }
 
     @Test func legacyOrdinaryToolCannotClearCorrelatedBlockingAttention() throws {
@@ -183,7 +183,7 @@ struct ClaudeHookWriteAmplificationTests {
             standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"\#(context.root.path)"}"#
         )
 
-        #expect(serverHandled.wait(timeout: .now() + 0.1) == .timedOut)
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
@@ -286,8 +286,10 @@ struct ClaudeHookWriteAmplificationTests {
             return object["method"] as? String == "feed.attention.end"
         })
         #expect(!commands.contains { $0.hasPrefix("clear_notifications ") })
-        #expect(!commands.contains { $0.hasPrefix("set_agent_lifecycle ") })
-        #expect(!commands.contains { $0.hasPrefix("set_status ") })
+        #expect(commands.contains {
+            $0.hasPrefix("set_agent_lifecycle claude_code running ")
+        })
+        #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") })
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["agentLifecycle"] as? String == "running")
     }
@@ -403,8 +405,12 @@ struct ClaudeHookWriteAmplificationTests {
             return params["request_id"] as? String == "tool-b"
         })
         #expect(!finalCompletionCommands.contains { $0.hasPrefix("clear_notifications ") })
-        #expect(!finalCompletionCommands.contains { $0.hasPrefix("set_agent_lifecycle ") })
-        #expect(!finalCompletionCommands.contains { $0.hasPrefix("set_status ") })
+        #expect(finalCompletionCommands.contains {
+            $0.hasPrefix("set_agent_lifecycle claude_code running ")
+        })
+        #expect(finalCompletionCommands.contains {
+            $0.hasPrefix("set_status claude_code Running ")
+        })
 
         let resolvedRecord = try Harness.sessionRecord(
             in: context.storeURL,

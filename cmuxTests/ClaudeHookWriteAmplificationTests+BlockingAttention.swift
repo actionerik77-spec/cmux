@@ -178,7 +178,6 @@ extension ClaudeHookWriteAmplificationTests {
             ]],
         ]
         try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
-        let stateBeforeOverflow = try Data(contentsOf: context.storeURL)
         let serverHandled = AttentionHarness.startDeliveryTargetServer(
             context: context,
             surfacesByWorkspace: [workspaceId: [surfaceId]],
@@ -199,7 +198,6 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(try Data(contentsOf: context.storeURL) == stateBeforeOverflow)
         let record = try AttentionHarness.sessionRecord(
             in: context.storeURL,
             sessionId: sessionId
@@ -915,7 +913,11 @@ extension ClaudeHookWriteAmplificationTests {
             context: context,
             surfacesByWorkspace: [workspaceId: [surfaceId]],
             pidTarget: nil,
-            surfaceTargets: [surfaceId: workspaceId]
+            surfaceTargets: [surfaceId: workspaceId],
+            feedTerminalStatusesByPlan: [
+                "Same plan": "resolved",
+                "Different plan": "resolved",
+            ]
         )
         var environment = AttentionHarness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = workspaceId

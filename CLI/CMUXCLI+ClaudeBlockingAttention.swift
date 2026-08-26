@@ -159,6 +159,7 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         sessionId: String,
+        legacyFallbackActive: Bool,
         deadline: Date
     ) -> Bool {
         guard let correlationKey = claudePermissionNotificationCorrelationKey(
@@ -166,6 +167,19 @@ extension CMUXCLI {
         ) else { return false }
         func remainingTimeout() -> TimeInterval {
             max(0.05, deadline.timeIntervalSinceNow)
+        }
+        if legacyFallbackActive {
+            do {
+                _ = try sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client,
+                    responseTimeout: remainingTimeout(),
+                    deadline: deadline
+                )
+                return true
+            } catch {
+                return false
+            }
         }
         let targetedCommandRejected: Bool
         do {
@@ -455,6 +469,7 @@ extension CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             sessionId: sessionId,
+            legacyFallbackActive: mappedSession.legacyBlockingAttentionFallbackActive == true,
             deadline: cleanupDeadline
         ) else {
             telemetry.breadcrumb("claude-hook.permission-request.resume-clear-pending")
