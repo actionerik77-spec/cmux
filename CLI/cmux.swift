@@ -25650,11 +25650,17 @@ struct CMUXCLI {
             } else {
                 permissionRequestId = nil
             }
+            var feedObject = rawObject
+            if extractClaudeHookToolUseId(from: rawObject) == nil,
+               firstString(in: rawObject, keys: ["request_id", "requestId"]) == nil {
+                feedObject["_opencode_request_id"] = permissionRequestId
+                    ?? "cmux-permission-\(UUID().uuidString.lowercased())"
+            }
             let terminalResponse = try runFeedHook(
                 commandArgs: ["--source", "claude"],
                 client: client,
                 telemetry: telemetry,
-                stdinObject: rawObject
+                stdinObject: feedObject
             )
             // Feed can block while Claude's Notification hook records Needs
             // input. Re-read after that wait so the completion path owns the

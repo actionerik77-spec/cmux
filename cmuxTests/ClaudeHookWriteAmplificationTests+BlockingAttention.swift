@@ -90,6 +90,18 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(context.state.snapshot().contains {
             $0.hasPrefix("clear_notification_correlation ")
         })
+        let feedRequestIds = context.state.snapshot().compactMap { command -> String? in
+            guard let data = command.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["method"] as? String == "feed.push",
+                  let params = object["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event["_opencode_request_id"] as? String
+        }
+        #expect(feedRequestIds.count == 2)
+        #expect(Set(feedRequestIds).count == 2)
     }
 
     @Test func failedAttentionEndKeepsDurableCorrelation() throws {
