@@ -349,6 +349,7 @@ import Testing
         try """
         #!/bin/sh
         printf 'prepared=%s\\n' "$1"
+        printf 'environment=%s\\n' "$REJECTED_CAPTURE_ENV"
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -367,6 +368,7 @@ import Testing
                     "arguments": [],
                     "source": "rejected",
                     "rejectionReason": "argvDecodeFailed",
+                    "environment": ["REJECTED_CAPTURE_ENV": "preserved"],
                 ],
                 "prepared_arguments": [executable.path, "from-prepared"],
             ],
@@ -390,7 +392,11 @@ import Testing
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
         XCTAssertEqual(result.status, 0, result.diagnostics)
-        XCTAssertEqual(result.stdout, "prepared=from-prepared\n", result.diagnostics)
+        XCTAssertEqual(
+            result.stdout,
+            "prepared=from-prepared\nenvironment=preserved\n",
+            result.diagnostics
+        )
     }
 
     @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {
