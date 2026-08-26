@@ -1603,7 +1603,6 @@ final class CmuxSettingsFileStore {
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
             var paneChromeDidChange = false
-            var linksSettingsDidChange = false
             var adaptiveDefaultThemeDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
@@ -1638,10 +1637,6 @@ final class CmuxSettingsFileStore {
                     change.defaultsKey == RendererRealizationSettings.maxWarmRenderersKey {
                     rendererRealizationDidChange = true
                 }
-                if change.defaultsKey.hasPrefix("links.") {
-                    linksSettingsDidChange = true
-                }
-
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
                     let rawValue = UserDefaults.standard.string(forKey: change.defaultsKey) ?? ""
                     LanguageSettingsStore(defaults: .standard).applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
@@ -1663,9 +1658,6 @@ final class CmuxSettingsFileStore {
             }
             if paneChromeDidChange {
                 PaneChromeSettings.notifyDidChange(notificationCenter: notificationCenter)
-            }
-            if linksSettingsDidChange {
-                TerminalLinkCaptureGate.refreshFromUserDefaults()
             }
             if adaptiveDefaultThemeDidChange {
                 TerminalAdaptiveDefaultThemeSettings.notifyDidChange(
