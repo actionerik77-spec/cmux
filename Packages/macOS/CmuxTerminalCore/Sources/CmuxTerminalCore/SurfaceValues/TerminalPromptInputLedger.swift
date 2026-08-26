@@ -393,8 +393,8 @@ public struct TerminalPromptInputLedger: Sendable {
     /// Keeps replay tombstones bounded without evicting human ownership proof.
     private mutating func trimRetiredProgrammaticBoundaries() {
         var retiredCount = pendingBoundaries.reduce(into: 0) { count, boundary in
-            if case .retiredProgrammatic = boundary {
-                count += 1
+            if case .retiredProgrammatic(let boundaryCount) = boundary {
+                count += boundaryCount
             }
         }
         while retiredCount > Self.maximumPendingBoundaries,
@@ -402,8 +402,18 @@ public struct TerminalPromptInputLedger: Sendable {
                   if case .retiredProgrammatic = $0 { return true }
                   return false
               }) {
-            pendingBoundaries.remove(at: oldestIndex)
-            retiredCount -= 1
+            guard case .retiredProgrammatic(let boundaryCount) =
+                    pendingBoundaries[oldestIndex] else { break }
+            let excess = retiredCount - Self.maximumPendingBoundaries
+            if boundaryCount <= excess {
+                pendingBoundaries.remove(at: oldestIndex)
+                retiredCount -= boundaryCount
+            } else {
+                pendingBoundaries[oldestIndex] = .retiredProgrammatic(
+                    count: boundaryCount - excess
+                )
+                retiredCount -= excess
+            }
         }
     }
 

@@ -26,6 +26,10 @@ struct MobileHostOrderedRequestQueue {
 }
 
 extension MobileHostRPCRequest {
+    /// Conservative ordering bucket used while a chat binding is unresolved.
+    static let globalTerminalInputOrderingKey =
+        "__cmux_global_terminal_input__"
+
     /// Whether this request can write terminal input and must therefore be
     /// handled in arrival order rather than on a concurrent response task.
     /// paste_image belongs here because its handler writes the materialized

@@ -479,6 +479,32 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(scope == nil)
     }
 
+    @Test func queuedHumanPromptBlocksAConcurrentAutomationSubmission() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.queued-human"
+        )
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "human queued prompt",
+                submitKey: "return",
+                rejectIfHumanComposerBusy: false,
+                recordHumanPromptInput: true
+            ) == .queued
+        )
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "automation must wait",
+                submitKey: "return",
+                rejectIfHumanComposerBusy: true,
+                agentInputScope: "agentPIDKey:codex.queued-human",
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .composerBusy
+        )
+    }
+
     @Test func unconfiguredControlReturnRemainsFailClosed() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }

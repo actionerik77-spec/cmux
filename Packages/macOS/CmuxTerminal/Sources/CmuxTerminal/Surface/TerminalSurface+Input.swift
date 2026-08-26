@@ -42,6 +42,14 @@ extension TerminalSurface {
                 }
     }
 
+    @MainActor
+    private var hasQueuedHumanPromptSubmission: Bool {
+        (pendingSocketInputQueue + deferredPromptSubmissionRetries).contains {
+            if case .humanPromptSubmission = $0 { return true }
+            return false
+        }
+    }
+
     /// Returns the transport-owned name for a physical manual-I/O key, if any.
     @MainActor
     public func manualInputKeyName(for event: ghostty_input_key_s) -> String? {
@@ -590,7 +598,8 @@ extension TerminalSurface {
             return .unknownKey
         }
         if rejectIfHumanComposerBusy,
-           promptInputLedger.hasUnconfirmedHumanInput {
+           (promptInputLedger.hasUnconfirmedHumanInput
+            || hasQueuedHumanPromptSubmission) {
             deliveryReceipt?.finish(.composerBusy)
             return .composerBusy
         }

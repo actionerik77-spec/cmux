@@ -414,10 +414,12 @@ extension TerminalController {
                     )
             }
         } else {
-            attachmentReservationHeld = false
-            attachmentService?.releaseMobileChatAttachmentBatchReservation(
-                fileCount: attachments.count
-            )
+            if attachmentReservationHeld {
+                attachmentReservationHeld = false
+                attachmentService?.releaseMobileChatAttachmentBatchReservation(
+                    fileCount: attachments.count
+                )
+            }
             GhosttyApp.terminalPasteboard
                 .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
         }
