@@ -31,6 +31,41 @@ private final class RecordingSleepyRunner: SleepyCommandRunning, @unchecked Send
     }
 }
 
+/// Supplies a thread-safe sequence of lock-state observations to the runner
+/// seam, allowing confirmation tests to model delayed loginwindow state without
+/// touching the host session.
+private final class LockStateScript: @unchecked Sendable {
+    private let lock = NSLock()
+    private var observations: [Bool?]
+
+    init(_ observations: [Bool?]) {
+        self.observations = observations
+    }
+
+    func read() -> Bool? {
+        lock.withLock {
+            guard !observations.isEmpty else { return nil }
+            if observations.count == 1 { return observations[0] }
+            return observations.removeFirst()
+        }
+    }
+}
+
+/// Counts invocations of the injected lock mechanism without calling the real
+/// loginwindow API.
+private final class LockInvocationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func record() {
+        lock.withLock { count += 1 }
+    }
+
+    var invocationCount: Int {
+        lock.withLock { count }
+    }
+}
+
 @Suite("Sleepy Mode lock")
 struct SleepyPowerControlsLockTests {
     /// Regression for https://github.com/manaflow-ai/cmux/issues/9730: macOS 26
@@ -94,6 +129,119 @@ struct SleepyPowerControlsLockTests {
         defer { _ = dlclose(handle) }
 
         #expect(dlsym(handle, "SACLockScreenImmediate") != nil)
+    }
+
+    /// The real runner must wait for the authoritative session bit after the
+    /// in-process call, rather than treating symbol resolution or invocation as
+    /// proof that the Mac is locked.
+    @Test func lockScreenWaitsForAuthoritativeStateTransition() async {
+        let invocation = LockInvocationProbe()
+        let state = LockStateScript([false, true])
+        let source = AsyncStream<Void>.makeStream()
+        let runner = SystemCommandRunner(
+            lockConfirmationTimeout: .seconds(1),
+            lockScreenInvoker: { invocation.record() },
+            lockStateReader: { state.read() },
+            lockNotificationSourceFactory: { source }
+        )
+
+        let confirmed = await runner.lockScreen()
+
+        #expect(confirmed)
+        #expect(invocation.invocationCount == 1)
+    }
+
+    /// A successful private-symbol call is not enough to claim a lock when the
+    /// public session state never confirms the transition; the deadline fails
+    /// closed and cleans up the notification stream.
+    @Test func lockScreenTimesOutWithoutAuthoritativeConfirmation() async {
+        let invocation = LockInvocationProbe()
+        let source = AsyncStream<Void>.makeStream()
+        let runner = SystemCommandRunner(
+            lockConfirmationTimeout: .milliseconds(100),
+            lockScreenInvoker: { invocation.record() },
+            lockStateReader: { false },
+            lockNotificationSourceFactory: { source }
+        )
+
+        let confirmed = await runner.lockScreen()
+
+        #expect(!confirmed)
+        #expect(invocation.invocationCount == 1)
+    }
+
+    /// A globally distributed notification is only a wake-up hint. It must not
+    /// suppress the failure path when the authoritative state remains absent.
+    @Test func lockScreenDoesNotTrustNotificationWithoutStateConfirmation() async {
+        let invocation = LockInvocationProbe()
+        let source = AsyncStream<Void>.makeStream()
+        let invocationObserved = AsyncStream<Void>.makeStream()
+        let runner = SystemCommandRunner(
+            lockConfirmationTimeout: .milliseconds(100),
+            lockScreenInvoker: {
+                invocation.record()
+                invocationObserved.continuation.yield(())
+            },
+            lockStateReader: { nil },
+            lockNotificationSourceFactory: { source }
+        )
+
+        let task = Task { await runner.lockScreen() }
+        var iterator = invocationObserved.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        source.continuation.yield(())
+
+        let confirmed = await task.value
+
+        #expect(!confirmed)
+        #expect(invocation.invocationCount == 1)
+    }
+
+    /// Lifecycle cancellation is checked before the irreversible invocation,
+    /// so a request canceled before the runner starts cannot lock the host.
+    @Test func lockScreenHonorsCancellationBeforeInvocation() async {
+        let invocation = LockInvocationProbe()
+        let source = AsyncStream<Void>.makeStream()
+        let runner = SystemCommandRunner(
+            lockScreenInvoker: { invocation.record() },
+            lockStateReader: { true },
+            lockNotificationSourceFactory: { source }
+        )
+        let gate = SleepyLockInvocationGate()
+        gate.cancel()
+
+        let confirmed = await runner.lockScreen(using: gate)
+
+        #expect(!confirmed)
+        #expect(invocation.invocationCount == 0)
+    }
+
+    /// Once the lock request has been issued, lifecycle task cancellation must
+    /// stop the pending notification/poll/deadline race and report no success.
+    @Test(.timeLimit(.minutes(1)))
+    func lockScreenCancellationStopsPendingConfirmation() async {
+        let invocation = LockInvocationProbe()
+        let source = AsyncStream<Void>.makeStream()
+        let invocationObserved = AsyncStream<Void>.makeStream()
+        let runner = SystemCommandRunner(
+            lockConfirmationTimeout: .seconds(60),
+            lockScreenInvoker: {
+                invocation.record()
+                invocationObserved.continuation.yield(())
+            },
+            lockStateReader: { false },
+            lockNotificationSourceFactory: { source }
+        )
+
+        let task = Task { await runner.lockScreen() }
+        var iterator = invocationObserved.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        task.cancel()
+
+        let confirmed = await task.value
+
+        #expect(!confirmed)
+        #expect(invocation.invocationCount == 1)
     }
 
     /// A completed lock attempt from an exited overlay must not restore its

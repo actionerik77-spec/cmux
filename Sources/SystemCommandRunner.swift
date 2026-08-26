@@ -44,6 +44,12 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         return unsafeBitCast(symbol, to: LockScreenFn.self)
     }()
 
+    private let lockScreenInvoker: (@Sendable () -> Void)?
+    private let lockStateReader: @Sendable () -> Bool?
+    private let lockNotificationSourceFactory: @Sendable () -> (
+        stream: AsyncStream<Void>,
+        continuation: AsyncStream<Void>.Continuation
+    )
     /// The bounded grace period is only a recovery path when loginwindow never
     /// publishes a usable confirmation. Ten seconds covers delayed IPC on busy
     /// hosts while keeping a rejected request from disabling the UI forever.
@@ -52,12 +58,34 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     private let privilegedQueue = DispatchQueue(label: "com.cmux.sleepyMode.privileged")
     private var authorization: AuthorizationRef?  // accessed only on privilegedQueue
 
-    init(
+    convenience init(
         lockConfirmationClock: any Clock<Duration> = ContinuousClock(),
         lockConfirmationTimeout: Duration = .seconds(10)
     ) {
+        self.init(
+            lockConfirmationClock: lockConfirmationClock,
+            lockConfirmationTimeout: lockConfirmationTimeout,
+            lockScreenInvoker: Self.defaultLockScreenInvoker(),
+            lockStateReader: { Self.screenLockState() },
+            lockNotificationSourceFactory: { Self.lockScreenNotifications() }
+        )
+    }
+
+    init(
+        lockConfirmationClock: any Clock<Duration> = ContinuousClock(),
+        lockConfirmationTimeout: Duration = .seconds(10),
+        lockScreenInvoker: (@Sendable () -> Void)?,
+        lockStateReader: @escaping @Sendable () -> Bool?,
+        lockNotificationSourceFactory: @escaping @Sendable () -> (
+            stream: AsyncStream<Void>,
+            continuation: AsyncStream<Void>.Continuation
+        )
+    ) {
         self.lockConfirmationClock = lockConfirmationClock
         self.lockConfirmationTimeout = lockConfirmationTimeout
+        self.lockScreenInvoker = lockScreenInvoker
+        self.lockStateReader = lockStateReader
+        self.lockNotificationSourceFactory = lockNotificationSourceFactory
     }
 
     func run(_ tool: String, _ args: [String]) async {
@@ -112,32 +140,31 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     @Sendable
     #endif
     nonisolated func lockScreen(using gate: SleepyLockInvocationGate) async -> Bool {
-        guard let lockScreenImmediate = Self.lockScreenImmediate else {
-            return false
-        }
+        guard let lockScreenInvoker else { return false }
 
-        // Register before invoking loginwindow. The distributed event is the
-        // authoritative completion signal on hosts that do not expose the
-        // `CGSSessionScreenIsLocked` dictionary key, and AsyncStream buffers it
-        // if the IPC returns before the consumer starts awaiting.
-        let lockNotifications = Self.lockScreenNotifications()
+        // Register before invoking loginwindow. The distributed event is only a
+        // wake-up hint; the session bit remains the sole success authority.
+        // AsyncStream buffers the hint if IPC returns before the consumer starts.
+        let lockNotifications = lockNotificationSourceFactory()
         let clock = lockConfirmationClock
         let timeout = lockConfirmationTimeout
-        let invoked = await gate.invoke {
-            lockScreenImmediate()
+        let stateReader = lockStateReader
+        let invoked = gate.invoke {
+            lockScreenInvoker()
         }
         guard invoked else {
             lockNotifications.continuation.finish()
             return false
         }
-        if Self.isScreenLocked() {
+        if stateReader() == true {
             lockNotifications.continuation.finish()
             return true
         }
         let confirmed = await Self.waitForLockConfirmation(
             lockNotifications.stream,
             clock: clock,
-            timeout: timeout
+            timeout: timeout,
+            stateReader: stateReader
         )
         lockNotifications.continuation.finish()
         return confirmed
@@ -166,12 +193,13 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     private static func waitForLockConfirmation(
         _ notifications: AsyncStream<Void>,
         clock: any Clock<Duration>,
-        timeout: Duration
+        timeout: Duration,
+        stateReader: @escaping @Sendable () -> Bool?
     ) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 for await _ in notifications {
-                    switch Self.screenLockState() {
+                    switch stateReader() {
                     case .some(true):
                         // The session bit is authoritative when available.
                         return true
@@ -181,11 +209,10 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
                         // covers the delayed transition.
                         continue
                     case .none:
-                        // Some sessions omit the dictionary key entirely. This
-                        // observer was registered immediately before this call,
-                        // so its lock event is the request-local fallback; the
-                        // outer deadline still fails closed if no event arrives.
-                        return true
+                        // A global distributed notification is not proof of
+                        // this request's lock; use it only to trigger another
+                        // authoritative read and keep waiting for the state bit.
+                        continue
                     }
                 }
                 return false
@@ -194,8 +221,11 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
                 // Poll the authoritative state concurrently with the event
                 // stream. Either source may be delayed or absent on a given
                 // macOS/session context; an unavailable dictionary remains
-                // pending until the request-local event or deadline resolves it.
-                return await Self.waitForCurrentLockState(clock: clock)
+                // pending until a real state bit or the deadline resolves it.
+                return await Self.waitForCurrentLockState(
+                    clock: clock,
+                    stateReader: stateReader
+                )
             }
             group.addTask {
                 try? await clock.sleep(for: timeout)
@@ -204,13 +234,12 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             let result = await group.next() ?? false
             group.cancelAll()
             guard result else { return false }
-            switch Self.screenLockState() {
+            switch stateReader() {
             case .some(true):
                 return true
             case .none:
-                // A request-local notification is the only successful child
-                // when the session dictionary remains unavailable.
-                return true
+                // Never claim a lock without the authoritative session bit.
+                return false
             case .some(false):
                 return false
             }
@@ -218,10 +247,11 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     }
 
     private static func waitForCurrentLockState(
-        clock: any Clock<Duration>
+        clock: any Clock<Duration>,
+        stateReader: @escaping @Sendable () -> Bool?
     ) async -> Bool {
         while !Task.isCancelled {
-            switch screenLockState() {
+            switch stateReader() {
             case .some(true):
                 return true
             case .none:
@@ -248,8 +278,9 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         return session["CGSSessionScreenIsLocked"] as? Bool
     }
 
-    private static func isScreenLocked() -> Bool {
-        screenLockState() == true
+    private static func defaultLockScreenInvoker() -> (@Sendable () -> Void)? {
+        guard Self.lockScreenImmediate != nil else { return nil }
+        return { Self.lockScreenImmediate?() }
     }
 
     @discardableResult
