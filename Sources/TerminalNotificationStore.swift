@@ -1999,7 +1999,14 @@ final class TerminalNotificationStore: ObservableObject {
         if removed?.isTransientAgentAttention != true {
             notificationFeedHistory.markRead(ids: [id])
         }
-        if let removed {
+        if let removed,
+           !removed.isTransientAgentAttention,
+           !notifications.contains(where: {
+               $0.tabId == removed.tabId
+                   && $0.surfaceId == removed.surfaceId
+                   && !$0.isTransientAgentAttention
+                   && !$0.isRead
+           }) {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
         }
         removeDeliveredNotifications(withIdentifiers: [id.uuidString])
@@ -2062,6 +2069,7 @@ final class TerminalNotificationStore: ObservableObject {
             !notifications.contains(where: {
                 $0.tabId == notification.tabId
                     && $0.surfaceId == notification.surfaceId
+                    && !$0.isTransientAgentAttention
                     && !$0.isRead
             }) else {
                 continue

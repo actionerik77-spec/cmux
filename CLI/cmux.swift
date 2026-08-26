@@ -157,6 +157,12 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     /// Kept separate from blocking-tool IDs so an ordinary permission response
     /// cannot clear a concurrent question/plan blocker.
     var pendingPermissionRequestIds: [String]? = nil
+    /// FIFO request IDs awaiting Claude's delayed `permission_prompt`
+    /// Notification hook. The hook atomically moves one ID into the cleanup list.
+    var pendingPermissionNotificationRequestIds: [String]? = nil
+    /// Request IDs whose native permission rows were emitted and still require
+    /// an acknowledged correlation-scoped clear.
+    var pendingPermissionNotificationCleanupRequestIds: [String]? = nil
     var lastSubtitle: String?
     var lastBody: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
@@ -722,15 +728,18 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             if clearPendingBlockingTools {
-                // Preserve an empty correlated tombstone so a late completion
-                // from the finished turn cannot select legacy session-wide
-                // cleanup and overwrite attention owned by the next turn.
-                record.pendingBlockingToolUseIds = []
-                record.pendingBlockingToolCorrelations = []
+                // Preserve an empty tombstone only for correlated records so a
+                // late completion cannot select legacy session-wide cleanup.
+                // Legacy records must keep nil for old catch-all wrappers.
+                let usesCorrelatedBlockingTools = record.pendingBlockingToolUseIds != nil
+                record.pendingBlockingToolUseIds = usesCorrelatedBlockingTools ? [] : nil
+                record.pendingBlockingToolCorrelations = usesCorrelatedBlockingTools ? [] : nil
                 // A turn boundary also retires ordinary PermissionRequest
                 // markers and any legacy V1 fallback notice. Both belong to
                 // the completed turn and must not gate the next one.
                 record.pendingPermissionRequestIds = nil
+                record.pendingPermissionNotificationRequestIds = nil
+                record.pendingPermissionNotificationCleanupRequestIds = nil
                 record.legacyBlockingAttentionFallbackActive = nil
             }
             let superseded: [ClaudeHookSessionRecord]
@@ -25371,8 +25380,11 @@ struct CMUXCLI {
             let notificationCorrelationKey: String?
             if notifyCategory == .needsPermission,
                let sessionId = parsedInput.sessionId {
+                let permissionRequestId = try? sessionStore
+                    .claimPermissionNotificationRequestId(sessionId: sessionId)
                 notificationCorrelationKey = claudePermissionNotificationCorrelationKey(
-                    sessionId: sessionId
+                    sessionId: sessionId,
+                    requestId: permissionRequestId
                 )
             } else {
                 notificationCorrelationKey = nil
@@ -25642,11 +25654,21 @@ struct CMUXCLI {
             let isBlockingTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
             let permissionRequestToolUseId = extractClaudeHookToolUseId(from: rawObject)
             let permissionRequestId: String?
-            if !isBlockingTool, let sessionId = parsedInput.sessionId {
-                permissionRequestId = try? sessionStore.registerPermissionRequest(
-                    sessionId: sessionId,
-                    toolUseId: permissionRequestToolUseId
-                )
+            if let sessionId = parsedInput.sessionId {
+                if isBlockingTool {
+                    permissionRequestId = try? sessionStore
+                        .registerBlockingToolPermissionRequest(
+                            sessionId: sessionId,
+                            toolUseId: permissionRequestToolUseId,
+                            rawObject: rawObject,
+                            turnId: parsedInput.turnId
+                        )
+                } else {
+                    permissionRequestId = try? sessionStore.registerPermissionRequest(
+                        sessionId: sessionId,
+                        toolUseId: permissionRequestToolUseId
+                    )
+                }
             } else {
                 permissionRequestId = nil
             }
@@ -25691,7 +25713,8 @@ struct CMUXCLI {
                 do {
                     _ = try sessionStore.resolveBlockingToolPermissionRequest(
                         sessionId: sessionId,
-                        toolUseId: extractClaudeHookToolUseId(from: rawObject),
+                        toolUseId: permissionRequestId
+                            ?? extractClaudeHookToolUseId(from: rawObject),
                         rawObject: rawObject,
                         turnId: parsedInput.turnId
                     )
@@ -25738,6 +25761,7 @@ struct CMUXCLI {
                     routing: hookRouting,
                     telemetry: telemetry,
                     expectedSession: resumePermissionSession,
+                    permissionNotificationRequestId: permissionRequestId,
                     allowResolvedState: isBlockingTool
                 )
             } else {
@@ -25753,7 +25777,8 @@ struct CMUXCLI {
                         sessionStore: sessionStore,
                         routing: hookRouting,
                         telemetry: telemetry,
-                        expectedSession: resumePermissionSession
+                        expectedSession: resumePermissionSession,
+                        permissionNotificationRequestId: permissionRequestId
                     )
                 }
             }

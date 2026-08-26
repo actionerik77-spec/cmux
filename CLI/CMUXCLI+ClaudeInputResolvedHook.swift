@@ -146,6 +146,7 @@ extension CMUXCLI {
                     routing: routing,
                     telemetry: telemetry,
                     expectedSession: mappedSession,
+                    permissionNotificationRequestId: attentionRequestId,
                     allowResolvedState: true
                 )
             }

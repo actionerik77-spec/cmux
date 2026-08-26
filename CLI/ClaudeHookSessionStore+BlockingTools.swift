@@ -33,66 +33,6 @@ extension ClaudeHookSessionStore {
     private static let maximumBlockingToolPayloadSignatureStringBytes = 512
     private static let maximumBlockingToolPayloadSignatureKeyBytes = 128
     private static let maximumBlockingToolTurnIdBytes = 256
-    private static let maximumPermissionRequestCount = 64
-
-    /// Records one ordinary PermissionRequest without changing the agent
-    /// lifecycle. Claude's PermissionRequest payload does not include
-    /// `tool_use_id`, so an omitted ID receives a bounded synthetic marker
-    /// owned by this synchronous hook process.
-    @discardableResult
-    func registerPermissionRequest(
-        sessionId: String,
-        toolUseId: String?
-    ) throws -> String? {
-        guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
-            return nil
-        }
-        let requestId = normalizedBlockingToolIdentifier(toolUseId)
-            ?? "cmux-permission-\(UUID().uuidString.lowercased())"
-        return try withLockedState { state in
-            guard var record = state.sessions[sessionId] else { return nil }
-            var pending = record.pendingPermissionRequestIds ?? []
-            guard !pending.contains(requestId) else { return requestId }
-            guard pending.count < Self.maximumPermissionRequestCount else { return nil }
-            pending.append(requestId)
-            record.pendingPermissionRequestIds = pending
-            record.updatedAt = Date.now.timeIntervalSince1970
-            state.sessions[sessionId] = record
-            return requestId
-        }
-    }
-
-    @discardableResult
-    func beginPermissionRequest(
-        sessionId: String,
-        toolUseId: String?
-    ) throws -> Bool {
-        try registerPermissionRequest(sessionId: sessionId, toolUseId: toolUseId) != nil
-    }
-
-    @discardableResult
-    func finishPermissionRequest(
-        sessionId: String,
-        toolUseId: String?
-    ) throws -> Bool {
-        guard let sessionId = normalizedBlockingToolIdentifier(sessionId),
-              let toolUseId = normalizedBlockingToolIdentifier(toolUseId) else {
-            return false
-        }
-        return try withLockedState { state in
-            guard var record = state.sessions[sessionId],
-                  var pending = record.pendingPermissionRequestIds,
-                  let index = pending.firstIndex(of: toolUseId) else {
-                return false
-            }
-            pending.remove(at: index)
-            record.pendingPermissionRequestIds = pending.isEmpty ? nil : pending
-            record.updatedAt = Date.now.timeIntervalSince1970
-            state.sessions[sessionId] = record
-            return true
-        }
-    }
-
     /// Returns the session displaced by a pane-scoped active-session boundary.
     /// Legacy workspace-only slots are accepted only when their recorded pane
     /// matches, so cleanup cannot release attention owned by a sibling split.
@@ -123,8 +63,8 @@ extension ClaudeHookSessionStore {
     }
 
     /// Clears an agent-owned Needs-input lifecycle only when no blocker remains.
-    /// The eligibility check and tombstone write share one flock transaction so
-    /// an overlapping PreToolUse cannot be erased between two hook processes.
+    /// The eligibility check and correlation-state write share one flock
+    /// transaction so an overlapping PreToolUse cannot be erased between hooks.
     @discardableResult
     func clearBlockingAttentionLifecycleIfEligible(
         sessionId: String,
@@ -161,12 +101,15 @@ extension ClaudeHookSessionStore {
                 lastBody: nil,
                 now: Date.now.timeIntervalSince1970
             )
-            record.pendingBlockingToolUseIds = []
-            record.pendingBlockingToolCorrelations = []
+            let usesCorrelatedBlockingTools = record.pendingBlockingToolUseIds != nil
+            record.pendingBlockingToolUseIds = usesCorrelatedBlockingTools ? [] : nil
+            record.pendingBlockingToolCorrelations = usesCorrelatedBlockingTools ? [] : nil
             record.lastSubtitle = nil
             record.lastBody = nil
             record.legacyBlockingAttentionFallbackActive = nil
             record.pendingPermissionRequestIds = nil
+            record.pendingPermissionNotificationRequestIds = nil
+            record.pendingPermissionNotificationCleanupRequestIds = nil
             state.sessions[sessionId] = record
             return true
         }
@@ -188,6 +131,45 @@ extension ClaudeHookSessionStore {
             record.legacyBlockingAttentionFallbackActive = nextValue
             record.updatedAt = Date.now.timeIntervalSince1970
             state.sessions[sessionId] = record
+        }
+    }
+
+    /// Registers the exact blocking request whose delayed Notification hook may
+    /// create a permission row. Claude omits `tool_use_id` from PermissionRequest,
+    /// so this uses the same payload/turn correlation as blocker resolution.
+    func registerBlockingToolPermissionRequest(
+        sessionId: String,
+        toolUseId: String?,
+        rawObject: [String: Any]?,
+        turnId: String? = nil
+    ) throws -> String? {
+        guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
+            return nil
+        }
+        return try withLockedState { state in
+            guard var record = state.sessions[sessionId],
+                  let storedPending = record.pendingBlockingToolUseIds else {
+                return nil
+            }
+            let pending = normalizedBlockingToolUseIds(storedPending)
+            guard let requestId = correlatedBlockingToolUseId(
+                explicitToolUseId: normalizedBlockingToolIdentifier(toolUseId),
+                rawObject: rawObject,
+                record: record,
+                incomingTurnId: turnId
+            ), pending.contains(requestId) else {
+                return nil
+            }
+            if record.pendingPermissionNotificationRequestIds?.contains(requestId) == true
+                || record.pendingPermissionNotificationCleanupRequestIds?.contains(requestId) == true {
+                return requestId
+            }
+            guard enqueuePermissionNotificationRequestId(requestId, in: &record) else {
+                return nil
+            }
+            record.updatedAt = Date.now.timeIntervalSince1970
+            state.sessions[sessionId] = record
+            return requestId
         }
     }
 
@@ -416,6 +398,7 @@ extension ClaudeHookSessionStore {
             record.pendingBlockingToolCorrelations =
                 (record.pendingBlockingToolCorrelations ?? [])
                 .filter { $0.toolUseId != toolUseId }
+            removePermissionNotificationRequestId(toolUseId, from: &record)
             record.agentLifecycle = remaining.isEmpty
                 && record.pendingPermissionRequestIds?.isEmpty != false
                 ? .running
@@ -593,7 +576,7 @@ extension ClaudeHookSessionStore {
         return false
     }
 
-    private func normalizedBlockingToolIdentifier(_ value: String?) -> String? {
+    func normalizedBlockingToolIdentifier(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else {
             return nil

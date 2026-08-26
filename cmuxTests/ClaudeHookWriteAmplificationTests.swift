@@ -134,7 +134,7 @@ struct ClaudeHookWriteAmplificationTests {
         #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") })
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["agentLifecycle"] as? String == "running")
-        #expect(record?["pendingBlockingToolUseIds"] as? [String] == [])
+        #expect(record?["pendingBlockingToolUseIds"] == nil)
     }
 
     @Test func legacyOrdinaryToolCannotClearCorrelatedBlockingAttention() throws {
