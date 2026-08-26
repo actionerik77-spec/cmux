@@ -231,11 +231,12 @@ extension AgentNotificationRegressionTests {
     @Test
     func testRelayTransientAttentionFollowsMovedSurfaceAndScopesReleaseToOwner() throws {
         let fixture = try makeLiveRetargetFixture()
-        var transientExternalEffects: (desktop: Bool, sound: Bool, command: Bool)?
+        var attemptedTransientExternalDelivery = false
         fixture.store.configureNotificationDeliveryHandlerForTesting {
             _, notification, effects in
             guard notification.title == "Remote Claude Code" else { return }
-            transientExternalEffects = (effects.desktop, effects.sound, effects.command)
+            attemptedTransientExternalDelivery =
+                effects.desktop || effects.sound || effects.command
         }
         let remoteConfiguration = WorkspaceRemoteConfiguration(
             destination: "example.invalid",
@@ -348,9 +349,7 @@ extension AgentNotificationRegressionTests {
         #expect(notification.tabId == fixture.owningWorkspace.id)
         #expect(!notification.persistsInSessionSnapshot)
         #expect(notification.isTransientAgentAttention)
-        #expect(transientExternalEffects?.desktop == false)
-        #expect(transientExternalEffects?.sound == false)
-        #expect(transientExternalEffects?.command == false)
+        #expect(!attemptedTransientExternalDelivery)
         #expect(fixture.store.unreadNotificationCount == 0)
         #expect(!fixture.store.workspaceIsUnread(forTabId: fixture.owningWorkspace.id))
         #expect(fixture.store.latestNotification(forTabId: fixture.owningWorkspace.id) == nil)
