@@ -68,12 +68,14 @@ extension TerminalSurface {
     func deferInputDuringRuntimeClipboardRead(
         estimatedBytes: Int,
         isHumanInput: Bool = true,
-        replay: @escaping () -> Void
+        replay: @escaping () -> Void,
+        onDiscard: @escaping () -> Void = {}
     ) -> Bool {
         surfaceView.deferRuntimeInputDuringClipboardRead(
             estimatedBytes: estimatedBytes,
             isHumanInput: isHumanInput,
-            replay: replay
+            replay: replay,
+            onDiscard: onDiscard
         )
     }
 
@@ -628,6 +630,11 @@ extension TerminalSurface {
         if !deferredPromptSubmissionRetries.isEmpty {
             return .inputQueueFull
         }
+        if deliveryReceipt == nil {
+            deferredPromptSubmissionRetries = [pendingPromptInput]
+            deferredPromptSubmissionRetryBytes = pendingPromptInput.estimatedBytes
+            deferredPromptSubmissionRetryRounds = 0
+        }
 
         // Admission captures the human-input generation before the compound
         // transaction can wait behind a runtime clipboard read. The replay
@@ -665,21 +672,27 @@ extension TerminalSurface {
                 } else if let receiptLessInput =
                             deliveryReceipt == nil ? pendingPromptInput : nil {
                     self.clearDeferredPromptSubmissionRetry()
-                    if !self.prependPendingSocketInput(receiptLessInput) {
-                        self.retainDeferredPromptSubmission(receiptLessInput)
-                    }
+                    _ = self.retainDeferredPromptSubmission(receiptLessInput)
                     self.requestInputDemandSurfaceStartIfNeeded()
                 } else if result != .queued {
                     deliveryReceipt?.finish(result)
                 }
+            },
+            onDiscard: { [weak self] in
+                guard let self else {
+                    deliveryReceipt?.cancel()
+                    return
+                }
+                if let deliveryReceipt {
+                    deliveryReceipt.finish(.surfaceUnavailable)
+                } else {
+                    self.clearDeferredPromptSubmissionRetry()
+                    _ = self.retainDeferredPromptSubmission(
+                        pendingPromptInput
+                    )
+                }
             }
         ) {
-            if deliveryReceipt == nil {
-                deferredPromptSubmissionRetries = [pendingPromptInput]
-                deferredPromptSubmissionRetryBytes =
-                    pendingPromptInput.estimatedBytes
-                deferredPromptSubmissionRetryRounds = 0
-            }
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
                 panelId: id
@@ -1449,19 +1462,6 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func prependPendingSocketInput(_ input: PendingSocketInput) -> Bool {
-        let bytes = input.estimatedBytes
-        guard bytes > 0,
-              bytes <= maxPendingSocketInputBytes,
-              pendingSocketInputBytes + bytes <= maxPendingSocketInputBytes else {
-            return false
-        }
-        pendingSocketInputQueue.insert(input, at: 0)
-        pendingSocketInputBytes += bytes
-        return true
-    }
-
-    @MainActor
     func enqueuePendingSocketInputs(_ inputs: [PendingSocketInput]) -> Bool {
         let incomingBytes = inputs.reduce(0) { $0 + $1.estimatedBytes }
         guard incomingBytes > 0 else { return true }
@@ -1610,10 +1610,8 @@ extension TerminalSurface {
             // Keep an admitted prompt available for the original process
             // scope instead of silently dropping a caller-visible `queued`
             // transaction after a restart/rebind.
-            if !enqueuePendingSocketInputs(retainedItems) {
-                for item in retainedItems {
-                    guard retainDeferredPromptSubmission(item) else { break }
-                }
+            for item in retainedItems {
+                guard retainDeferredPromptSubmission(item) else { break }
             }
         }
         if deferredPromptSubmissionRetries.isEmpty,
@@ -1682,9 +1680,22 @@ extension TerminalSurface {
                 let deliveryResult = self.deliverPendingSocketInput(input)
                 if case .failed = deliveryResult,
                    self.shouldRetainPendingPromptAfterFailure(input) {
-                    if !self.prependPendingSocketInput(input) {
-                        self.retainDeferredPromptSubmission(input)
-                    }
+                    _ = self.retainDeferredPromptSubmission(input)
+                }
+            },
+            onDiscard: { [weak self] in
+                guard let self else {
+                    input.completePromptSubmissionDelivery(
+                        with: .surfaceUnavailable
+                    )
+                    return
+                }
+                if self.shouldRetainPendingPromptAfterFailure(input) {
+                    _ = self.retainDeferredPromptSubmission(input)
+                } else {
+                    input.completePromptSubmissionDelivery(
+                        with: .surfaceUnavailable
+                    )
                 }
             }
         ) {

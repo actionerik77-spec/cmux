@@ -5705,7 +5705,8 @@ struct CMUXCLI {
             }
             let payload = try client.sendV2(
                 method: "workspace.agent_submit",
-                params: params
+                params: params,
+                responseTimeout: 75
             )
             printV2Payload(
                 payload,

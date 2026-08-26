@@ -218,14 +218,16 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         id: RequestID,
         currentEpoch: UInt64,
         deferredInputDisposition: RuntimeClipboardDeferredInputDisposition,
-        replay: @escaping (Event) -> Void
+        replay: @escaping (Event) -> Void,
+        discard: @escaping (Event) -> Void = { _ in }
     ) {
         guard let request = removeRequest(id: id) else { return }
         cancelBufferedInput(
             requestEpoch: request.epoch,
             currentEpoch: currentEpoch,
             disposition: deferredInputDisposition,
-            replay: replay
+            replay: replay,
+            discard: discard
         )
         drainReadyCompletions(for: request.epoch)
     }
@@ -237,7 +239,8 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         requestEpoch: UInt64,
         currentEpoch: UInt64,
         deferredInputDisposition: RuntimeClipboardDeferredInputDisposition,
-        replay: @escaping (Event) -> Void
+        replay: @escaping (Event) -> Void,
+        discard: @escaping (Event) -> Void = { _ in }
     ) {
         _ = reservedAdmissions.withLock { state in
             state.admissionsByID.removeValue(forKey: id)
@@ -246,7 +249,8 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
             requestEpoch: requestEpoch,
             currentEpoch: currentEpoch,
             disposition: deferredInputDisposition,
-            replay: replay
+            replay: replay,
+            discard: discard
         )
         drainReadyCompletions(for: requestEpoch)
     }
@@ -435,13 +439,18 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         requestEpoch: UInt64,
         currentEpoch: UInt64,
         disposition: RuntimeClipboardDeferredInputDisposition,
-        replay: @escaping (Event) -> Void
+        replay: @escaping (Event) -> Void,
+        discard: @escaping (Event) -> Void
     ) {
         switch disposition {
         case .replay:
             replayBufferedEvents(for: requestEpoch, replay: replay)
         case .discard:
-            buffersByEpoch.removeValue(forKey: requestEpoch)
+            if let buffer = buffersByEpoch.removeValue(forKey: requestEpoch) {
+                for event in buffer.events.dropFirst(buffer.nextEventIndex) {
+                    discard(event.event)
+                }
+            }
             guard currentEpoch != requestEpoch else { return }
             replayBufferedEvents(for: currentEpoch, replay: replay)
         }

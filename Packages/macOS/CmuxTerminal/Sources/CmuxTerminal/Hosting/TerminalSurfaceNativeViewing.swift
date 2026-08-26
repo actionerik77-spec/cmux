@@ -72,6 +72,15 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
         replay: @escaping () -> Void
     ) -> Bool
 
+    /// Defers runtime input and reports when teardown discards its replay.
+    @discardableResult
+    func deferRuntimeInputDuringClipboardRead(
+        estimatedBytes: Int,
+        isHumanInput: Bool,
+        replay: @escaping () -> Void,
+        onDiscard: @escaping () -> Void
+    ) -> Bool
+
     /// Whether an earlier human-owned event is buffered for this surface's
     /// current clipboard-read epoch.
     func hasDeferredHumanInputDuringClipboardRead() -> Bool
@@ -118,6 +127,21 @@ public extension TerminalSurfaceNativeViewing {
     ) -> Bool {
         deferRuntimeInputDuringClipboardRead(
             estimatedBytes: estimatedBytes,
+            replay: replay
+        )
+    }
+
+    /// Hosts without clipboard sequencing cannot discard a deferred replay.
+    @discardableResult
+    func deferRuntimeInputDuringClipboardRead(
+        estimatedBytes: Int,
+        isHumanInput: Bool,
+        replay: @escaping () -> Void,
+        onDiscard _: @escaping () -> Void
+    ) -> Bool {
+        deferRuntimeInputDuringClipboardRead(
+            estimatedBytes: estimatedBytes,
+            isHumanInput: isHumanInput,
             replay: replay
         )
     }

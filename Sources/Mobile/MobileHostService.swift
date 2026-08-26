@@ -1370,6 +1370,17 @@ final class MobileHostService {
                 )
                 return result
             },
+            resolveOrderedInputSurfaceKey: { request in
+                guard request.method == "mobile.chat.send"
+                        || request.method == "mobile.chat.interrupt"
+                        || request.method == "mobile.chat.answer",
+                      let sessionID = request.params["session_id"] as? String else {
+                    return request.orderedInputSurfaceKey
+                }
+                return await TerminalController.shared
+                    .mobileChatOrderedSurfaceID(sessionID: sessionID)
+                    ?? request.orderedInputSurfaceKey
+            },
             onClose: { id in
                 await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
                 await MobileHostService.shared.mobileSimulatorStreamCoordinator.connectionClosed(id)
@@ -2013,6 +2024,8 @@ actor MobileHostConnection {
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let onUsableSession: @Sendable () async -> Bool
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
+    private let resolveOrderedInputSurfaceKey:
+        @Sendable (MobileHostRPCRequest) async -> String?
     private let onClose: @Sendable (UUID) async -> Void
     private let requestSimulatorFrameReplay: @Sendable (UUID, Set<String>) async -> Void
     private let responseWorkQuota = MobileHostRPCWorkQuota()
@@ -2035,7 +2048,6 @@ actor MobileHostConnection {
     private var orderedRequestQueuesBySurfaceKey: [String: MobileHostOrderedRequestQueue] = [:]
     private var orderedRequestWorkerTasksBySurfaceKey: [String: Task<Void, Never>] = [:]
     private var orderedRequestRunningFrameByteCountsBySurfaceKey: [String: Int] = [:]
-    private let chatOrderingBarrier = MobileHostChatOrderingBarrier()
     private var receiveTask: Task<Void, Never>?
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
@@ -2065,6 +2077,9 @@ actor MobileHostConnection {
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void,
+        resolveOrderedInputSurfaceKey: @escaping @Sendable (MobileHostRPCRequest) async -> String? = { request in
+            request.orderedInputSurfaceKey
+        },
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
     ) {
         let transport = CmxNetworkByteTransport(acceptedConnection: connection)
@@ -2079,6 +2094,7 @@ actor MobileHostConnection {
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
+        self.resolveOrderedInputSurfaceKey = resolveOrderedInputSurfaceKey
         self.onClose = onClose
         self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
         self.eventQueue = eventQueue
@@ -2097,6 +2113,9 @@ actor MobileHostConnection {
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void,
+        resolveOrderedInputSurfaceKey: @escaping @Sendable (MobileHostRPCRequest) async -> String? = { request in
+            request.orderedInputSurfaceKey
+        },
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
     ) {
         self.id = id
@@ -2110,6 +2129,7 @@ actor MobileHostConnection {
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
+        self.resolveOrderedInputSurfaceKey = resolveOrderedInputSurfaceKey
         self.onClose = onClose
         self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
         self.eventQueue = eventQueue
@@ -2252,7 +2272,7 @@ actor MobileHostConnection {
                     guard !isClosed else {
                         return
                     }
-                    guard startResponseTask(for: frame) else {
+                    guard await startResponseTask(for: frame) else {
                         await close(
                             reason: "rpc work capacity exceeded",
                             exit: CmxIrohAdmittedConnectionExit(
@@ -2287,7 +2307,7 @@ actor MobileHostConnection {
         }
     }
 
-    private func startResponseTask(for frame: Data) -> Bool {
+    private func startResponseTask(for frame: Data) async -> Bool {
         guard !isClosed else {
             return false
         }
@@ -2305,7 +2325,8 @@ actor MobileHostConnection {
         ) else { return false }
         if case let .success(request) = decodedRequest,
            request.isOrderedTerminalInput {
-            let surfaceKey = request.orderedInputSurfaceKey
+            let surfaceKey = await resolveOrderedInputSurfaceKey(request)
+                ?? request.orderedInputSurfaceKey
             orderedRequestQueuesBySurfaceKey[surfaceKey, default: MobileHostOrderedRequestQueue()]
                 .enqueue(MobileHostOrderedRequest(
                     frameByteCount: frame.count,
@@ -2346,19 +2367,8 @@ actor MobileHostConnection {
             // close the connection instead of pinning it forever.
             switch request.decodedRequest {
             case let .success(decoded):
-                let isChatOrderingRequest = decoded.method == "mobile.chat.send"
-                    || decoded.method == "mobile.chat.interrupt"
-                    || decoded.method == "mobile.chat.answer"
-                let enteredChatOrderingBarrier = await chatOrderingBarrier.enter(
-                    isChat: isChatOrderingRequest
-                )
-                if enteredChatOrderingBarrier {
-                    if let response = await successResponsePayload(for: decoded) {
-                        startResponseSendTask(response)
-                    }
-                    await chatOrderingBarrier.leave(
-                        isChat: isChatOrderingRequest
-                    )
+                if let response = await successResponsePayload(for: decoded) {
+                    startResponseSendTask(response)
                 }
             case .failure:
                 // Decode failures are never enqueued ordered; keep the

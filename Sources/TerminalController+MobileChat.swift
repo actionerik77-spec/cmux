@@ -629,4 +629,11 @@ extension TerminalController {
         return resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel
     }
 
+    /// Resolves a chat session to the stable surface key used by mobile input
+    /// admission, before an ordered RPC worker is selected.
+    func mobileChatOrderedSurfaceID(sessionID: String) async -> String? {
+        await mobileChatTerminalParams(sessionID: sessionID)?["surface_id"]
+            as? String
+    }
+
 }
