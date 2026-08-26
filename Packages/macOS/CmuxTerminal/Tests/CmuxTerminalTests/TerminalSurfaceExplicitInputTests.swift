@@ -447,6 +447,38 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(await receipt.wait() == .surfaceUnavailable)
     }
 
+    @Test func nativePromptDoesNotRetainAReplacedAgentScope() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.native-textbox"
+        )
+        fixture.nativeView.shouldDeferRuntimeInput = true
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "native composer prompt",
+                submitKey: "return",
+                rejectIfHumanComposerBusy: false,
+                hookRecordingSource: "workspace.prompt_submit",
+                hookConfirmsHumanInput: true
+            ) == .queued
+        )
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.replacement"
+        )
+        fixture.nativeView.shouldDeferRuntimeInput = false
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
+
+        guard case .promptSubmission(
+            _, _, _, _, _, let scope, _
+        ) = fixture.surface.pendingSocketInputQueue.first else {
+            Issue.record("Expected the native prompt to remain queued")
+            return
+        }
+        #expect(scope == nil)
+    }
+
     @Test func unconfiguredControlReturnRemainsFailClosed() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }

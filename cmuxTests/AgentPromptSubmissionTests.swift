@@ -575,6 +575,56 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func hookWithoutPIDCannotUseGenericPromptRouting() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        var workspaceForCleanup: Workspace?
+        var panelForCleanup: TerminalPanel?
+        defer {
+            panelForCleanup?.surface.releaseSurfaceForTesting()
+            if let workspace = workspaceForCleanup,
+               tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+        let workspace = tabManager.addWorkspace(select: true)
+        workspaceForCleanup = workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        panelForCleanup = panel
+        workspace.recordAgentPID(
+            key: "codex.missing-hook-pid",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        panel.surface.recordHumanPromptInput(.unknown)
+        panel.surface.recordHumanPromptInput(.submissionBoundary)
+
+        let event = WorkstreamEvent(
+            sessionId: "missing-hook-pid",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: workspace.id.uuidString,
+            surfaceId: panelID.uuidString,
+            ppid: nil,
+            toolInputJSON: #"{"prompt":"human prompt"}"#
+        )
+        TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
+
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+        #expect(workspace.latestSubmittedMessage == nil)
+    }
+
+    @MainActor
     @Test func staleExplicitSurfaceHookDoesNotConfirmAnotherTerminal() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = previousAppDelegate ?? AppDelegate()

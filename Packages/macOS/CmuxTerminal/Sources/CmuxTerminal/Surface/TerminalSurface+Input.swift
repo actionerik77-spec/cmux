@@ -603,9 +603,11 @@ extension TerminalSurface {
             && hookConfirmsHumanInput
             ? promptInputLedger.humanInputSnapshot
             : nil
-        let admittedAgentInputScope = recordHumanPromptInput
-            ? nil
-            : (agentInputScope ?? promptInputLedger.currentAgentScope)
+        let validatesAgentScope = !recordHumanPromptInput
+            && rejectIfHumanComposerBusy
+        let admittedAgentInputScope = validatesAgentScope
+            ? (agentInputScope ?? promptInputLedger.currentAgentScope)
+            : nil
         let estimatedBytes = preparationEvents.reduce(
             data.count + submitEvent.queuedByteCost
         ) { byteCount, event in

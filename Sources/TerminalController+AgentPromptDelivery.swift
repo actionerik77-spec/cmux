@@ -211,7 +211,11 @@ extension TerminalController {
         let source = hookSource.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-        guard !source.isEmpty, !hookSessionID.isEmpty else { return false }
+        guard !source.isEmpty,
+              !hookSessionID.isEmpty,
+              let hookPID else {
+            return false
+        }
         let expectedStatusKey = source == "claude"
             ? "claude_code"
             : source
@@ -220,14 +224,12 @@ extension TerminalController {
                     == expectedStatusKey else {
                 return false
             }
-            if let hookPID {
-                guard agentPromptHookProcessIdentityMatches(
-                    key: key,
-                    hookPID: hookPID,
-                    workspace: workspace
-                ) else {
-                    return false
-                }
+            guard agentPromptHookProcessIdentityMatches(
+                key: key,
+                hookPID: hookPID,
+                workspace: workspace
+            ) else {
+                return false
             }
             guard let separator = key.firstIndex(of: ".") else {
                 return allowSessionlessKey && hookPID != nil
