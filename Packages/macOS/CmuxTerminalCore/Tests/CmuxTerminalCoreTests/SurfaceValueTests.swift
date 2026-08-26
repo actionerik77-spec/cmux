@@ -62,7 +62,7 @@ import GhosttyKit
                 submitKey: key,
                 hookRecordingSource: "workspace.agent_submit",
                 hookConfirmedHumanInputSnapshot: nil,
-                agentInputScope: .bound("agent:test"),
+                agentInputScope: "agent:test",
                 deliveryReceipt: nil
             ).estimatedBytes == 29
         )
@@ -104,7 +104,7 @@ import GhosttyKit
             ),
             hookRecordingSource: "workspace.prompt_submit",
             hookConfirmedHumanInputSnapshot: snapshot,
-            agentInputScope: .bound("agent:test"),
+            agentInputScope: "agent:test",
             deliveryReceipt: nil
         )
 

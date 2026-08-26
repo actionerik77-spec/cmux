@@ -141,13 +141,11 @@ extension TerminalController {
         var submitted = false
         var queued = false
         if let submitKeyName {
-            // Mobile chat is an existing human-owned send surface. Preserve its
-            // prior delivery behavior during a transient process-identity gap,
-            // while still rejecting a tracked Mac-side draft whenever an
-            // authoritative scope exists. workspace.agent_submit remains
-            // strictly fail-closed when that scope is unavailable.
-            let rejectTrackedHumanComposer =
-                rejectIfHumanComposerBusy && agentInputScope != nil
+            // Exact mobile-chat automation is guarded by the same authoritative
+            // agent scope as workspace.agent_submit. A transient identity gap
+            // fails closed before any compatibility reset can be queued for a
+            // different process.
+            let rejectTrackedHumanComposer = rejectIfHumanComposerBusy
             // Keep the legacy composer reset inside the same indivisible
             // transaction whenever this exact mobile-chat path is guarded.
             // Tracked input is rejected before these keys are admitted; the
@@ -178,7 +176,6 @@ extension TerminalController {
                         context: agentContext
                     ),
                 recordHumanPromptInput: recordHumanPromptInput,
-                captureAgentInputScope: rejectIfHumanComposerBusy,
                 deliveryReceipt: deliveryReceipt
             )
             switch result {

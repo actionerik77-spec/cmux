@@ -423,70 +423,7 @@ struct TerminalSurfaceExplicitInputTests {
             Issue.record("Expected the scoped prompt to be retained")
             return
         }
-        #expect(retainedScope == .bound(originalScope))
-    }
-
-    @Test func unboundPromptCannotReplayAfterTerminalLifecycleReplacement() async {
-        let runtimeSurface = allocatedRuntimeSurface()
-        let fixture = makeFixture(runtimeSurface: runtimeSurface)
-        defer {
-            fixture.surface.releaseSurfaceForTesting()
-            runtimeSurface.deallocate()
-        }
-        fixture.nativeView.shouldDeferRuntimeInput = true
-        let receipt = PromptSubmissionDeliveryReceipt()
-
-        #expect(
-            fixture.surface.sendPromptSubmission(
-                "pre-binding mobile prompt",
-                submitKey: "return",
-                preparationKeys: ["ctrl+a", "ctrl+k", "ctrl+u"],
-                rejectIfHumanComposerBusy: false,
-                captureAgentInputScope: true,
-                deliveryReceipt: receipt
-            ) == .queued
-        )
-
-        fixture.surface.advanceTerminalLifecycleForRuntimeReplacement()
-        fixture.surface.synchronizePromptInputAgentScope(
-            "agentPIDKey:codex.new-process"
-        )
-        fixture.nativeView.shouldDeferRuntimeInput = false
-        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
-
-        #expect(await receipt.wait() == .agentScopeUnavailable)
-        #expect(!fixture.surface.hasPendingProgrammaticPromptSubmission)
-    }
-
-    @Test func unboundPromptCanReplayWhenTheInitialAgentBinds() async {
-        let runtimeSurface = allocatedRuntimeSurface()
-        let fixture = makeFixture(runtimeSurface: runtimeSurface)
-        defer {
-            fixture.surface.releaseSurfaceForTesting()
-            runtimeSurface.deallocate()
-        }
-        fixture.nativeView.shouldDeferRuntimeInput = true
-        let receipt = PromptSubmissionDeliveryReceipt()
-
-        #expect(
-            fixture.surface.sendPromptSubmission(
-                "pre-binding mobile prompt",
-                submitKey: "return",
-                preparationKeys: ["ctrl+a", "ctrl+k", "ctrl+u"],
-                rejectIfHumanComposerBusy: false,
-                captureAgentInputScope: true,
-                deliveryReceipt: receipt
-            ) == .queued
-        )
-
-        fixture.surface.synchronizePromptInputAgentScope(
-            "agentPIDKey:codex.initial-process"
-        )
-        fixture.nativeView.shouldDeferRuntimeInput = false
-        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
-
-        #expect(await receipt.wait() == .sent)
-        #expect(!fixture.surface.hasPendingProgrammaticPromptSubmission)
+        #expect(retainedScope == originalScope)
     }
 
     @Test func discardedQueuedPromptCompletesItsDeliveryReceipt() async {

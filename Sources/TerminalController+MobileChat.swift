@@ -296,6 +296,20 @@ extension TerminalController {
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
+        // Mobile chat and workspace.agent_submit share one cross-entrypoint
+        // admission gate. Hold it through attachment preparation and the
+        // delivery receipt so either entrypoint cannot overtake the other.
+        guard agentPromptSubmissionDeliveryLane
+            .tryBeginSynchronousTurn() else {
+            return .err(
+                code: "input_queue_full",
+                message: Self.terminalInputQueueFullMessage,
+                data: ["retryable": true]
+            )
+        }
+        defer {
+            agentPromptSubmissionDeliveryLane.completeSynchronousTurn()
+        }
         guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID

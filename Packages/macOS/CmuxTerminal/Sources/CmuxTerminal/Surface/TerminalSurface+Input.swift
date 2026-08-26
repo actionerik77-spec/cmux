@@ -604,13 +604,9 @@ extension TerminalSurface {
     /// preparation keys, bracketed-paste text, and exactly one named submit
     /// key.
     ///
-    /// A guarded mobile compatibility caller can capture an unavailable scope
-    /// while retaining the transaction's lifecycle identity; the transaction
-    /// then replays only after an agent scope is published for that lifecycle.
-    ///
-    /// - Parameter captureAgentInputScope: Captures the current scope even
-    ///   when the human-composer busy check is disabled for a compatibility
-    ///   path.
+    /// Guarded callers require an authoritative agent scope before admission,
+    /// so a deferred transaction can never be retargeted to an unknown
+    /// process.
     @MainActor
     @discardableResult
     public func sendPromptSubmission(
@@ -622,7 +618,6 @@ extension TerminalSurface {
         hookConfirmsHumanInput: Bool = false,
         recordHumanPromptInput: Bool = false,
         agentInputScope: String? = nil,
-        captureAgentInputScope: Bool = false,
         deliveryReceipt: PromptSubmissionDeliveryReceipt? = nil
     ) -> PromptSubmissionSendResult {
         let data = Data(text.utf8)
@@ -653,14 +648,18 @@ extension TerminalSurface {
             ? promptInputLedger.humanInputSnapshot
             : nil
         let validatesAgentScope = !recordHumanPromptInput
-            && (rejectIfHumanComposerBusy || captureAgentInputScope)
-        let admittedAgentInputScope: PromptSubmissionAgentScope? =
-            validatesAgentScope
-                ? PromptSubmissionAgentScope(
-                    agentInputScope ?? promptInputLedger.currentAgentScope,
-                    terminalLifecycleID: terminalLifecycleId
-                )
-                : nil
+            && rejectIfHumanComposerBusy
+        let admittedAgentInputScope: String?
+        if validatesAgentScope {
+            guard let scope = agentInputScope
+                    ?? promptInputLedger.currentAgentScope else {
+                deliveryReceipt?.finish(.agentScopeUnavailable)
+                return .agentScopeUnavailable
+            }
+            admittedAgentInputScope = scope
+        } else {
+            admittedAgentInputScope = nil
+        }
         let estimatedBytes = preparationEvents.reduce(
             data.count + submitEvent.queuedByteCost
         ) { byteCount, event in
@@ -789,7 +788,7 @@ extension TerminalSurface {
         submitEvent: PendingKeyEvent,
         hookRecordingSource: String?,
         recordHumanPromptInput: Bool,
-        admittedAgentInputScope: PromptSubmissionAgentScope?,
+        admittedAgentInputScope: String?,
         hookConfirmedHumanInputSnapshot:
             TerminalPromptInputLedger.HumanInputSnapshot?,
         deliveryReceipt: PromptSubmissionDeliveryReceipt?
@@ -798,10 +797,7 @@ extension TerminalSurface {
             return .surfaceUnavailable
         }
         if let admittedAgentInputScope,
-           !admittedAgentInputScope.matches(
-               promptInputLedger.currentAgentScope,
-               terminalLifecycleID: terminalLifecycleId
-           ) {
+           promptInputLedger.currentAgentScope != admittedAgentInputScope {
             return .agentScopeUnavailable
         }
         guard surface != nil else {
@@ -1690,18 +1686,10 @@ extension TerminalSurface {
     ) -> Bool {
         switch input {
         case .promptSubmission(
-            _, _, _, _, _, let admittedAgentInputScope, let deliveryReceipt
+            _, _, _, _, _, _, let deliveryReceipt
         ):
             guard deliveryReceipt == nil,
                   !input.isCancelledPromptSubmission else {
-                return false
-            }
-            // An unbound compatibility transaction cannot safely survive the
-            // first process identity that appears after admission. Retaining
-            // it would block newer prompts while offering no original scope
-            // to which it could ever return.
-            if let admittedAgentInputScope,
-               case .unbound = admittedAgentInputScope {
                 return false
             }
             return true
@@ -1828,10 +1816,7 @@ extension TerminalSurface {
             let deliveryReceipt
         ):
             if let admittedAgentInputScope,
-               !admittedAgentInputScope.matches(
-                   promptInputLedger.currentAgentScope,
-                   terminalLifecycleID: terminalLifecycleId
-               ) {
+               promptInputLedger.currentAgentScope != admittedAgentInputScope {
                 deliveryReceipt?.finish(.agentScopeUnavailable)
                 return .failed
             }

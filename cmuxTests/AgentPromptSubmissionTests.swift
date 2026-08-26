@@ -58,6 +58,42 @@ struct AgentPromptSubmissionTests {
         )
     }
 
+    @Test func compatibilityTurnSharesTheGlobalAdmissionGate() async {
+        let lane = AgentPromptSubmissionDeliveryLane(
+            deliveryTimeout: .milliseconds(10),
+            maximumWaitingTurns: 1
+        )
+        #expect(lane.tryBeginSynchronousTurn())
+
+        let blocked = await lane.perform { _ in
+            .admitted(
+                .submitted(
+                    workspaceID: UUID(),
+                    surfaceID: UUID(),
+                    queued: false
+                )
+            )
+        }
+        #expect(blocked == .laneBusy)
+
+        lane.completeSynchronousTurn()
+        let recovered = await lane.perform { receipt in
+            receipt.finish(.sent)
+            return .admitted(
+                .submitted(
+                    workspaceID: UUID(),
+                    surfaceID: UUID(),
+                    queued: false
+                )
+            )
+        }
+        if case .admitted(.submitted) = recovered {
+            // The shared gate is available again after the compatibility turn.
+        } else {
+            Issue.record("Expected the async admission lane to recover")
+        }
+    }
+
     @Test func deliveryLaneWaitsForActualDeliveryBeforeStartingNext() async {
         let lane = AgentPromptSubmissionDeliveryLane()
         let probe = AgentPromptDeliveryLaneProbe()
@@ -351,7 +387,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func exactMobileSendPreservesDeliveryBeforeAgentScopeBinding() throws {
+    @Test func exactMobileSendFailsClosedBeforeAgentScopeBinding() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = previousAppDelegate ?? AppDelegate()
         let previousTabManager = appDelegate.tabManager
@@ -388,74 +424,15 @@ struct AgentPromptSubmissionTests {
             rejectIfHumanComposerBusy: true
         )
 
-        guard case .ok(let payload) = result else {
-            Issue.record("Expected pre-binding mobile send to remain available")
+        guard case .err(let code, _, let rawData) = result else {
+            Issue.record("Expected pre-binding mobile send to fail closed")
             return
         }
-        let response = try #require(payload as? [String: Any])
-        #expect(response["submitted"] as? Bool == true)
+        #expect(code == "agent_scope_unavailable")
+        let response = try #require(rawData as? [String: Any])
+        #expect(response["retryable"] as? Bool == true)
         let pending = panel.surface.pendingSocketInputSnapshotForTests
-        #expect(pending.items == 1)
-        #expect(pending.keyEvents == 0)
-        #expect(pending.promptSubmissionItems == 1)
-        #expect(
-            panel.surface.pendingPromptPreparationKeyLabelsForTests
-                == [["ctrl+a", "ctrl+k", "ctrl+u"]]
-        )
-
-        workspace.recordAgentPID(
-            key: "codex.prebinding-mobile",
-            pid: getpid(),
-            panelId: panelID,
-            refreshPorts: false
-        )
-        #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
-
-        let boundMobileResult = TerminalController.shared
-            .v2MobileTerminalPaste(
-                params: [
-                    "workspace_id": workspace.id.uuidString,
-                    "surface_id": panelID.uuidString,
-                    "text": "bound mobile message",
-                ],
-                rejectIfHumanComposerBusy: true
-            )
-        guard case .ok(let boundMobilePayload) = boundMobileResult else {
-            Issue.record("Expected bound mobile send to remain available")
-            return
-        }
-        let boundMobileResponse = try #require(
-            boundMobilePayload as? [String: Any]
-        )
-        #expect(boundMobileResponse["submitted"] as? Bool == true)
-        #expect(boundMobileResponse["queued"] as? Bool == true)
-        #expect(
-            panel.surface.pendingPromptPreparationKeyLabelsForTests
-                == [
-                    ["ctrl+a", "ctrl+k", "ctrl+u"],
-                    ["ctrl+a", "ctrl+k", "ctrl+u"],
-                ]
-        )
-
-        let agentResult = TerminalController.shared.v2WorkspaceAgentSubmit(
-            params: [
-                "workspace_id": workspace.id.uuidString,
-                "surface_id": panelID.uuidString,
-                "text": "supervisor message",
-            ]
-        )
-        guard case .ok(let agentPayload) = agentResult else {
-            Issue.record(
-                "Expected agent submission after initial binding to remain available"
-            )
-            return
-        }
-        let agentResponse = try #require(agentPayload as? [String: Any])
-        #expect(agentResponse["submitted"] as? Bool == true)
-        #expect(agentResponse["queued"] as? Bool == true)
-        #expect(
-            panel.surface.pendingSocketInputSnapshotForTests.items == 3
-        )
+        #expect(pending.items == 0)
     }
 
     @MainActor
