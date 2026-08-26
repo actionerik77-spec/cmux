@@ -186,7 +186,7 @@ struct SleepyFaceView: View {
                 let warn = Color(red: 0.95, green: 0.62, blue: 0.30)
                 HStack(spacing: 7) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                    Text(String(localized: "sleepyMode.lockFailed", defaultValue: "Couldn't lock the Mac — press ⌃⌘Q or choose Lock Screen from the system menu"))
+                    Text(String(localized: "sleepyMode.lockFailed", defaultValue: "Couldn't lock the Mac — exit Sleepy Mode, then press ⌃⌘Q or choose Lock Screen from the Apple menu"))
                 }
                 .font(.system(size: 13, weight: .bold, design: .monospaced))
                 .foregroundStyle(warn.opacity(0.95))
