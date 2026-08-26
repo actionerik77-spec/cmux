@@ -587,11 +587,11 @@ extension Workspace {
                         sessionId: bindingSessionId
                     )
                     guard let effectiveRestorableAgent else {
-                        switch panelShellActivityStates[panelId] {
-                        case .some(.commandRunning): return true
-                        case .some(.promptIdle): return false
-                        case .some(.unknown), .none: return nil
-                        }
+                        // Shell activity only proves that some command is in the
+                        // foreground. Without a matching structured agent or
+                        // runtime process identity it cannot prove this binding's
+                        // conversation is still running.
+                        return false
                     }
                     guard effectiveRestorableAgent.kind.rawValue == bindingKind.rawValue,
                           ManagedAgentSessionIdentity.sessionIDsMatch(

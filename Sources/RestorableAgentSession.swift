@@ -845,6 +845,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// Last hook-observed permission mode; re-applied as `--permission-mode` on
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
+    /// Verified Codex producer provenance carried by an authoritative binding.
+    /// Missing provenance must never be upgraded into an automatic Codex restore.
+    var resumeEvidenceProvenance: String? = nil
 
     func preparedResumeArguments(
         launchCommand: AgentLaunchCommandSnapshot?,

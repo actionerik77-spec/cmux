@@ -18,9 +18,14 @@ extension SessionRestorableAgentSnapshot {
               ) else {
             return self
         }
-        guard sessionId != checkpointId else { return self }
         var retargeted = self
-        retargeted.sessionId = checkpointId
+        if sessionId != checkpointId {
+            retargeted.sessionId = checkpointId
+        }
+        if kind.rawValue.lowercased() == "codex",
+           let provenance = binding.resumeEvidenceProvenance {
+            retargeted.resumeEvidenceProvenance = provenance
+        }
         return retargeted
     }
 
@@ -30,6 +35,15 @@ extension SessionRestorableAgentSnapshot {
     /// binding derivation here gives session-save backfill and restore-time repair one command and
     /// working-directory policy instead of allowing each persistence owner to reconstruct it.
     func resumeBindingSnapshot() -> SurfaceResumeBindingSnapshot? {
+        if kind.rawValue.lowercased() == "codex" {
+            guard resumeEvidenceProvenance?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                == AgentResumeEvidenceProvenance.tui.logValue else {
+                // Codex exec/subagent/unknown records may remain in the hook
+                // store, but only verified top-level TUI evidence may own a
+                // foreground auto-resume binding.
+                return nil
+            }
+        }
         let resolvedWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: kind.rawValue,
             runtimeCwd: workingDirectory,
@@ -51,6 +65,7 @@ extension SessionRestorableAgentSnapshot {
             environment: launchCommand?.environment,
             launchCommand: launchCommand,
             permissionMode: permissionMode,
+            resumeEvidenceProvenance: resumeEvidenceProvenance,
             autoResume: true
         )
     }

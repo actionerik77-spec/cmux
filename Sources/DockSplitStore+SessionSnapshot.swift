@@ -239,12 +239,18 @@ extension DockSplitStore {
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
-            let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
-            var resumeBinding = effectiveSessionResumeBinding(
+            let initialManagedResumeBinding = managedAgentResumeBinding(panelId: panelId)
+            let detectedResumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
                 detected: detectedResumeBinding,
                 detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
             )
+            let managedResumeBinding = initialManagedResumeBinding
+                ?? managedAgentResumeBinding(panelId: panelId)
+            // A managed hook binding carries the authoritative execution
+            // location and approval/provenance metadata. A transient
+            // process-detected binding must never replace it in a snapshot.
+            var resumeBinding = managedResumeBinding ?? detectedResumeBinding
             let restorableAgent = effectiveSessionRestorableAgent(
                 panelId: panelId,
                 observation: observation,
@@ -590,6 +596,14 @@ extension DockSplitStore {
             }
             return [recordedIdentity]
         }()
+        if managedBinding != nil,
+           relevantObservation == nil,
+           confirmedRuntimeIdentities.isEmpty {
+            // An unrelated foreground command is not evidence that this
+            // managed agent session is still alive. Keep the binding available
+            // for manual restore, but fail closed for automatic resume.
+            return false
+        }
         return (relevantObservation?.processLiveness ?? .unknown).wasRunning(
             fallingBackTo: terminal.shellActivity.state,
             recordedProcessIdentities: relevantObservation?.agentProcessIdentities ?? [:],

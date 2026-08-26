@@ -122,7 +122,8 @@ import Testing
                 arguments: ["/usr/local/bin/codex", "resume", sessionId],
                 workingDirectory: "/tmp/binding-index-gap",
                 source: "process"
-            )
+            ),
+            resumeEvidenceProvenance: "tui"
         )
         workspace.restoredAgentSnapshotsByPanelId[panel.id] = agent
         workspace.restoredAgentResumeStatesByPanelId[panel.id] = .manualResumeAvailable
@@ -136,6 +137,22 @@ import Testing
         )
         #expect(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId == sessionId)
         #expect(workspace.surfaceResumeBinding(panelId: panel.id)?.checkpointId == sessionId)
+    }
+
+    @Test
+    func unverifiedCodexSnapshotCannotBackfillAutomaticBinding() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "unverified-codex-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex", "resume", "unverified-codex-session"],
+                source: "process"
+            )
+        )
+
+        #expect(snapshot.resumeBindingSnapshot() == nil)
     }
 
     @Test @MainActor
