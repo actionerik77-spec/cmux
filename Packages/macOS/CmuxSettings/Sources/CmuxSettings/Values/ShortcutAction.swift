@@ -150,6 +150,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 
     // MARK: Browser & Find
     case openDiffViewer
+    /// Opens or focuses the workspace Links pane.
     case openLinksPanel
     case saveFilePreview
     case openBrowser
