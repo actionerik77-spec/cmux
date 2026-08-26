@@ -7213,7 +7213,7 @@ struct CMUXCLI {
                     idFormat: idFormat,
                     fallbackText: v2NotificationSummary(payload, idFormat: idFormat)
                 )
-            case let .surface(rawSurface, workspaceID, _, false):
+            case let .surface(rawSurface, workspaceID, _, _):
                 var params: [String: Any] = [
                     "title": title,
                     "subtitle": subtitle,
@@ -7230,11 +7230,6 @@ struct CMUXCLI {
                     idFormat: idFormat,
                     fallbackText: v2NotificationSummary(payload, idFormat: idFormat)
                 )
-            case .surface(_, _, _, true):
-                // A targeted resolution always carries both concrete IDs. Keep
-                // this defensive branch exhaustive if that invariant is ever
-                // violated instead of sending an incomplete target to the socket.
-                throw CLIError(message: "notify target could not be resolved")
             case let .workspace(workspaceID):
                 var params: [String: Any] = [
                     "title": title,
@@ -7306,7 +7301,7 @@ struct CMUXCLI {
             }
 
         case "mark-notification-read":
-            let id = optionValue(commandArgs, name: "--id")
+            let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument)
             let workspaceArg = optionValue(commandArgs, name: "--workspace")
             let surfaceArg = optionValue(commandArgs, name: "--surface")
             let windowHandle = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
@@ -7336,7 +7331,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
 
         case "open-notification":
-            guard let id = optionValue(commandArgs, name: "--id") else {
+            guard let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument) else {
                 throw CLIError(message: String(localized: "cli.error.openNotificationRequiresId", defaultValue: "open-notification requires --id"))
             }
             let payload = try client.sendV2(method: "notification.open", params: ["id": id])
@@ -19534,7 +19529,7 @@ struct CMUXCLI {
             Remove one notification, or remove every already-read notification.
 
             Flags:
-              --id <uuid>           Notification id to remove
+              --id <uuid|notification:<uuid>>  Notification id or notify handle to remove
               --all-read            Remove every already-read notification
               --json                Print JSON
               --id-format <mode>    refs, uuids, or both
