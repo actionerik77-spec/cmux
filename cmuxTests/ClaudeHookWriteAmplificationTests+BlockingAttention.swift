@@ -1320,5 +1320,8 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(context.state.snapshot().contains { $0.contains(#""method":"feed.attention.end""#) })
+        #expect(context.state.snapshot().contains {
+            $0.hasPrefix("clear_notification_correlation claude-permission:")
+        })
     }
 }

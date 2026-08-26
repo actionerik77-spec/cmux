@@ -8,7 +8,7 @@ import Testing
 #endif
 
 extension ClaudeHookWriteAmplificationTests {
-    @Test func concurrentPermissionNotificationsClearIndependently() throws {
+    @Test func concurrentPermissionNotificationsCoalesceUntilLastResolution() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(
             name: "permission-notification-correlation"
         )
@@ -103,7 +103,7 @@ extension ClaudeHookWriteAmplificationTests {
 
         let notificationKeys = permissionNotificationKeys(in: context.state.snapshot())
         #expect(notificationKeys.count == 2)
-        #expect(Set(notificationKeys).count == 2)
+        #expect(Set(notificationKeys).count == 1)
 
         let beforeFirstResolution = context.state.snapshot().count
         feedGate.signal()
@@ -112,8 +112,7 @@ extension ClaudeHookWriteAmplificationTests {
             context.state.snapshot().dropFirst(beforeFirstResolution)
         )
         let firstClearedKeys = clearedPermissionKeys(in: firstResolutionCommands)
-        #expect(firstClearedKeys.count == 1)
-        #expect(Set(notificationKeys).isSuperset(of: firstClearedKeys))
+        #expect(firstClearedKeys.isEmpty)
 
         let beforeSecondResolution = context.state.snapshot().count
         feedGate.signal()
@@ -123,13 +122,13 @@ extension ClaudeHookWriteAmplificationTests {
         )
         let secondClearedKeys = clearedPermissionKeys(in: secondResolutionCommands)
         #expect(secondClearedKeys.count == 1)
-        #expect(Set(notificationKeys) == Set(firstClearedKeys + secondClearedKeys))
+        #expect(secondClearedKeys.first == notificationKeys.first)
         let completed = results.withLock { $0 }
         #expect(completed.count == 2)
         #expect(completed.allSatisfy { !$0.timedOut && $0.status == 0 })
     }
 
-    @Test func legacyOrdinaryCleanupSurvivesPermissionLifecycle() throws {
+    @Test func latePermissionNotificationDoesNotReopenResolvedLifecycle() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(
             name: "legacy-permission-lifecycle"
         )
@@ -171,6 +170,7 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(!permission.timedOut, Comment(rawValue: permission.stderr))
         #expect(permission.status == 0, Comment(rawValue: permission.stderr))
 
+        let beforeLateNotification = context.state.snapshot().count
         let notification = ClaudeHookLiveDeliveryHarness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "notification"],
@@ -179,15 +179,15 @@ extension ClaudeHookWriteAmplificationTests {
         )
         #expect(!notification.timedOut, Comment(rawValue: notification.stderr))
         #expect(notification.status == 0, Comment(rawValue: notification.stderr))
-
-        let ordinaryTool = ClaudeHookLiveDeliveryHarness.runHookProcess(
-            context: context,
-            arguments: ["hooks", "claude", "pre-tool-use"],
-            environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"\#(context.root.path)"}"#
+        let lateNotificationCommands = Array(
+            context.state.snapshot().dropFirst(beforeLateNotification)
         )
-        #expect(!ordinaryTool.timedOut, Comment(rawValue: ordinaryTool.stderr))
-        #expect(ordinaryTool.status == 0, Comment(rawValue: ordinaryTool.stderr))
+        #expect(!lateNotificationCommands.contains {
+            $0.hasPrefix("notify_target_async ")
+        })
+        #expect(!lateNotificationCommands.contains {
+            $0.hasPrefix("set_agent_lifecycle claude_code needs_input ")
+        })
 
         let record = try ClaudeHookLiveDeliveryHarness.sessionRecord(
             in: context.storeURL,
@@ -195,9 +195,6 @@ extension ClaudeHookWriteAmplificationTests {
         )
         #expect(record?["agentLifecycle"] as? String == "running")
         #expect(record?["pendingBlockingToolUseIds"] == nil)
-        #expect(context.state.snapshot().contains {
-            $0.hasPrefix("set_agent_lifecycle claude_code running ")
-        })
     }
 }
 
