@@ -1,12 +1,75 @@
+import CmuxTerminalCore
 import Foundation
 
 extension TerminalController {
+    /// Maps a compound mobile prompt failure to the public mobile RPC error.
+    /// Accepted outcomes stay `nil` so callers can preserve their success
+    /// payload while waiting for a deferred delivery receipt.
+    static func mobilePromptSubmissionFailure(
+        _ result: PromptSubmissionSendResult,
+        surfaceID: String,
+        submitKey: String? = nil
+    ) -> V2CallResult? {
+        switch result {
+        case .sent, .queued:
+            return nil
+        case .composerBusy:
+            return .err(
+                code: "rejected_composer_busy",
+                message: Self.agentPromptComposerBusyMessage,
+                data: [
+                    "surface_id": surfaceID,
+                    "retryable": true,
+                    "retry_after":
+                        "human_prompt_submit_or_agent_restart",
+                ]
+            )
+        case .agentScopeUnavailable:
+            return .err(
+                code: "agent_scope_unavailable",
+                message: Self.agentPromptScopeUnavailableMessage,
+                data: [
+                    "surface_id": surfaceID,
+                    "retryable": true,
+                    "retry_after": "agent_terminal_ready",
+                ]
+            )
+        case .unknownKey:
+            return .err(
+                code: "invalid_params",
+                message: "Unsupported submit_key",
+                data: submitKey.map {
+                    ["submit_key": $0] as [String: Any]
+                }
+            )
+        case .inputQueueFull:
+            return .err(
+                code: "input_queue_full",
+                message: Self.terminalInputQueueFullMessage,
+                data: ["surface_id": surfaceID]
+            )
+        case .surfaceUnavailable:
+            return .err(
+                code: "surface_unavailable",
+                message: Self.terminalSurfaceUnavailableMessage,
+                data: ["surface_id": surfaceID]
+            )
+        case .processExited:
+            return .err(
+                code: "process_exited",
+                message: Self.terminalProcessExitedMessage,
+                data: ["surface_id": surfaceID]
+            )
+        }
+    }
+
     /// Delivers one mobile-composer block through the compound prompt
     /// primitive, or stages it without submitting when `submit_key=none`.
     func v2MobileTerminalPaste(
         params: [String: Any],
         rejectIfHumanComposerBusy: Bool = false,
-        recordHumanPromptInput: Bool = true
+        recordHumanPromptInput: Bool = true,
+        deliveryReceipt: PromptSubmissionDeliveryReceipt? = nil
     ) -> V2CallResult {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(
@@ -114,7 +177,9 @@ extension TerminalController {
                     TextBoxAgentDetection.supportsActiveAgentPrefixes(
                         context: agentContext
                     ),
-                recordHumanPromptInput: recordHumanPromptInput
+                recordHumanPromptInput: recordHumanPromptInput,
+                captureAgentInputScope: rejectIfHumanComposerBusy,
+                deliveryReceipt: deliveryReceipt
             )
             switch result {
             case .sent:
@@ -125,50 +190,15 @@ extension TerminalController {
             case .queued:
                 submitted = true
                 queued = true
-            case .composerBusy:
-                return .err(
-                    code: "rejected_composer_busy",
-                    message: Self.agentPromptComposerBusyMessage,
-                    data: [
-                        "surface_id": surfaceID.uuidString,
-                        "retryable": true,
-                        "retry_after":
-                            "human_prompt_submit_or_agent_restart",
-                    ]
-                )
-            case .agentScopeUnavailable:
-                return .err(
-                    code: "agent_scope_unavailable",
-                    message: Self.agentPromptScopeUnavailableMessage,
-                    data: [
-                        "surface_id": surfaceID.uuidString,
-                        "retryable": true,
-                        "retry_after": "agent_terminal_ready",
-                    ]
-                )
-            case .unknownKey:
-                return .err(
-                    code: "invalid_params",
-                    message: "Unsupported submit_key",
-                    data: ["submit_key": submitKeyName]
-                )
-            case .inputQueueFull:
-                return .err(
-                    code: "input_queue_full",
-                    message: Self.terminalInputQueueFullMessage,
-                    data: ["surface_id": surfaceID.uuidString]
-                )
-            case .surfaceUnavailable:
-                return .err(
-                    code: "surface_unavailable",
-                    message: Self.terminalSurfaceUnavailableMessage,
-                    data: ["surface_id": surfaceID.uuidString]
-                )
-            case .processExited:
-                return .err(
-                    code: "process_exited",
-                    message: Self.terminalProcessExitedMessage,
-                    data: ["surface_id": surfaceID.uuidString]
+            default:
+                return Self.mobilePromptSubmissionFailure(
+                    result,
+                    surfaceID: surfaceID.uuidString,
+                    submitKey: submitKeyName
+                ) ?? .err(
+                    code: "internal_error",
+                    message: "Prompt delivery failed",
+                    data: nil
                 )
             }
         } else {

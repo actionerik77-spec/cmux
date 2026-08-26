@@ -200,11 +200,20 @@ actor AgentPromptSubmissionDeliveryLane {
         waitingTurns.remove(at: index).continuation.resume(returning: false)
     }
 
-    private func waitForDelivery(
-        _ receipt: PromptSubmissionDeliveryReceipt
+    /// Waits for one compound delivery using the lane's bounded deadline.
+    ///
+    /// This helper does not claim the lane turn; callers that already own a
+    /// separate ordering domain can use the same receipt timeout without
+    /// allowing an unavailable surface to hold that domain forever.
+    ///
+    /// - Parameter timeout: An optional shorter deadline for callers with a
+    ///   transport-level response budget.
+    func waitForDelivery(
+        _ receipt: PromptSubmissionDeliveryReceipt,
+        timeout: Duration? = nil
     ) async -> PromptSubmissionSendResult {
         let clock = self.clock
-        let timeout = self.deliveryTimeout
+        let timeout = timeout ?? deliveryTimeout
         await withTaskGroup(of: PromptSubmissionSendResult.self) { group in
             group.addTask {
                 await receipt.wait()

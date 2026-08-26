@@ -5990,6 +5990,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     || event.keyCode == UInt16(kVK_ANSI_KeypadEnter))
         var acceptedGhosttyKey = false
         var acceptedPromptBoundaryKey = false
+        var acceptedAccumulatedText = false
         if !accumulatedText.isEmpty {
             // Accumulated text comes from insertText (IME composition result).
             // These never have "composing" set to true because these are the
@@ -6016,6 +6017,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                         #endif
                     }
                     acceptedGhosttyKey = handled || acceptedGhosttyKey
+                    if handled {
+                        acceptedAccumulatedText = true
+                    }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     CmuxTypingTiming.logDuration(
@@ -6171,12 +6175,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // mutate the terminal, so it must not create a recoverable composer
         // boundary or a conservative human-input record.
         if acceptedGhosttyKey, let terminalSurface {
+            // `insertText` can arrive during `interpretKeyEvents`, where the
+            // committed string is accumulated and later split into real
+            // Return/Tab key events by the send path. Replay the same text
+            // grammar here so embedded newlines create hook-recoverable
+            // boundaries instead of collapsing to one unknown mutation.
+            if acceptedAccumulatedText {
+                for text in accumulatedText {
+                    terminalSurface.recordAcceptedUnownedPromptInput(text)
+                }
+            }
             if acceptedPromptBoundaryKey {
                 terminalSurface.recordHumanPromptKey(
                     keycode: UInt32(event.keyCode),
                     mods: eventMods
                 )
-            } else {
+            } else if !acceptedAccumulatedText {
                 // Committed IME text and ordinary non-submit keys are human
                 // mutations, but they do not establish a hook-recoverable
                 // prompt boundary.

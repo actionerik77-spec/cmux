@@ -2384,10 +2384,12 @@ actor MobileHostConnection {
                 await worker.value
             }
         }
-        while !Task.isCancelled, !isClosed,
-              let request = orderedRequestQueuesBySurfaceKey[surfaceKey]?.dequeue() {
+        while !Task.isCancelled, !isClosed {
             if !isGlobalOrderingWorker, globalTerminalInputOrderingPending {
-                orderedRequestQueuesBySurfaceKey[surfaceKey]?.enqueue(request)
+                break
+            }
+            guard let request = orderedRequestQueuesBySurfaceKey[surfaceKey]?
+                .dequeue() else {
                 break
             }
             orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = request.frameByteCount

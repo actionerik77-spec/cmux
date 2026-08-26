@@ -1,5 +1,6 @@
 import CmuxAgentChat
 import CmuxTerminal
+import CmuxTerminalCore
 import Foundation
 
 /// `mobile.chat.*` RPC handlers: the Mac side of the iOS agent chat
@@ -8,8 +9,11 @@ import Foundation
 /// the existing mobile terminal injection machinery so chat input behaves
 /// exactly like composer input.
 extension TerminalController {
-    private static let mobileChatAttachmentPreparationTimeout:
-        Duration = .seconds(30)
+    /// Keeps the complete mobile-chat RPC below the phone's default deadline,
+    /// including attachment preparation and deferred terminal delivery.
+    private static let mobileChatRequestBudget: Duration = .seconds(28)
+    /// Leaves transport headroom below the phone's 30-second RPC deadline.
+    private static let mobileChatDeliveryTimeout: Duration = .seconds(20)
     /// Actionable error for a chat session whose terminal binding cannot
     /// be resolved even after a hook-store refresh. Surfaces verbatim in the
     /// iOS chat error banner, so it is localized.
@@ -271,6 +275,9 @@ extension TerminalController {
     /// `mobile.chat.send`: deliver attachments then inject the prompt into
     /// the session's terminal (bracketed paste + submit key).
     func v2MobileChatSend(params: [String: Any]) async -> V2CallResult {
+        let requestDeadline = ContinuousClock.now.advanced(
+            by: Self.mobileChatRequestBudget
+        )
         guard let sessionID = v2RawString(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
@@ -346,9 +353,7 @@ extension TerminalController {
                 await Self.prepareMobileChatAttachments(
                     attachmentPayloads,
                     pasteboard: GhosttyApp.terminalPasteboard,
-                    deadline: ContinuousClock.now.advanced(
-                        by: Self.mobileChatAttachmentPreparationTimeout
-                    )
+                    deadline: requestDeadline
                 ) else {
             return .err(
                 code: "invalid_params",
@@ -390,11 +395,43 @@ extension TerminalController {
         let deliveredProcessID = attachmentService?
             .sessionRecord(sessionID: sessionID)?.pid
         let submittedPrompt = promptComponents.joined(separator: " ")
-        let result = v2MobileTerminalPaste(
+        let deliveryReceipt = PromptSubmissionDeliveryReceipt()
+        let admissionResult = v2MobileTerminalPaste(
             params: pasteParams,
             rejectIfHumanComposerBusy: true,
-            recordHumanPromptInput: false
+            recordHumanPromptInput: false,
+            deliveryReceipt: deliveryReceipt
         )
+        let result: V2CallResult
+        if case .ok = admissionResult {
+            let remainingDeliveryBudget = ContinuousClock.now.duration(
+                to: requestDeadline
+            )
+            let deliveryTimeout = remainingDeliveryBudget > .zero
+                ? min(
+                    Self.mobileChatDeliveryTimeout,
+                    remainingDeliveryBudget
+                )
+                : .zero
+            let deliveryResult = await agentPromptSubmissionDeliveryLane
+                .waitForDelivery(
+                    deliveryReceipt,
+                    timeout: deliveryTimeout
+                )
+            if deliveryResult == .surfaceUnavailable {
+                // The receipt wait cancels its child on timeout, but make the
+                // cancellation explicit so a queued surface item cannot write
+                // after this RPC has reported failure.
+                deliveryReceipt.cancel()
+            }
+            result = Self.mobilePromptSubmissionFailure(
+                deliveryResult,
+                surfaceID: deliveredSurfaceID
+            ) ?? admissionResult
+        } else {
+            deliveryReceipt.cancel()
+            result = admissionResult
+        }
         if case .ok = result,
            let attachmentService {
             let registered = attachmentService

@@ -3635,6 +3635,79 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
+    func testIMECommittedEmbeddedReturnCreatesPromptBoundary() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertNotNil(surface.surface)
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        surface.synchronizePromptInputAgentScope("agentPIDKey:codex.ime")
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            surface.releaseSurfaceForTesting()
+        }
+        GhosttyNSView.debugTextInputEventHandler = { view, _ in
+            view.insertText(
+                "first line\nsecond line",
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            return true
+        }
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ))
+        surfaceView.keyDown(with: event)
+
+        XCTAssertEqual(
+            surface.confirmPromptSubmission(
+                message: "first line second line"
+            ),
+            .human,
+            "Embedded Returns committed through insertText must remain hook-recoverable"
+        )
+        XCTAssertTrue(surface.hasUnconfirmedHumanPromptInput)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
 #if DEBUG
         let window = makeWindow()

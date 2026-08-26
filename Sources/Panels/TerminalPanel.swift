@@ -747,6 +747,7 @@ final class TerminalPanel: Panel, ObservableObject {
         hookRecordingSource: String?,
         hookConfirmsHumanInput: Bool = false,
         recordHumanPromptInput: Bool = false,
+        captureAgentInputScope: Bool = false,
         deliveryReceipt: PromptSubmissionDeliveryReceipt? = nil
     ) -> TerminalSurface.PromptSubmissionSendResult {
         if rejectIfHumanComposerBusy {
@@ -771,6 +772,7 @@ final class TerminalPanel: Panel, ObservableObject {
             hookConfirmsHumanInput: hookConfirmsHumanInput,
             recordHumanPromptInput: recordHumanPromptInput,
             agentInputScope: agentInputScope,
+            captureAgentInputScope: captureAgentInputScope,
             deliveryReceipt: deliveryReceipt
         )
     }

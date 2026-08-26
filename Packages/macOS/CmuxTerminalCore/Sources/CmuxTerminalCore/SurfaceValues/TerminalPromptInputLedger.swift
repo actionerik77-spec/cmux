@@ -27,7 +27,15 @@ public struct TerminalPromptInputLedger: Sendable {
     /// current scope, so guarded automation remains unavailable. Binding a
     /// different process starts a fresh epoch so one agent cannot inherit
     /// another agent's composer state.
-    public mutating func synchronizeAgentScope(_ scope: String?) {
+    ///
+    /// - Parameter provisionalSubmissionBoundariesAreReliable: Whether a
+    ///   boundary recorded before the first process binding can represent a
+    ///   completed prompt. Claude's plain Return is an interior newline, so
+    ///   its first binding passes `false` and keeps that input fail-closed.
+    public mutating func synchronizeAgentScope(
+        _ scope: String?,
+        provisionalSubmissionBoundariesAreReliable: Bool = true
+    ) {
         guard agentScope != scope else { return }
 
         agentScope = scope
@@ -44,7 +52,9 @@ public struct TerminalPromptInputLedger: Sendable {
         if previousBoundScope == nil {
             humanInputEpoch &+= 1
             removeNonHumanBoundaries()
-            confirmProvisionalInputThroughLastBoundary()
+            if provisionalSubmissionBoundariesAreReliable {
+                confirmProvisionalInputThroughLastBoundary()
+            }
             return
         }
 
@@ -206,10 +216,23 @@ public struct TerminalPromptInputLedger: Sendable {
                 else { return false }
                 return candidateSignature == messageSignature
             }) {
-                // A duplicate exact hook is already accounted for. Consume
-                // only its tombstone; never reinterpret it as human input.
-                pendingBoundaries.remove(at: index)
-                return .programmaticDuplicate
+                let hasEarlierHumanBoundary = pendingBoundaries[..<index]
+                    .contains {
+                        if case .human = $0 { return true }
+                        return false
+                    }
+                if !hasEarlierHumanBoundary {
+                    // A duplicate exact hook is already accounted for.
+                    // Consume only its tombstone; never reinterpret it as
+                    // human input when no earlier human boundary is waiting.
+                    pendingBoundaries.remove(at: index)
+                    return .programmaticDuplicate
+                }
+                // A duplicate app hook and a human hook carrying the same
+                // normalized text are observationally indistinguishable. Keep
+                // the replay tombstone authoritative and fail closed rather
+                // than clearing the human boundary on an app replay.
+                return .unmatched
             }
         }
         if hasEvictedProgrammaticTombstones,

@@ -155,11 +155,35 @@ import Testing
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
             ledger.confirmSubmission(message: "app prompt")
-                == .programmaticDuplicate
+                == .unmatched
         )
         #expect(ledger.hasUnconfirmedHumanInput)
-        #expect(ledger.confirmSubmission(message: "human prompt") == .human)
+        #expect(
+            ledger.confirmSubmission(message: "human prompt") == .human
+        )
         #expect(!ledger.hasUnconfirmedHumanInput)
+    }
+
+    @Test func identicalHumanHookStaysFailClosedBehindAnAppTombstone() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordProgrammaticSubmission(
+            message: "same prompt",
+            source: "workspace.agent_submit"
+        )
+        #expect(
+            ledger.confirmSubmission(message: "same prompt")
+                == .programmatic(source: "workspace.agent_submit")
+        )
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+
+        // The delayed app hook and the human hook have the same observable
+        // signature. Keeping the tombstone authoritative is the only choice
+        // that cannot clear a live human composer by accident.
+        #expect(
+            ledger.confirmSubmission(message: "same prompt") == .unmatched
+        )
+        #expect(ledger.hasUnconfirmedHumanInput)
     }
 
     @Test func olderAppConfirmationCannotUndoANewerConfirmation() {
@@ -303,6 +327,21 @@ import Testing
             ledger.confirmSubmission(message: "pre-binding prompt")
                 == .unmatched
         )
+    }
+
+    @Test func claudeInitialScopeKeepsPlainReturnDraftFailClosed() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+
+        ledger.synchronizeAgentScope(
+            "agentPIDKey:claude_code",
+            provisionalSubmissionBoundariesAreReliable: false
+        )
+
+        #expect(ledger.hasUnconfirmedHumanInput)
+        #expect(ledger.confirmSubmission(message: "draft") == .human)
+        #expect(!ledger.hasUnconfirmedHumanInput)
     }
 
     @Test func initialAgentScopePreservesInputAfterLaunchBoundary() {
