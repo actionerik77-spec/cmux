@@ -46,10 +46,6 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
 
     private let lockScreenInvoker: (@Sendable () -> Void)?
     private let lockStateReader: @Sendable () -> Bool?
-    private let lockNotificationSourceFactory: @Sendable () -> (
-        stream: AsyncStream<Void>,
-        continuation: AsyncStream<Void>.Continuation
-    )
     /// The bounded grace period is only a recovery path when loginwindow never
     /// publishes a usable confirmation. Ten seconds covers delayed IPC on busy
     /// hosts while keeping a rejected request from disabling the UI forever.
@@ -66,8 +62,7 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
             lockConfirmationClock: lockConfirmationClock,
             lockConfirmationTimeout: lockConfirmationTimeout,
             lockScreenInvoker: Self.defaultLockScreenInvoker(),
-            lockStateReader: { Self.screenLockState() },
-            lockNotificationSourceFactory: { Self.lockScreenNotifications() }
+            lockStateReader: { Self.screenLockState() }
         )
     }
 
@@ -75,17 +70,12 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         lockConfirmationClock: any Clock<Duration> = ContinuousClock(),
         lockConfirmationTimeout: Duration = .seconds(10),
         lockScreenInvoker: (@Sendable () -> Void)?,
-        lockStateReader: @escaping @Sendable () -> Bool?,
-        lockNotificationSourceFactory: @escaping @Sendable () -> (
-            stream: AsyncStream<Void>,
-            continuation: AsyncStream<Void>.Continuation
-        )
+        lockStateReader: @escaping @Sendable () -> Bool?
     ) {
         self.lockConfirmationClock = lockConfirmationClock
         self.lockConfirmationTimeout = lockConfirmationTimeout
         self.lockScreenInvoker = lockScreenInvoker
         self.lockStateReader = lockStateReader
-        self.lockNotificationSourceFactory = lockNotificationSourceFactory
     }
 
     func run(_ tool: String, _ args: [String]) async {
@@ -142,88 +132,33 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     nonisolated func lockScreen(using gate: SleepyLockInvocationGate) async -> Bool {
         guard let lockScreenInvoker else { return false }
 
-        // Register before invoking loginwindow. The distributed event is only a
-        // wake-up hint; the session bit remains the sole success authority.
-        // AsyncStream buffers the hint if IPC returns before the consumer starts.
-        let lockNotifications = lockNotificationSourceFactory()
         let clock = lockConfirmationClock
         let timeout = lockConfirmationTimeout
         let stateReader = lockStateReader
         let invoked = gate.invoke {
             lockScreenInvoker()
         }
-        guard invoked else {
-            lockNotifications.continuation.finish()
-            return false
-        }
+        guard invoked else { return false }
         if stateReader() == true {
-            lockNotifications.continuation.finish()
             return true
         }
-        let confirmed = await Self.waitForLockConfirmation(
-            lockNotifications.stream,
+        return await Self.waitForLockConfirmation(
             clock: clock,
             timeout: timeout,
             stateReader: stateReader
         )
-        lockNotifications.continuation.finish()
-        return confirmed
-    }
-
-    private static func lockScreenNotifications() -> (
-        stream: AsyncStream<Void>,
-        continuation: AsyncStream<Void>.Continuation
-    ) {
-        let center = DistributedNotificationCenter.default()
-        let (stream, continuation) = AsyncStream<Void>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        let token = center.addObserver(
-            forName: Notification.Name("com.apple.screenIsLocked"),
-            object: nil,
-            queue: nil
-        ) { _ in
-            continuation.yield(())
-        }
-        let tokenBox = DistributedObserverToken(center: center, token: token)
-        continuation.onTermination = { _ in tokenBox.remove() }
-        return (stream, continuation)
     }
 
     private static func waitForLockConfirmation(
-        _ notifications: AsyncStream<Void>,
         clock: any Clock<Duration>,
         timeout: Duration,
         stateReader: @escaping @Sendable () -> Bool?
     ) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
-                for await _ in notifications {
-                    switch stateReader() {
-                    case .some(true):
-                        // The session bit is authoritative when available.
-                        return true
-                    case .some(false):
-                        // loginwindow can publish before the dictionary catches
-                        // up. Keep waiting; the concurrent state poll below
-                        // covers the delayed transition.
-                        continue
-                    case .none:
-                        // This global event has no request identity or trusted
-                        // sender and can be posted by another local process. Use
-                        // it only to trigger another authoritative read; if the
-                        // de-facto key stays unavailable, fail closed and show
-                        // the manual Lock Screen recovery guidance.
-                        continue
-                    }
-                }
-                return false
-            }
-            group.addTask {
-                // Poll the authoritative state concurrently with the event
-                // stream. Either source may be delayed or absent on a given
-                // macOS/session context; an unavailable dictionary remains
-                // pending until a real state bit or the deadline resolves it.
+                // Poll only the authoritative state. The distributed lock event
+                // has no trusted sender or request identity, so it cannot safely
+                // confirm this security-sensitive operation.
                 return await Self.waitForCurrentLockState(
                     clock: clock,
                     stateReader: stateReader

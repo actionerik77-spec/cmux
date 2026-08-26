@@ -139,12 +139,10 @@ struct SleepyPowerControlsLockTests {
     @Test func lockScreenWaitsForAuthoritativeStateTransition() async {
         let invocation = LockInvocationProbe()
         let state = LockStateScript([false, true])
-        let source = AsyncStream<Void>.makeStream()
         let runner = SystemCommandRunner(
             lockConfirmationTimeout: .seconds(1),
             lockScreenInvoker: { invocation.record() },
-            lockStateReader: { state.read() },
-            lockNotificationSourceFactory: { source }
+            lockStateReader: { state.read() }
         )
 
         let confirmed = await runner.lockScreen()
@@ -158,12 +156,10 @@ struct SleepyPowerControlsLockTests {
     /// closed and cleans up the notification stream.
     @Test func lockScreenTimesOutWithoutAuthoritativeConfirmation() async {
         let invocation = LockInvocationProbe()
-        let source = AsyncStream<Void>.makeStream()
         let runner = SystemCommandRunner(
             lockConfirmationTimeout: .milliseconds(100),
             lockScreenInvoker: { invocation.record() },
-            lockStateReader: { false },
-            lockNotificationSourceFactory: { source }
+            lockStateReader: { false }
         )
 
         let confirmed = await runner.lockScreen()
@@ -172,28 +168,17 @@ struct SleepyPowerControlsLockTests {
         #expect(invocation.invocationCount == 1)
     }
 
-    /// An unscoped distributed notification cannot suppress the failure path
-    /// when the authoritative state remains absent.
-    @Test func lockScreenDoesNotTrustNotificationWithoutStateConfirmation() async {
+    /// Missing authoritative state fails closed instead of claiming that the
+    /// security-sensitive lock succeeded.
+    @Test func lockScreenFailsClosedWhenStateIsUnavailable() async {
         let invocation = LockInvocationProbe()
-        let source = AsyncStream<Void>.makeStream()
-        let invocationObserved = AsyncStream<Void>.makeStream()
         let runner = SystemCommandRunner(
             lockConfirmationTimeout: .milliseconds(100),
-            lockScreenInvoker: {
-                invocation.record()
-                invocationObserved.continuation.yield(())
-            },
-            lockStateReader: { nil },
-            lockNotificationSourceFactory: { source }
+            lockScreenInvoker: { invocation.record() },
+            lockStateReader: { nil }
         )
 
-        let task = Task { await runner.lockScreen() }
-        var iterator = invocationObserved.stream.makeAsyncIterator()
-        _ = await iterator.next()
-        source.continuation.yield(())
-
-        let confirmed = await task.value
+        let confirmed = await runner.lockScreen()
 
         #expect(!confirmed)
         #expect(invocation.invocationCount == 1)
@@ -203,11 +188,9 @@ struct SleepyPowerControlsLockTests {
     /// so a request canceled before the runner starts cannot lock the host.
     @Test func lockScreenHonorsCancellationBeforeInvocation() async {
         let invocation = LockInvocationProbe()
-        let source = AsyncStream<Void>.makeStream()
         let runner = SystemCommandRunner(
             lockScreenInvoker: { invocation.record() },
-            lockStateReader: { true },
-            lockNotificationSourceFactory: { source }
+            lockStateReader: { true }
         )
         let gate = SleepyLockInvocationGate()
         gate.cancel()
@@ -223,7 +206,6 @@ struct SleepyPowerControlsLockTests {
     @Test(.timeLimit(.minutes(1)))
     func lockScreenCancellationStopsPendingConfirmation() async {
         let invocation = LockInvocationProbe()
-        let source = AsyncStream<Void>.makeStream()
         let invocationObserved = AsyncStream<Void>.makeStream()
         let runner = SystemCommandRunner(
             lockConfirmationTimeout: .seconds(60),
@@ -231,8 +213,7 @@ struct SleepyPowerControlsLockTests {
                 invocation.record()
                 invocationObserved.continuation.yield(())
             },
-            lockStateReader: { false },
-            lockNotificationSourceFactory: { source }
+            lockStateReader: { false }
         )
 
         let task = Task { await runner.lockScreen() }
