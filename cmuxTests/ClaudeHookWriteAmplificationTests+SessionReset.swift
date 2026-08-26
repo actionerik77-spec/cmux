@@ -165,7 +165,6 @@ extension ClaudeHookWriteAmplificationTests {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_CLAUDE_PID"] = String(processIdentity.pid)
 
-        let longQuestion = String(repeating: "é", count: 4_096)
         let result = SessionResetHarness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
@@ -224,6 +223,7 @@ extension ClaudeHookWriteAmplificationTests {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_CLAUDE_PID"] = String(processIdentity.pid)
 
+        let longQuestion = String(repeating: "é", count: 4_096)
         let result = SessionResetHarness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
