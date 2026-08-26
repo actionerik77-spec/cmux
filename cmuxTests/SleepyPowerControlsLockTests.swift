@@ -328,13 +328,31 @@ struct SleepyPowerControlsLockTests {
         #expect(!state.lockFailed)
     }
 
-    /// Cancellation wins before the actor gate can invoke the irreversible
+    /// Cancellation that claims the pending request prevents the irreversible
     /// system effect.
-    @Test func cancelledLockInvocationGateDoesNotInvoke() async {
+    @Test func cancelledLockInvocationGateDoesNotInvoke() {
         let gate = SleepyLockInvocationGate()
-        gate.cancel()
+        let cancelled = gate.cancel()
         let invoked = gate.invoke {}
+        #expect(cancelled)
         #expect(!invoked)
+    }
+
+    /// Invocation and cancellation share one atomic transition, so an invocation
+    /// that wins can run exactly once and later cancellation cannot change the
+    /// already-committed outcome.
+    @Test func lockInvocationGateHasOneAtomicWinner() {
+        let invocation = LockInvocationProbe()
+        let gate = SleepyLockInvocationGate()
+
+        let invoked = gate.invoke { invocation.record() }
+        let cancelled = gate.cancel()
+        let invokedAgain = gate.invoke { invocation.record() }
+
+        #expect(invoked)
+        #expect(!cancelled)
+        #expect(!invokedAgain)
+        #expect(invocation.invocationCount == 1)
     }
 }
 
