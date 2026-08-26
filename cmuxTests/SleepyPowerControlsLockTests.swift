@@ -35,6 +35,7 @@ private final class RecordingSleepyRunner: SleepyCommandRunning, @unchecked Send
 /// seam, allowing confirmation tests to model delayed loginwindow state without
 /// touching the host session.
 private final class LockStateScript: @unchecked Sendable {
+    // Safety: every mutable observation is accessed under `lock`.
     private let lock = NSLock()
     private var observations: [Bool?]
 
@@ -54,6 +55,7 @@ private final class LockStateScript: @unchecked Sendable {
 /// Counts invocations of the injected lock mechanism without calling the real
 /// loginwindow API.
 private final class LockInvocationProbe: @unchecked Sendable {
+    // Safety: the invocation count is accessed only under `lock`.
     private let lock = NSLock()
     private var count = 0
 
