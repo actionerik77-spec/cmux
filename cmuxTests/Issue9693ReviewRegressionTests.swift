@@ -199,6 +199,50 @@ extension ClaudeHookWriteAmplificationTests {
 }
 
 extension AgentNotificationRegressionTests {
+    @Test func permissionRowsCoalescePerSessionAndPreserveUnrelatedSibling() {
+        let store = TerminalNotificationStore.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let correlationKey = TerminalNotification.scopedAgentPermissionCorrelationPrefix
+            + "aggregate-test"
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+        }
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+
+        store.addNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Unrelated",
+            subtitle: "Completed",
+            body: "Keep me"
+        )
+        store.addNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Claude Code",
+            subtitle: "Permission",
+            body: "First aggregate",
+            cooldownKey: correlationKey
+        )
+        store.addNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Claude Code",
+            subtitle: "Permission",
+            body: "Second aggregate",
+            cooldownKey: correlationKey
+        )
+
+        let permissionRows = store.notifications.filter {
+            $0.correlationKey == correlationKey
+        }
+        #expect(permissionRows.map(\.body) == ["Second aggregate"])
+        #expect(store.notifications.contains { $0.title == "Unrelated" })
+    }
+
     @Test func removingTransientRowPreservesPersistentFocusedReadIndicator() {
         let store = TerminalNotificationStore.shared
         let tabId = UUID()
