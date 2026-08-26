@@ -146,7 +146,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     pointSize: metrics.pinnedIconFontSize,
                     weight: .semibold
                 )
-                .foregroundStyle(Color.secondary.opacity(0.8))
+                .foregroundStyle(.secondary)
                 .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                 .safeHelp(pinnedGroupTooltip)
                 .accessibilityLabel(Text(pinnedGroupTooltip))
@@ -412,13 +412,15 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 action: onOpenDocs
             )
             Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.ungroup",
-                    defaultValue: "Ungroup Workspaces"
-                ),
-                action: onUngroup
-            )
+            if !isPinned || memberCount > 0 {
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.ungroup",
+                        defaultValue: "Ungroup Workspaces"
+                    ),
+                    action: onUngroup
+                )
+            }
             Button(
                 role: .destructive,
                 action: onDelete

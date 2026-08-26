@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 import CmuxSettings
 import CmuxWorkspaces
@@ -11,10 +12,12 @@ extension VerticalTabsSidebar {
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableRowConfiguration {
         let settings = renderContext.tabItemSettings
-        let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
-        let isMultiSelected = selectedTabIds.contains(group.anchorWorkspaceId)
+        let anchorId = group.anchorWorkspaceId
+        let liveAnchorId = group.liveAnchorWorkspaceId
+        let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
+        let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
-        let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
+        let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
@@ -31,32 +34,43 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
+        // The AppKit controller applies the current unread snapshot after row
+        // construction, keeping this root projection outside Observation.
+        let unreadSnapshot = SidebarUnreadSnapshot()
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
                 return memberWorkspaceIds.reduce(0) { partial, workspaceId in
-                    partial + notificationStore.unreadCount(forTabId: workspaceId)
+                    partial + unreadSnapshot.unreadCount(forWorkspaceId: workspaceId)
                 }
             }
-            return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
+            return liveAnchorId.map { unreadSnapshot.unreadCount(forWorkspaceId: $0) } ?? 0
         }()
-        let anchorIds = [group.anchorWorkspaceId]
-        let canMarkAnchorRead = notificationStore.canMarkWorkspaceRead(forTabIds: anchorIds)
-        let canMarkAnchorUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: anchorIds)
-        let anchorHasLatestNotification = notificationStore.latestNotification(forTabId: group.anchorWorkspaceId) != nil
+        let anchorIds = liveAnchorId.map { [$0] } ?? []
+        let canMarkAnchorRead = unreadSnapshot.canMarkWorkspaceRead(forWorkspaceIds: anchorIds)
+        let canMarkAnchorUnread = unreadSnapshot.canMarkWorkspaceUnread(forWorkspaceIds: anchorIds)
+        let anchorHasLatestNotification = liveAnchorId.map {
+            unreadSnapshot.summary(forWorkspaceId: $0).hasLatestNotification
+        } ?? false
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
-        let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
-        let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
-        let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
+        let nonAnchorMemberIds = memberWorkspaceIds.filter { memberId in
+            liveAnchorId.map { $0 != memberId } ?? true
+        }
+        let canMarkAllRead = unreadSnapshot.canMarkWorkspaceRead(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
+        let canMarkAllUnread = unreadSnapshot.canMarkWorkspaceUnread(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
-            forTabId: group.anchorWorkspaceId,
+            forTabId: anchorId,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
             tabIds: renderContext.sidebarReorderIds
         )
         let bottomDropIndicatorVisible = SidebarTabDropIndicatorPredicate().bottomVisible(
-            forTabId: group.anchorWorkspaceId,
+            forTabId: anchorId,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
             tabIds: renderContext.sidebarReorderIds,
@@ -87,20 +101,23 @@ extension VerticalTabsSidebar {
             globalFontMagnificationPercent: renderContext.environment.globalFontMagnificationPercent,
             cwdContextMenuItems: cwdContextMenuItems,
             rowSpacing: tabRowSpacing,
-            isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
-            isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
+            isFirstRow: renderContext.sidebarReorderIds.first == anchorId,
+            isBeingDragged: dragState.draggedTabId == anchorId,
             topDropIndicatorVisible: topDropIndicatorVisible,
-            bottomDropIndicatorVisible: bottomDropIndicatorVisible
+            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+            colorSchemeIsDark: renderContext.environment.colorScheme == .dark
         )
         let actions = SidebarGroupHeaderRowActions(
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
+            onFocusAnchor: {
+                [weak tabManager, anchorId, selectedTabIds = $selectedTabIds,
+                 lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
                 guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
                 if modifiers.contains(.command) || modifiers.contains(.shift) {
-                    let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                    let anchorIds = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
                     let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
                         current: selectedTabIds.wrappedValue,
                         clickedAnchorId: anchorId,
@@ -143,30 +160,37 @@ extension VerticalTabsSidebar {
             onTogglePinned: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
             },
-            onMarkRead: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
-                notificationStore?.markRead(forTabId: anchorId)
+            onMarkRead: { [weak notificationStore, liveAnchorId] in
+                guard let liveAnchorId else { return }
+                notificationStore?.markRead(forTabId: liveAnchorId)
             },
-            onMarkUnread: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
-                notificationStore?.markUnread(forTabId: anchorId)
+            onMarkUnread: { [weak notificationStore, liveAnchorId] in
+                guard let liveAnchorId else { return }
+                notificationStore?.markUnread(forTabId: liveAnchorId)
             },
-            onClearLatestNotifications: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
-                notificationStore?.clearLatestNotification(forTabId: anchorId)
+            onClearLatestNotifications: { [weak notificationStore, liveAnchorId] in
+                guard let liveAnchorId else { return }
+                notificationStore?.clearLatestNotification(forTabId: liveAnchorId)
             },
-            onMarkAllRead: { [weak tabManager, weak notificationStore, groupId = group.id, anchorId = group.anchorWorkspaceId] in
+            onMarkAllRead: { [weak tabManager, weak notificationStore, groupId = group.id, liveAnchorId] in
                 guard let tabManager, let notificationStore else { return }
                 // Resolve members live at action time: closures are excluded
                 // from model equality, so a captured ID list could go stale
                 // across a same-count membership swap.
-                let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
+                let ids = tabManager.tabs.compactMap { tab in
+                    tab.groupId == groupId && tab.id != liveAnchorId ? tab.id : nil
+                }
                 // Only touch members that are actually unread, so we never run
                 // notification teardown on already-read workspaces.
                 for id in ids where notificationStore.canMarkWorkspaceRead(forTabIds: [id]) {
                     notificationStore.markRead(forTabId: id)
                 }
             },
-            onMarkAllUnread: { [weak tabManager, weak notificationStore, groupId = group.id, anchorId = group.anchorWorkspaceId] in
+            onMarkAllUnread: { [weak tabManager, weak notificationStore, groupId = group.id, liveAnchorId] in
                 guard let tabManager, let notificationStore else { return }
-                let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
+                let ids = tabManager.tabs.compactMap { tab in
+                    tab.groupId == groupId && tab.id != liveAnchorId ? tab.id : nil
+                }
                 // Only mark members that are not already unread. Calling
                 // markUnread on an already-unread member would set its manual
                 // unread flag, which a later notification dismissal cannot
@@ -185,7 +209,7 @@ extension VerticalTabsSidebar {
                         fallbackGroupName: group.name,
                         fallbackAnchorWorkspaceId: group.anchorWorkspaceId
                       ) else { return }
-                if confirmation.containedWorkspaceCount > 0 {
+                if group.isPinned || confirmation.containedWorkspaceCount > 0 {
                     guard confirmDeleteWorkspaceGroup(
                         groupName: confirmation.groupName,
                         memberCount: confirmation.containedWorkspaceCount
@@ -203,7 +227,39 @@ extension VerticalTabsSidebar {
         return SidebarWorkspaceTableRowConfiguration(
             groupHeaderModel: model,
             actions: actions,
-            environment: renderContext.environment
+            environment: renderContext.environment,
+            unreadDependencyWorkspaceIds: Set(memberWorkspaceIds)
+                .union(liveAnchorId.map { [$0] } ?? []),
+            unreadRebuild: {
+                [model, liveAnchorId,
+                 isCollapsed = group.isCollapsed, memberWorkspaceIds,
+                 nonAnchorMemberIds] snapshot in
+                // Membership and collapse are structural row inputs, so their
+                // changes rebuild this configuration. Reuse the render context's
+                // indexed members instead of rescanning every tab per unread row.
+                var fresh = model
+                fresh.anchorUnreadCount = isCollapsed
+                    ? memberWorkspaceIds.reduce(0) {
+                        $0 + snapshot.unreadCount(forWorkspaceId: $1)
+                    }
+                    : liveAnchorId.map { snapshot.unreadCount(forWorkspaceId: $0) } ?? 0
+                fresh.canMarkRead = snapshot.canMarkWorkspaceRead(
+                    forWorkspaceIds: liveAnchorId.map { [$0] } ?? []
+                )
+                fresh.canMarkUnread = snapshot.canMarkWorkspaceUnread(
+                    forWorkspaceIds: liveAnchorId.map { [$0] } ?? []
+                )
+                fresh.hasLatestNotifications = liveAnchorId.map {
+                    snapshot.summary(forWorkspaceId: $0).hasLatestNotification
+                } ?? false
+                fresh.canMarkAllRead = snapshot.canMarkWorkspaceRead(
+                    forWorkspaceIds: nonAnchorMemberIds
+                )
+                fresh.canMarkAllUnread = snapshot.canMarkWorkspaceUnread(
+                    forWorkspaceIds: nonAnchorMemberIds
+                )
+                return fresh
+            }
         )
     }
 
@@ -211,15 +267,18 @@ extension VerticalTabsSidebar {
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
-        unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary],
+        unreadSnapshot: SidebarUnreadSnapshot,
         notificationIndex: SidebarWorkspaceNotificationIndex,
         shouldCollectWorkspaceDropTargets: Bool
     ) -> SidebarWorkspaceGroupRowSnapshot {
+        let unreadSummariesByWorkspaceId = unreadSnapshot.summaryByWorkspaceId
         let settings = renderContext.tabItemSettings
-        let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
-        let isMultiSelected = selectedTabIds.contains(group.anchorWorkspaceId)
+        let anchorId = group.anchorWorkspaceId
+        let liveAnchorId = group.liveAnchorWorkspaceId
+        let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
+        let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
-        let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
+        let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
@@ -242,38 +301,39 @@ extension VerticalTabsSidebar {
                     partial + (unreadSummariesByWorkspaceId[workspaceId]?.unreadCount ?? 0)
                 }
             }
-            return unreadSummariesByWorkspaceId[group.anchorWorkspaceId]?.unreadCount ?? 0
+            return liveAnchorId.flatMap { unreadSummariesByWorkspaceId[$0]?.unreadCount } ?? 0
         }()
-        let anchorIds = [group.anchorWorkspaceId]
-        let canMarkAnchorRead = anchorIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) > 0
-        }
-        let canMarkAnchorUnread = anchorIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) == 0
-        }
-        let anchorHasLatestNotification = notificationIndex.hasNotification(
-            workspaceId: group.anchorWorkspaceId
+        let canMarkAnchorRead = unreadSnapshot.canMarkWorkspaceRead(
+            forWorkspaceIds: liveAnchorId.map { [$0] } ?? []
         )
+        let canMarkAnchorUnread = unreadSnapshot.canMarkWorkspaceUnread(
+            forWorkspaceIds: liveAnchorId.map { [$0] } ?? []
+        )
+        let anchorHasLatestNotification = liveAnchorId.map {
+            notificationIndex.hasNotification(workspaceId: $0)
+        } ?? false
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
-        let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
-        let canMarkAllRead = nonAnchorMemberIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) > 0
+        let nonAnchorMemberIds = memberWorkspaceIds.filter { memberId in
+            liveAnchorId.map { $0 != memberId } ?? true
         }
-        let canMarkAllUnread = nonAnchorMemberIds.contains {
-            (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) == 0
-        }
+        let canMarkAllRead = unreadSnapshot.canMarkWorkspaceRead(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
+        let canMarkAllUnread = unreadSnapshot.canMarkWorkspaceUnread(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
         let rowId = SidebarWorkspaceRenderItemID.group(group.id)
         let isPointerHovering = pointerInteractionMonitor.hoveredRowId == rowId
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
-            forTabId: group.anchorWorkspaceId,
+            forTabId: anchorId,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
             tabIds: renderContext.sidebarReorderIds
         )
         let bottomDropIndicatorVisible = SidebarTabDropIndicatorPredicate().bottomVisible(
-            forTabId: group.anchorWorkspaceId,
+            forTabId: anchorId,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
             tabIds: renderContext.sidebarReorderIds,
@@ -307,8 +367,8 @@ extension VerticalTabsSidebar {
             cwdContextMenuItems: cwdContextMenuItems,
             newWorkspacePlacement: newWorkspacePlacement,
             rowSpacing: tabRowSpacing,
-            isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
-            isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
+            isFirstRow: renderContext.sidebarReorderIds.first == anchorId,
+            isBeingDragged: dragState.draggedTabId == anchorId,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
@@ -322,12 +382,18 @@ extension VerticalTabsSidebar {
         snapshot: SidebarWorkspaceGroupRowSnapshot
     ) -> SidebarWorkspaceGroupRowView {
         let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
-        let onDragStart: () -> NSItemProvider = { [anchorId = snapshot.anchorWorkspaceId] in
+        // An empty header has no live workspace capability. Carry the typed
+        // group identity so the resolver can route it through `.reorderGroup`;
+        // live groups continue to carry their anchor workspace id.
+        let dragPayloadId = snapshot.memberCount == 0
+            ? snapshot.groupId
+            : snapshot.anchorWorkspaceId
+        let onDragStart: () -> NSItemProvider = { [dragPayloadId] in
 #if DEBUG
-            cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
+            cmuxDebugLog("sidebar.onDrag groupAnchor=\(dragPayloadId.uuidString.prefix(5))")
 #endif
-            dragState.beginDragging(tabId: anchorId)
-            return SidebarTabDragPayload(tabId: anchorId).provider()
+            dragState.beginDragging(tabId: dragPayloadId)
+            return SidebarTabDragPayload(tabId: dragPayloadId).provider()
         }
         let header = SidebarWorkspaceGroupHeaderView(
             groupId: snapshot.groupId,
@@ -369,7 +435,7 @@ extension VerticalTabsSidebar {
                 guard let tabManager else { return }
                 guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
                 if modifiers.contains(.command) || modifiers.contains(.shift) {
-                    let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                    let anchorIds = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
                     let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
                         current: selectedTabIds.wrappedValue,
                         clickedAnchorId: anchorId,
@@ -412,21 +478,26 @@ extension VerticalTabsSidebar {
             onTogglePinned: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
             },
-            onMarkRead: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId] in
+            onMarkRead: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId, memberCount = snapshot.memberCount] in
                 guard let notificationStore,
+                      memberCount > 0,
                       notificationStore.canMarkWorkspaceRead(forTabIds: [anchorId]) else {
                     return
                 }
                 notificationStore.markRead(forTabId: anchorId)
             },
-            onMarkUnread: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId] in
+            onMarkUnread: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId, memberCount = snapshot.memberCount] in
                 guard let notificationStore,
+                      memberCount > 0,
                       notificationStore.canMarkWorkspaceUnread(forTabIds: [anchorId]) else {
                     return
                 }
                 notificationStore.markUnread(forTabId: anchorId)
             },
-            onClearLatestNotifications: { [weak notificationStore, anchorId = snapshot.anchorWorkspaceId] in
+            onClearLatestNotifications: {
+                [weak notificationStore, anchorId = snapshot.anchorWorkspaceId,
+                 memberCount = snapshot.memberCount] in
+                guard memberCount > 0 else { return }
                 notificationStore?.clearLatestNotification(forTabId: anchorId)
             },
             onMarkAllRead: { [weak tabManager, weak notificationStore, groupId = snapshot.groupId, anchorId = snapshot.anchorWorkspaceId] in
@@ -462,7 +533,7 @@ extension VerticalTabsSidebar {
                         fallbackGroupName: fallbackName,
                         fallbackAnchorWorkspaceId: fallbackAnchorId
                       ) else { return }
-                if confirmation.containedWorkspaceCount > 0 {
+                if snapshot.isPinned || confirmation.containedWorkspaceCount > 0 {
                     guard confirmDeleteWorkspaceGroup(
                         groupName: confirmation.groupName,
                         memberCount: confirmation.containedWorkspaceCount
