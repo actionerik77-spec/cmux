@@ -13534,7 +13534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let controlDChar = chars == "d" || event.characters == "\u{04}"
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
 #if DEBUG
-        if isControlD {
+        if !isResolvedPrefixChord, isControlD {
             writeChildExitKeyboardProbe(
                 [
                     "probeAppShortcutCharsHex": childExitKeyboardProbeHex(event.characters),
@@ -14087,7 +14087,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if !hasFocusedAddressBarInShortcutContext,
+        if !isResolvedPrefixChord,
+           !hasFocusedAddressBarInShortcutContext,
            shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
                event,
                pageURL: shortcutEventBrowserPanel(event)?.webView.url
