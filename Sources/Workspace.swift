@@ -287,7 +287,7 @@ extension Workspace {
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
-        restoreLinksState(from: snapshot)
+        restoreLinksState(from: snapshot, panelIDMap: oldToNewPanelIds)
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
