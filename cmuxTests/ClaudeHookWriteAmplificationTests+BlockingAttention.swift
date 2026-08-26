@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,22 +11,85 @@ extension ClaudeHookWriteAmplificationTests {
     @Test func ordinaryPermissionMarkersAreRequestScoped() throws {
         let context = try AttentionHarness.makeContext(name: "permission-request-correlation")
         defer { context.cleanup() }
-        let store = ClaudeHookSessionStore(processEnv: [
-            "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
-        ])
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "permission-correlation-session"
-        _ = try store.upsert(
-            sessionId: sessionId,
-            workspaceId: "11111111-1111-1111-1111-111111111111",
-            surfaceId: "22222222-2222-2222-2222-222222222222",
-            cwd: context.root.path,
-            agentLifecycle: .needsInput
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [sessionId: [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId,
+                "surfaceId": surfaceId,
+                "cwd": context.root.path,
+                "agentLifecycle": "needsInput",
+                "startedAt": 4_102_444_800,
+                "updatedAt": 4_102_444_800,
+            ]],
+        ]
+        try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
+        let feedReceived = DispatchSemaphore(value: 0)
+        let feedGate = DispatchSemaphore(value: 0)
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId],
+            feedPushReceived: feedReceived,
+            feedPushGate: feedGate,
+            feedTerminalDefaultStatus: "resolved"
         )
-        #expect(try store.beginPermissionRequest(sessionId: sessionId, toolUseId: "permission-a"))
-        #expect(try store.beginPermissionRequest(sessionId: sessionId, toolUseId: "permission-b"))
-        #expect(try store.finishPermissionRequest(sessionId: sessionId, toolUseId: "permission-unknown") == false)
-        #expect(try store.finishPermissionRequest(sessionId: sessionId, toolUseId: "permission-a"))
-        #expect(try store.finishPermissionRequest(sessionId: sessionId, toolUseId: "permission-b"))
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        let hookEnvironment = environment
+        let completion = DispatchSemaphore(value: 0)
+        let results = OSAllocatedUnfairLock<[AttentionHarness.ProcessRunResult]>(
+            initialState: []
+        )
+
+        for command in ["echo first", "echo second"] {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = AttentionHarness.runHookProcess(
+                    context: context,
+                    arguments: ["hooks", "claude", "permission-request"],
+                    environment: hookEnvironment,
+                    standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"\#(command)"},"permission_mode":"default","cwd":"\#(context.root.path)"}"#
+                )
+                results.withLock { $0.append(result) }
+                completion.signal()
+            }
+            #expect(feedReceived.wait(timeout: .now() + 5) == .success)
+        }
+
+        var record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect((record?["pendingPermissionRequestIds"] as? [String])?.count == 2)
+
+        let beforeFirstResolution = context.state.snapshot().count
+        feedGate.signal()
+        #expect(completion.wait(timeout: .now() + 10) == .success)
+        record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["agentLifecycle"] as? String == "needsInput")
+        #expect((record?["pendingPermissionRequestIds"] as? [String])?.count == 1)
+        let firstResolutionCommands = Array(
+            context.state.snapshot().dropFirst(beforeFirstResolution)
+        )
+        #expect(!firstResolutionCommands.contains {
+            $0.hasPrefix("clear_notification_correlation ")
+        })
+
+        feedGate.signal()
+        #expect(completion.wait(timeout: .now() + 10) == .success)
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        let completed = results.withLock { $0 }
+        #expect(completed.count == 2)
+        #expect(completed.allSatisfy { !$0.timedOut && $0.status == 0 })
+        record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["agentLifecycle"] as? String == "running")
+        #expect(record?["pendingPermissionRequestIds"] == nil)
+        #expect(context.state.snapshot().contains {
+            $0.hasPrefix("clear_notification_correlation ")
+        })
     }
 
     @Test func failedAttentionEndKeepsDurableCorrelation() throws {
@@ -96,61 +160,54 @@ extension ClaudeHookWriteAmplificationTests {
         let context = try AttentionHarness.makeContext(name: "blocking-correlation-cap")
         defer { context.cleanup() }
 
-        let store = ClaudeHookSessionStore(processEnv: [
-            "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
-        ])
         let sessionId = "bounded-correlation-session"
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
-
-        for index in 0..<256 {
-            let registration = try #require(
-                store.recordBlockingToolNeedsInput(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: context.root.path,
-                    transcriptPath: nil,
-                    agentPID: nil,
-                    toolUseId: "request-\(index)",
-                    rawObject: [
-                        "tool_name": "AskUserQuestion",
-                        "tool_input": ["question": "question-\(index)"],
-                    ],
-                    lastSubtitle: "Waiting",
-                    lastBody: "Waiting for input"
-                )
-            )
-            #expect(registration.requestId == "request-\(index)")
-        }
+        let pending = (0..<256).map { "request-\($0)" }
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [sessionId: [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId,
+                "surfaceId": surfaceId,
+                "cwd": context.root.path,
+                "agentLifecycle": "needsInput",
+                "pendingBlockingToolUseIds": pending,
+                "startedAt": 4_102_444_800,
+                "updatedAt": 4_102_444_800,
+            ]],
+        ]
+        try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
         let stateBeforeOverflow = try Data(contentsOf: context.storeURL)
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId]
+        )
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
 
-        let overflow = try store.recordBlockingToolNeedsInput(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            cwd: context.root.path,
-            transcriptPath: nil,
-            agentPID: nil,
-            toolUseId: "request-overflow",
-            rawObject: [
-                "tool_name": "AskUserQuestion",
-                "tool_input": ["question": "overflow"],
-            ],
-            lastSubtitle: "Waiting",
-            lastBody: "Waiting for input"
+        let result = AttentionHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"request-overflow","tool_input":{"question":"overflow"},"permission_mode":"bypassPermissions","cwd":"\#(context.root.path)"}"#
         )
 
-        #expect(overflow == nil)
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(try Data(contentsOf: context.storeURL) == stateBeforeOverflow)
         let record = try AttentionHarness.sessionRecord(
             in: context.storeURL,
             sessionId: sessionId
         )
-        let pending = try #require(record?["pendingBlockingToolUseIds"] as? [String])
-        #expect(pending.count == 256)
-        #expect(pending.contains("request-0"))
-        #expect(!pending.contains("request-overflow"))
+        let storedPending = try #require(record?["pendingBlockingToolUseIds"] as? [String])
+        #expect(storedPending.count == 256)
+        #expect(storedPending.contains("request-0"))
+        #expect(!context.state.snapshot().contains { $0.contains(#""method":"feed.attention.begin""#) })
     }
 
     @Test func resolvedPermissionRequestResumesNotificationLifecycle() throws {
@@ -334,58 +391,57 @@ extension ClaudeHookWriteAmplificationTests {
         #expect(record?["agentLifecycle"] as? String == "running")
     }
 
-    @Test func concurrentOrdinaryPermissionRequestsKeepNeedsInputUntilLastCompletion() throws {
-        let context = try AttentionHarness.makeContext(name: "permission-concurrent-lifecycle")
+    @Test func permissionNotificationClearRespectsHookDeadlineAndRetainsRetryState() throws {
+        let context = try AttentionHarness.makeContext(name: "permission-clear-deadline")
         defer { context.cleanup() }
 
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
-        let sessionId = "permission-concurrent-lifecycle-session"
-        let store = ClaudeHookSessionStore(processEnv: [
-            "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
-        ])
-        _ = try store.upsert(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            cwd: context.root.path,
-            agentLifecycle: .needsInput
+        let sessionId = "permission-clear-deadline-session"
+        let now: TimeInterval = 4_102_444_800
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [sessionId: [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId,
+                "surfaceId": surfaceId,
+                "cwd": context.root.path,
+                "agentLifecycle": "needsInput",
+                "startedAt": now,
+                "updatedAt": now,
+            ]],
+        ]
+        try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
+        let clearGate = DispatchSemaphore(value: 0)
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId],
+            notificationCorrelationClearGate: clearGate,
+            feedTerminalDefaultStatus: "resolved"
         )
-        #expect(try store.beginPermissionRequest(sessionId: sessionId, toolUseId: "ordinary-a"))
-        #expect(try store.beginPermissionRequest(sessionId: sessionId, toolUseId: "ordinary-b"))
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
 
-        let mapped = try #require(try store.lookup(sessionId: sessionId))
-        #expect(try store.clearBlockingAttentionLifecycleIfEligible(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            cwd: context.root.path,
-            transcriptPath: nil,
-            expectedUpdatedAt: mapped.updatedAt,
-            allowRunningState: false
-        ) == false)
-        #expect(try store.finishPermissionRequest(sessionId: sessionId, toolUseId: "ordinary-a"))
-        let afterFirst = try #require(try store.lookup(sessionId: sessionId))
-        #expect(try store.clearBlockingAttentionLifecycleIfEligible(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            cwd: context.root.path,
-            transcriptPath: nil,
-            expectedUpdatedAt: afterFirst.updatedAt,
-            allowRunningState: false
-        ) == false)
-        #expect(try store.finishPermissionRequest(sessionId: sessionId, toolUseId: "ordinary-b"))
-        let afterSecond = try #require(try store.lookup(sessionId: sessionId))
-        #expect(try store.clearBlockingAttentionLifecycleIfEligible(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            cwd: context.root.path,
-            transcriptPath: nil,
-            expectedUpdatedAt: afterSecond.updatedAt,
-            allowRunningState: false
-        ))
+        let startedAt = Date.now
+        let result = AttentionHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "permission-request"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"echo ready"},"permission_mode":"default","cwd":"\#(context.root.path)"}"#
+        )
+        let elapsed = Date.now.timeIntervalSince(startedAt)
+        clearGate.signal()
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(elapsed < 5, "permission cleanup exceeded Claude's hook deadline")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["agentLifecycle"] as? String == "needsInput")
+        #expect(!context.state.snapshot().contains { $0.hasPrefix("clear_notifications --tab=") })
     }
 
     @Test func turnBoundaryClearsPermissionAndLegacyFallbackMarkers() throws {
@@ -410,18 +466,26 @@ extension ClaudeHookWriteAmplificationTests {
             ]],
         ]
         try JSONSerialization.data(withJSONObject: state).write(to: context.storeURL)
-        let store = ClaudeHookSessionStore(processEnv: [
-            "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
-        ])
-
-        _ = try store.upsert(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            cwd: context.root.path,
-            agentLifecycle: .running,
-            clearPendingBlockingTools: true
+        let serverHandled = AttentionHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId]
         )
+        var environment = AttentionHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = AttentionHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"UserPromptSubmit","prompt":"continue","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
         let record = try AttentionHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["pendingPermissionRequestIds"] == nil)
         #expect(record?["legacyBlockingAttentionFallbackActive"] == nil)

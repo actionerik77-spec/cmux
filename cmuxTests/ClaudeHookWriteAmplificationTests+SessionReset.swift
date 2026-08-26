@@ -9,13 +9,6 @@ import Testing
 extension ClaudeHookWriteAmplificationTests {
     private typealias SessionResetHarness = ClaudeHookLiveDeliveryHarness
 
-    @Test func fallbackAttentionTextStaysWithinV2BodyLimit() {
-        let bounded = CMUXCLI(args: []).boundedClaudeBlockingAttentionText(
-            String(repeating: "é", count: 4_096)
-        )
-        #expect(bounded.utf8.count <= 4_096)
-    }
-
     @Test func clearSessionStartReleasesDisplacedBlockingAttention() throws {
         let context = try SessionResetHarness.makeContext(name: "clear-blocking-attention")
         defer { context.cleanup() }
@@ -79,6 +72,60 @@ extension ClaudeHookWriteAmplificationTests {
         }, "a clear boundary must release blockers owned by the displaced session")
     }
 
+    @Test func clearSessionStartDoesNotWidenFailedAttentionRelease() throws {
+        let context = try SessionResetHarness.makeContext(name: "clear-release-failure")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let oldSessionId = "pre-clear-release-failure-session"
+        let newSessionId = "post-clear-release-failure-session"
+        let processIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let serverHandled = SessionResetHarness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: (workspaceId: workspaceId, surfaceId: surfaceId),
+            surfaceTargets: [surfaceId: workspaceId],
+            feedAttentionEndSucceeds: false
+        )
+        var environment = SessionResetHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLAUDE_PID"] = String(processIdentity.pid)
+
+        func runHook(subcommand: String, input: String) {
+            let result = SessionResetHarness.runHookProcess(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: input
+            )
+            #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+        }
+
+        runHook(
+            subcommand: "session-start",
+            input: #"{"session_id":"\#(oldSessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        runHook(
+            subcommand: "pre-tool-use",
+            input: #"{"session_id":"\#(oldSessionId)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"pre-clear-question","permission_mode":"bypassPermissions","cwd":"\#(context.root.path)"}"#
+        )
+
+        let beforeClear = context.state.snapshot().count
+        runHook(
+            subcommand: "session-start",
+            input: #"{"session_id":"\#(newSessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        let clearCommands = Array(context.state.snapshot().dropFirst(beforeClear))
+        #expect(clearCommands.contains { $0.contains(#""method":"feed.attention.end""#) })
+        #expect(!clearCommands.contains { $0.hasPrefix("clear_notifications --tab=") })
+    }
+
     @Test func bypassAttentionRequiresDurableBlockingToolRegistration() throws {
         let context = try SessionResetHarness.makeContext(name: "failed-blocker-registration")
         defer { context.cleanup() }
@@ -118,6 +165,7 @@ extension ClaudeHookWriteAmplificationTests {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_CLAUDE_PID"] = String(processIdentity.pid)
 
+        let longQuestion = String(repeating: "é", count: 4_096)
         let result = SessionResetHarness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
@@ -180,7 +228,7 @@ extension ClaudeHookWriteAmplificationTests {
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"legacy-fallback-question","permission_mode":"bypassPermissions","tool_input":{"questions":[{"question":"Continue?"}]},"cwd":"\#(context.root.path)"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"legacy-fallback-question","permission_mode":"bypassPermissions","tool_input":{"questions":[{"question":"\#(longQuestion)"}]},"cwd":"\#(context.root.path)"}"#
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -189,7 +237,18 @@ extension ClaudeHookWriteAmplificationTests {
         let commands = context.state.snapshot()
         #expect(commands.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") })
         #expect(commands.contains { $0.hasPrefix("set_status claude_code Needs input ") })
-        #expect(commands.contains { $0.hasPrefix("notify_target_async ") })
+        let fallbackNotification = try #require(
+            commands.first { $0.hasPrefix("notify_target_async ") }
+        )
+        let payload = try #require(
+            fallbackNotification.split(separator: " ", maxSplits: 2).last
+        )
+        let body = try #require(
+            payload.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false)
+                .dropFirst(2)
+                .first
+        )
+        #expect(body.utf8.count <= 4_096)
 
         let completion = SessionResetHarness.runHookProcess(
             context: context,

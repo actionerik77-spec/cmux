@@ -12,7 +12,7 @@ import Foundation
 /// `agent.resolve_delivery_target` probes, plus process/session-store
 /// helpers. Kept out of the test suite file for the 500-line file budget.
 enum ClaudeHookLiveDeliveryHarness {
-    struct Context {
+    struct Context: @unchecked Sendable {
         let cliPath: String
         let socketPath: String
         let listenerFD: Int32
@@ -45,7 +45,7 @@ enum ClaudeHookLiveDeliveryHarness {
         }
     }
 
-    struct ProcessRunResult {
+    struct ProcessRunResult: Sendable {
         let status: Int32
         let stdout: String
         let stderr: String
@@ -99,8 +99,11 @@ enum ClaudeHookLiveDeliveryHarness {
         feedAttentionEndSucceeds: Bool = true,
         feedAttentionEndResult: Bool? = nil,
         feedAttentionEndGate: DispatchSemaphore? = nil,
+        notificationCorrelationClearGate: DispatchSemaphore? = nil,
         purgeSessionStoreOnFeedAttentionEnd: Bool = false,
         beforeSurfaceResolutionResponse: (@Sendable () -> Void)? = nil,
+        feedPushReceived: DispatchSemaphore? = nil,
+        feedPushGate: DispatchSemaphore? = nil,
         feedExitPlanModesByRequestId: [String: String] = [:],
         feedTerminalStatusesByRequestId: [String: String] = [:],
         feedTerminalDefaultStatus: String? = nil,
@@ -108,6 +111,11 @@ enum ClaudeHookLiveDeliveryHarness {
         feedTerminalStatusesByPlan: [String: String] = [:]
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            if line.hasPrefix("clear_notification_correlation "),
+               let notificationCorrelationClearGate {
+                _ = notificationCorrelationClearGate.wait(timeout: .now() + 30)
+                return "OK"
+            }
             guard let payload = jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -158,6 +166,10 @@ enum ClaudeHookLiveDeliveryHarness {
                 }
                 return v2Response(id: id, ok: true, result: ["terminals": terminals])
             case "feed.push":
+                feedPushReceived?.signal()
+                if let feedPushGate {
+                    _ = feedPushGate.wait(timeout: .now() + 30)
+                }
                 if let event = params["event"] as? [String: Any],
                    let requestId = event["_opencode_request_id"] as? String {
                     if let status = feedTerminalStatusesByRequestId[requestId] {

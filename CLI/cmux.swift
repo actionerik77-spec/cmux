@@ -6429,8 +6429,17 @@ struct CMUXCLI {
         return .refs
     }
 
-    func sendV1Command(_ command: String, client: SocketClient) throws -> String {
-        let response = try client.send(command: command)
+    func sendV1Command(
+        _ command: String,
+        client: SocketClient,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
+    ) throws -> String {
+        let response = try client.send(
+            command: command,
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
         if response.hasPrefix("ERROR:") {
             throw CLIError(message: response)
         }
@@ -24917,10 +24926,17 @@ struct CMUXCLI {
                     sessionStore: sessionStore,
                     candidates: cleanupCandidates
                 )
-                if releasedCleanupCandidates.count != cleanupCandidates.count {
+                let didReleaseAllCleanupCandidates =
+                    releasedCleanupCandidates.count == cleanupCandidates.count
+                if !didReleaseAllCleanupCandidates {
                     telemetry.breadcrumb("claude-hook.session-start.clear-attention-release-pending")
                 }
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+                if didReleaseAllCleanupCandidates {
+                    _ = try? sendV1Command(
+                        "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -26039,13 +26055,19 @@ struct CMUXCLI {
         value: String,
         icon: String,
         color: String,
-        pid: Int? = nil
+        pid: Int? = nil,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) throws {
         var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         if let pid {
             cmd += " --pid=\(pid)"
         }
-        _ = try client.send(command: cmd)
+        _ = try client.send(
+            command: cmd,
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
     }
 
     func setAgentLifecycle(
@@ -26053,7 +26075,9 @@ struct CMUXCLI {
         key: String,
         lifecycle: AgentHibernationLifecycleState,
         workspaceId: String,
-        surfaceId: String?
+        surfaceId: String?,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
             cliWriteStderr("Warning: unsupported agent lifecycle key\n")
@@ -26062,7 +26086,9 @@ struct CMUXCLI {
         do {
             _ = try sendV1Command(
                 "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                client: client
+                client: client,
+                responseTimeout: responseTimeout,
+                deadline: deadline
             )
         } catch {
             cliWriteStderr("Warning: failed to set agent lifecycle\n")
