@@ -141,18 +141,74 @@ import Testing
 
     @Test
     func unverifiedCodexSnapshotCannotBackfillAutomaticBinding() {
-        let snapshot = SessionRestorableAgentSnapshot(
+        for provenance in ["exec", "subagent", "unknown", "bogus", "tu i", ""] {
+            var snapshot = SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "unverified-codex-session",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/usr/local/bin/codex",
+                    arguments: ["/usr/local/bin/codex", "resume", "unverified-codex-session"],
+                    source: "process"
+                )
+            )
+            snapshot.resumeEvidenceProvenance = provenance
+            #expect(snapshot.resumeBindingSnapshot() == nil)
+        }
+    }
+
+    @Test @MainActor
+    func unverifiedCodexSnapshotDoesNotBackfillAtSave() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.restoredAgentSnapshotsByPanelId[panel.id] = SessionRestorableAgentSnapshot(
             kind: .codex,
-            sessionId: "unverified-codex-session",
+            sessionId: "unverified-codex-save",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "codex",
                 executablePath: "/usr/local/bin/codex",
-                arguments: ["/usr/local/bin/codex", "resume", "unverified-codex-session"],
+                arguments: ["/usr/local/bin/codex", "resume", "unverified-codex-save"],
                 source: "process"
             )
         )
+        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .manualResumeAvailable
 
-        #expect(snapshot.resumeBindingSnapshot() == nil)
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        let terminal = try #require(snapshot.panels.first?.terminal)
+        #expect(terminal.resumeBinding == nil)
+        #expect(terminal.wasAgentRunning == false)
+        #expect(workspace.unresolvedResumeBindingGapCount == 1)
+    }
+
+    @Test @MainActor
+    func bindingOnlyCommandRunningShellDoesNotClaimAgentLiveness() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume binding-only-shell",
+            checkpointId: "binding-only-shell",
+            source: "agent-hook",
+            autoResume: true
+        )
+        // Bypass the setter's structured snapshot projection to model a
+        // binding whose matching hook/index record has disappeared.
+        workspace.surfaceResumeBindingsByPanelId[panel.id] = binding
+        workspace.updatePanelShellActivityState(
+            panelId: panel.id,
+            state: .commandRunning
+        )
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
     }
 
     @Test @MainActor

@@ -6223,6 +6223,7 @@ extension TabManager {
         hasher.combine(snapshot.kind.rawValue)
         hasher.combine(snapshot.sessionId)
         hashOptionalString(snapshot.workingDirectory, into: &hasher)
+        hashOptionalString(snapshot.resumeEvidenceProvenance, into: &hasher)
         hashAgentLaunchCommand(snapshot.launchCommand, into: &hasher)
     }
 

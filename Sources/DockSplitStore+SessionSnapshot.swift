@@ -247,10 +247,14 @@ extension DockSplitStore {
             )
             let managedResumeBinding = initialManagedResumeBinding
                 ?? managedAgentResumeBinding(panelId: panelId)
-            // A managed hook binding carries the authoritative execution
-            // location and approval/provenance metadata. A transient
-            // process-detected binding must never replace it in a snapshot.
-            var resumeBinding = managedResumeBinding ?? detectedResumeBinding
+            // Keep a fresh effective process binding for the current panel;
+            // fall back to the managed hook binding only when no effective
+            // observation exists, so a transient scan cannot clobber either
+            // side's authoritative metadata.
+            var resumeBinding = detectedResumeBinding
+            if resumeBinding == nil {
+                resumeBinding = managedResumeBinding
+            }
             let restorableAgent = effectiveSessionRestorableAgent(
                 panelId: panelId,
                 observation: observation,
@@ -280,7 +284,7 @@ extension DockSplitStore {
             // liveness observation. Backfill whenever a retained agent lacks a
             // binding; process-index evidence is allowed to decide
             // `wasAgentRunning`, but never whether identity is persisted.
-            if resumeBinding == nil, let restorableAgent {
+            if resumeBinding == nil, managedResumeBinding == nil, let restorableAgent {
                 if let derivedBinding = restorableAgent.resumeBindingSnapshot(),
                    setSurfaceResumeBinding(derivedBinding, panelId: panelId) {
                     resumeBinding = derivedBinding
