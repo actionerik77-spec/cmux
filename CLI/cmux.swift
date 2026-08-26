@@ -32762,6 +32762,14 @@ export default CMUXSessionRestore;
             return resolved
         }
         func processBinding() -> CallerTerminalBinding? { processBindingResolution().binding }
+        func preferredHookPID(mappedPID: Int?) -> Int? {
+            preferredAgentHookEventPID(
+                agentName: def.name,
+                mappedPID: mappedPID,
+                inferredPID: inferredPID,
+                verifiedPID: processBindingResolution().verifiedPID
+            )
+        }
 #if DEBUG
         func processBindingDebugState() -> String {
             guard let processBindingCache else { return "deferred" }
@@ -32805,7 +32813,7 @@ export default CMUXSessionRestore;
         if def.integration == .cursor {
             concludeCursorNativeApprovalObservationIfNeeded(
                 subcommand: subcommand,
-                agentPID: inferredPID,
+                agentPID: preferredHookPID(mappedPID: nil),
                 sessionId: sessionId,
                 client: client,
                 socketPassword: socketPassword
@@ -32818,11 +32826,14 @@ export default CMUXSessionRestore;
             env: env
         )
 #endif
+        let pidForKey = def.name == "codex"
+            ? inferredPID
+            : preferredHookPID(mappedPID: nil)
         let pidKey = def.integration.lifecycleProcessOwnershipScope.agentPIDKey(
             statusKey: def.statusKey,
             sessionId: sessionId,
             processGeneration: AgentPIDProcessIdentity(
-                agentTurnPID: inferredPID
+                agentTurnPID: pidForKey
             )
         )
         if isHermesAgentAutomaticApprovalObservation(def: def, input: input) {
@@ -33215,7 +33226,7 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            let pid = inferredPID
+            let pid = preferredHookPID(mappedPID: mapped?.pid)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
@@ -33403,12 +33414,12 @@ export default CMUXSessionRestore;
                     client: client
                 )
             }
-            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
+            let pid = preferredHookPID(mappedPID: mapped?.pid)
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: hookCwd ?? mapped?.cwd)
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
-                transcriptPath: transcriptPathForStore, currentPID: inferredPID
+                transcriptPath: transcriptPathForStore, currentPID: pid
             )
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
@@ -33794,7 +33805,7 @@ export default CMUXSessionRestore;
                 )
             }
             sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
+            let pid = preferredHookPID(mappedPID: mapped?.pid)
             let rawTurnBoundary = firstString(
                 in: input.rawObject ?? [:],
                 keys: ["cmux_turn_boundary", "turn_boundary"]
@@ -34041,7 +34052,7 @@ export default CMUXSessionRestore;
             let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
-                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: inferredPID
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
             )
             let grokAssistantMessage: String? = {
                 guard def.name == "grok" else { return nil }
@@ -34402,7 +34413,7 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
+            let pid = preferredHookPID(mappedPID: mapped?.pid)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -34411,7 +34422,7 @@ export default CMUXSessionRestore;
             )
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
-                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: inferredPID
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
             )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             if !sessionId.isEmpty, !suppressVisibleMutations {
@@ -34493,11 +34504,7 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            let pid = preferredAgentHookEventPID(
-                agentName: def.name,
-                mappedPID: mapped?.pid,
-                inferredPID: inferredPID
-            )
+            let pid = preferredHookPID(mappedPID: mapped?.pid)
 
             let notificationCwd = hookCwd ?? mapped?.cwd
 #if DEBUG
@@ -34739,10 +34746,8 @@ export default CMUXSessionRestore;
             if !summary.body.isEmpty, shouldSendNotification(fingerprint: notificationFingerprint) {
                 // One ancestry walk per delivered notification, feeding the
                 // notify payload's subagent tag below.
-                let notificationEventPID = preferredAgentHookEventPID(
-                    agentName: def.name,
-                    mappedPID: mapped?.pid,
-                    inferredPID: inferredPID
+                let notificationEventPID = preferredHookPID(
+                    mappedPID: mapped?.pid
                 )
                 let isNestedAgentSession = nestedAgentSessionDetected(
                     currentAgentPID: notificationEventPID,
@@ -37644,12 +37649,12 @@ export default CMUXSessionRestore;
             data.append(chunk)
         }
         guard data.count <= maxBytes else {
-            let drainer = Process()
-            drainer.executableURL = URL(fileURLWithPath: "/usr/bin/cat")
-            drainer.standardInput = handle
-            drainer.standardOutput = FileHandle.nullDevice
-            drainer.standardError = FileHandle.nullDevice
-            try? drainer.run()
+            // The hook is about to return a bounded failure. Do not fork a
+            // reader that inherits an unbounded producer pipe: if the agent
+            // keeps stdin open, that child would remain blocked indefinitely
+            // after the CLI exits. Closing the read end releases the producer
+            // and leaves no background process to reap.
+            try? handle.close()
             return (data: data, isComplete: false)
         }
         return (data: data, isComplete: true)
