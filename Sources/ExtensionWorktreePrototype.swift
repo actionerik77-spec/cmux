@@ -537,7 +537,8 @@ enum CmuxExtensionWorktreePrototype {
     ) async {
         guard let expectedIdentity,
               let currentIdentity = filesystemIdentity(at: worktree),
-              currentIdentity == expectedIdentity else {
+              currentIdentity.deviceID == expectedIdentity.deviceID,
+              currentIdentity.fileID == expectedIdentity.fileID else {
             logPrivateDiagnostic("Skipped failed worktree cleanup after identity changed.")
             return
         }
