@@ -78,7 +78,13 @@ struct WorkspaceIsStaleAgentHookBindingTests {
 
         // A missing process-index entry is inconclusive. Only a matching
         // generation that explicitly reports `.exited` may prune a binding.
-        #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == false)
+        #expect(
+            workspace.isStaleAgentHookBinding(
+                binding,
+                panelId: panelId,
+                restorableAgentIndex: .empty
+            ) == false
+        )
     }
 
     @Test

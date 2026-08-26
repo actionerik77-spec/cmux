@@ -85,7 +85,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let context = try makeClaudeHookContext(name: "claude-startup-resume-binding")
         defer { context.cleanup() }
 
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        startAgentHookMockServerAccepting(context: context)
         let sessionId = "startup-resume-binding-session"
         let transcriptURL = context.root.appendingPathComponent("startup-resume-binding.jsonl")
         try "{\"sessionId\":\"\(sessionId)\"}\n"

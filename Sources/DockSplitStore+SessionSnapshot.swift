@@ -240,7 +240,7 @@ extension DockSplitStore {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
             let initialManagedResumeBinding = managedAgentResumeBinding(panelId: panelId)
-            let detectedResumeBinding = effectiveSessionResumeBinding(
+            let effectiveDetectedResumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
                 detected: detectedResumeBinding,
                 detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
@@ -251,7 +251,7 @@ extension DockSplitStore {
             // fall back to the managed hook binding only when no effective
             // observation exists, so a transient scan cannot clobber either
             // side's authoritative metadata.
-            var resumeBinding = detectedResumeBinding
+            var resumeBinding = effectiveDetectedResumeBinding
             if resumeBinding == nil {
                 resumeBinding = managedResumeBinding
             }

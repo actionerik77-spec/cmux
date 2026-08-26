@@ -30915,7 +30915,7 @@ struct CMUXCLI {
                 break
             case .missing:
                 if preserveExistingBindingWhenUnavailable {
-                    resumeBindingDeliveryLogger.error(
+                    resumeBindingDeliveryLogger.notice(
                         "Preserving existing Hermes resume binding because checkpoint is missing session=\(sessionId, privacy: .public)"
                     )
                 } else {
@@ -30932,7 +30932,7 @@ struct CMUXCLI {
             case .unavailable:
                 // A temporary snapshot failure must not replace or clear a
                 // previously verified durable Hermes checkpoint.
-                resumeBindingDeliveryLogger.error(
+                resumeBindingDeliveryLogger.notice(
                     "Preserving existing Hermes resume binding because checkpoint evidence is unavailable session=\(sessionId, privacy: .public)"
                 )
                 return
@@ -30945,7 +30945,7 @@ struct CMUXCLI {
                 launchCommand: launchCommand
             ) else {
                 if preserveExistingBindingWhenUnavailable {
-                    resumeBindingDeliveryLogger.error(
+                    resumeBindingDeliveryLogger.notice(
                         "Preserving existing Codex resume binding because launch evidence is unavailable session=\(sessionId, privacy: .public)"
                     )
                 } else {
@@ -30985,7 +30985,7 @@ struct CMUXCLI {
                     telemetry: telemetry
                 )
                 if preserveExistingBindingWhenUnavailable {
-                    resumeBindingDeliveryLogger.error(
+                    resumeBindingDeliveryLogger.notice(
                         "Preserving existing Codex resume binding because rollout evidence is missing session=\(sessionId, privacy: .public)"
                     )
                 } else {
@@ -31011,7 +31011,7 @@ struct CMUXCLI {
             }
         } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
             if preserveExistingBindingWhenUnavailable {
-                resumeBindingDeliveryLogger.error(
+                resumeBindingDeliveryLogger.notice(
                     "Preserving existing agent resume binding because launch evidence is unavailable kind=\(kind, privacy: .public)"
                 )
             } else {
@@ -31042,7 +31042,7 @@ struct CMUXCLI {
             observedPermissionMode: observedPermissionMode
         ) else {
             if preserveExistingBindingWhenUnavailable {
-                resumeBindingDeliveryLogger.error(
+                resumeBindingDeliveryLogger.notice(
                     "Preserving existing agent resume binding because no command was derived kind=\(kind, privacy: .public)"
                 )
             } else if kind == "codex" {
@@ -31097,12 +31097,14 @@ struct CMUXCLI {
             // store mutation; no client-side get/set preflight can close that race.
             params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
+        // Keep a retry within the same operation budget as the first send.
+        let retryDeadline = deadline ?? Date.now.addingTimeInterval(responseTimeout ?? 30)
         do {
             _ = try client.sendV2(
                 method: "surface.resume.set",
                 params: params,
                 responseTimeout: responseTimeout,
-                deadline: deadline
+                deadline: retryDeadline
             )
         } catch {
             // A hook is a short-lived process and the app serializes binding mutations on its
@@ -31110,16 +31112,12 @@ struct CMUXCLI {
             // a live session into a permanently unbound one; the set operation is idempotent.
             do {
                 client.close()
-                if let deadline {
-                    try client.connect(deadline: deadline)
-                } else {
-                    try client.connect()
-                }
+                try client.connect(deadline: retryDeadline)
                 _ = try client.sendV2(
                     method: "surface.resume.set",
                     params: params,
                     responseTimeout: responseTimeout,
-                    deadline: deadline
+                    deadline: retryDeadline
                 )
             } catch {
                 resumeBindingDeliveryLogger.error(
