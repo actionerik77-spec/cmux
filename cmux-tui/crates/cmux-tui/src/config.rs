@@ -1550,9 +1550,9 @@ struct SidebarViewResolution<'a> {
 /// Column sizing of a resolved node, for bottom-up split-group defaults.
 fn sidebar_node_metrics(node: &SidebarLayoutNode, views: &[SidebarViewSpec]) -> (u16, u16) {
     match node {
-        SidebarLayoutNode::Leaf(index) => views
-            .get(*index)
-            .map_or((22, 20), |view| (view.width, view.collapse_priority)),
+        SidebarLayoutNode::Leaf(index) => {
+            views.get(*index).map_or((22, 20), |view| (view.width, view.collapse_priority))
+        }
         SidebarLayoutNode::Split(split) => (split.width, split.collapse_priority),
     }
 }
@@ -1744,7 +1744,10 @@ fn resolve_sidebar_leaf_view(
         }
     }
     if let Err(reason) = validate_sidebar_levels(&levels) {
-        crate::client_log::stderr_log!("config", "cmux-tui: ignoring {owner} view {id:?}: {reason}");
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring {owner} view {id:?}: {reason}"
+        );
         return None;
     }
     let scope = match view.scope.as_deref().map(str::trim) {
