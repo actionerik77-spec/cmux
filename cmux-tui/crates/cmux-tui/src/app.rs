@@ -5527,7 +5527,8 @@ enum Drag {
     /// Independent rail width override drag.
     RailResize(RailKind),
     /// Sidebar split-group divider drag: re-shares the group's children.
-    SidebarSplit { group: usize, index: usize },
+    /// The stable config id survives layout pruning and reordering.
+    SidebarSplit { group: String, index: usize },
     /// Pane split resize drag.
     ResizeSplit { horizontal: Option<PaneResizeDragTarget>, vertical: Option<PaneResizeDragTarget> },
 }
@@ -17957,6 +17958,7 @@ impl App {
             self.machine_rail_follow_selection = true;
         }
         let page = rail_page_size(self.sidebar_layout.machine);
+        let mut continue_past_boundary = false;
         let command = {
             let Some(machine) = self.machine_ui.as_mut() else {
                 self.focus = FocusTarget::Pane;
@@ -17977,6 +17979,8 @@ impl App {
                 // j, k, h, l, or an arrow key.
                 Some(MachineRailCommand::ProviderMenu)
             } else if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+                continue_past_boundary = next == current
+                    && matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k'));
                 if let Some(target) = targets.get(next).copied() {
                     machine.select_rail_target(target);
                 }
@@ -18033,6 +18037,9 @@ impl App {
                 None
             }
         };
+        if continue_past_boundary && self.continue_past_rail_boundary(RailKind::Machine, key) {
+            return RenderAction::Draw;
+        }
         match command {
             Some(MachineRailCommand::Activate(machine)) => {
                 self.activate_machine(machine);
@@ -22068,14 +22075,24 @@ impl App {
                         .find(|divider| divider.rect.contains(x, y))
                         .copied()
                     {
-                        self.drag =
-                            Some(Drag::SidebarSplit { group: divider.group, index: divider.index });
+                        if let Some(group) = self
+                            .sidebar_layout
+                            .split_groups
+                            .get(divider.group)
+                            .map(|group| group.id.clone())
+                        {
+                            self.drag = Some(Drag::SidebarSplit { group, index: divider.index });
+                        }
                     } else {
                         self.drag = Some(Drag::RailResize(kind));
                     }
                 }
                 Hit::SidebarSplitDivider { group, index } => {
-                    self.drag = Some(Drag::SidebarSplit { group, index });
+                    if let Some(group) =
+                        self.sidebar_layout.split_groups.get(group).map(|group| group.id.clone())
+                    {
+                        self.drag = Some(Drag::SidebarSplit { group, index });
+                    }
                 }
                 Hit::PaneResize { horizontal, vertical } => {
                     let horizontal = horizontal
@@ -22347,8 +22364,8 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             Some(Drag::SidebarSplit { group, index }) => {
-                let (group, index) = (*group, *index);
-                self.drag_sidebar_split_divider(group, index, x, y);
+                let group = group.clone();
+                self.drag_sidebar_split_divider(&group, *index, x, y);
                 Ok(RenderAction::Draw)
             }
             Some(Drag::ResizeSplit { horizontal, vertical }) => {
@@ -22368,9 +22385,13 @@ impl App {
     /// Convert a divider drag into new share fractions for its split group.
     /// Only the two children flanking the divider change; the rest keep
     /// their rendered sizes.
-    fn drag_sidebar_split_divider(&mut self, group: usize, index: usize, x: u16, y: u16) {
+    fn drag_sidebar_split_divider(&mut self, group: &str, index: usize, x: u16, y: u16) {
         use crate::config::SidebarSplitDir;
-        let Some(placement) = self.sidebar_layout.split_groups.get(group) else { return };
+        let Some(placement) =
+            self.sidebar_layout.split_groups.iter().find(|placement| placement.id == group)
+        else {
+            return;
+        };
         let Some(first) = placement.children.get(index).copied() else { return };
         let Some(second) = placement.children.get(index + 1).copied() else { return };
         let mut sizes: Vec<u16> = placement
@@ -24212,17 +24233,18 @@ mod tests {
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
-        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
-        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
-        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
-        TerminalPointerEncoding, TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
-        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
-        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
-        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
-        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
-        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
-        expand_status_tokens, forward_host_input, forward_mux_event, forward_mux_events,
+        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarSplitGroupPlacement,
+        SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
+        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
+        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput,
+        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
+        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
+        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
+        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
+        client_menu_item, clip_horizontal_rect, content_size_for_rect,
+        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
+        forward_host_input, forward_mux_event, forward_mux_events,
         host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
@@ -24268,7 +24290,7 @@ mod tests {
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{
         Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarProfileSpec,
-        SidebarResourceKind, SidebarView, SidebarViewSpec, action_definitions,
+        SidebarResourceKind, SidebarSplitDir, SidebarView, SidebarViewSpec, action_definitions,
     };
     use crate::localization;
     use crate::machine::{
@@ -26898,7 +26920,7 @@ mod tests {
         app.sync_layout((120, 31));
         assert_eq!(app.sidebar_layout.dividers.len(), 1);
 
-        app.drag_sidebar_split_divider(0, 0, 0, 9);
+        app.drag_sidebar_split_divider("left", 0, 0, 9);
         app.sync_layout((120, 31));
         let top = app.sidebar_layout.ordered[0].rect;
         let bottom = app.sidebar_layout.ordered[1].rect;
@@ -26906,9 +26928,38 @@ mod tests {
         assert_eq!(top.height + bottom.height, 30);
 
         // The two rails clamp at their minimum height.
-        app.drag_sidebar_split_divider(0, 0, 0, 0);
+        app.drag_sidebar_split_divider("left", 0, 0, 0);
         app.sync_layout((120, 31));
         assert_eq!(app.sidebar_layout.ordered[0].rect.height, super::MIN_SPLIT_RAIL_HEIGHT);
+    }
+
+    #[test]
+    fn sidebar_split_divider_drag_resolves_group_by_stable_id() {
+        let mux = Mux::new("sidebar-split-stable-id-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_layout.split_groups = vec![
+            SidebarSplitGroupPlacement {
+                id: "other".into(),
+                dir: SidebarSplitDir::Vertical,
+                children: vec![
+                    Rect { x: 0, y: 0, width: 20, height: 10 },
+                    Rect { x: 0, y: 11, width: 20, height: 10 },
+                ],
+            },
+            SidebarSplitGroupPlacement {
+                id: "left".into(),
+                dir: SidebarSplitDir::Vertical,
+                children: vec![
+                    Rect { x: 0, y: 0, width: 20, height: 10 },
+                    Rect { x: 0, y: 11, width: 20, height: 10 },
+                ],
+            },
+        ];
+
+        app.drag_sidebar_split_divider("left", 0, 0, 9);
+
+        assert!(app.sidebar_split_fractions.contains_key("left"));
+        assert!(!app.sidebar_split_fractions.contains_key("other"));
     }
 
     #[test]
