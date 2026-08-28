@@ -27582,7 +27582,6 @@ mod tests {
             width: 26,
             max_width: 0,
             collapse_priority: 30,
-            row_lines: 1,
         })];
         config
     }
@@ -27704,7 +27703,6 @@ mod tests {
             width: 26,
             max_width: 0,
             collapse_priority: 30,
-            row_lines: 1,
         })];
         let mut fractions = HashMap::new();
         fractions.insert(
@@ -27841,7 +27839,6 @@ mod tests {
             width: 26,
             max_width: 0,
             collapse_priority: 30,
-            row_lines: 1,
         })];
         config.sidebar.views_explicit = true;
         app.config = config;
@@ -43261,6 +43258,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 1,
             }))
             .unwrap(),
@@ -45630,6 +45628,7 @@ mod tests {
             projection_rails: HashMap::new(),
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,
+            agent_focus_stamps: HashMap::new(),
             projection_agent_surfaces: HashSet::new(),
             projection_title_surfaces: HashSet::new(),
             projection_agent_surfaces_by_view: HashMap::new(),
