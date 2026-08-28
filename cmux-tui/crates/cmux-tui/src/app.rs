@@ -10393,19 +10393,14 @@ impl App {
             rows
         } else {
             let agents = if spec.includes(SidebarResourceKind::Agents) {
-                // Finished reports are historical records, not active agents.
-                // Otherwise detached "surface..." rows remain forever after exit.
-                // An `all`-scoped view is a chronological status board, so it
-                // keeps done agents; unknown stays out everywhere.
-                let keep_done = spec.scope == crate::config::SidebarViewScope::All;
+                // Finished reports are historical records, not active agents:
+                // an ended session leaves the journal-derived roster, and
+                // remote caches converge through the done broadcast, so every
+                // scope hides done/unknown rather than listing dead agents.
                 self.session
                     .agents()
                     .into_iter()
-                    .filter(|agent| match agent.state.as_str() {
-                        "unknown" => false,
-                        "done" => keep_done,
-                        _ => true,
-                    })
+                    .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()
@@ -43006,6 +43001,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 1,
             }))
             .unwrap(),
@@ -43020,6 +43016,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 1,
             }))
             .unwrap();
@@ -43038,6 +43035,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 2,
             }))
             .unwrap(),
