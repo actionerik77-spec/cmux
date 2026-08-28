@@ -10081,6 +10081,7 @@ fn agent_json(record: &AgentRecord) -> Value {
         "state": record.state.as_str(),
         "source": record.source.as_str(),
         "session": record.session,
+        "agent": record.agent,
         "updated_at_ms": record.updated_at_ms,
     })
 }
@@ -13012,12 +13013,13 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TitleChanged { surface, title } => {
             json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }
-        MuxEvent::AgentChanged { surface, state, source, session, updated_at_ms } => json!({
+        MuxEvent::AgentChanged { surface, state, source, session, agent, updated_at_ms } => json!({
             "event": "agent-changed",
             "surface": surface,
             "state": state.as_ref(),
             "source": source.as_ref(),
             "session": session.as_deref(),
+            "agent": agent.as_deref(),
             "updated_at_ms": updated_at_ms,
         }),
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
@@ -18900,7 +18902,9 @@ mod tests {
         assert_eq!(result["source"], "socket");
         assert_eq!(result["session"], "raw-command");
         assert_eq!(mux.with_state(|state| state.resource_revision), revision + 1);
-        assert_eq!(mux.resource_event_epoch(), epoch + 1);
+        // A fresh direct report publishes twice on the shared change epoch:
+        // its resource commit and its journal echo.
+        assert_eq!(mux.resource_event_epoch(), epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let events = mux.resource_events_after(revision).unwrap();
         assert_eq!(events.batches.len(), 1);
@@ -22392,6 +22396,7 @@ mod tests {
                 state: Arc::<str>::from("working"),
                 source: Arc::<str>::from("hook"),
                 session: Some(Arc::<str>::from("review")),
+                agent: Some(Arc::<str>::from("claude")),
                 updated_at_ms: 41,
             }),
             json!({
@@ -22400,6 +22405,7 @@ mod tests {
                 "state": "working",
                 "source": "hook",
                 "session": "review",
+                "agent": "claude",
                 "updated_at_ms": 41,
             })
         );
