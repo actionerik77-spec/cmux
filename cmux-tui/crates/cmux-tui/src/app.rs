@@ -27253,6 +27253,7 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.profiles = vec![
@@ -27315,6 +27316,7 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         };
         let agents_view = SidebarViewSpec {
@@ -27325,6 +27327,7 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         };
         let tabs_profile = SidebarProfileSpec {
@@ -27522,6 +27525,7 @@ mod tests {
                 width: 26,
                 max_width: 0,
                 collapse_priority: 20,
+                row_lines: 1,
                 scope: SidebarViewScope::All,
             },
         ];
@@ -27534,6 +27538,7 @@ mod tests {
             width: 26,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
         })];
         config
     }
@@ -27655,6 +27660,7 @@ mod tests {
             width: 26,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
         })];
         let mut fractions = HashMap::new();
         fractions.insert(
@@ -27791,6 +27797,7 @@ mod tests {
             width: 26,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
         })];
         config.sidebar.views_explicit = true;
         app.config = config;
@@ -42865,6 +42872,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -42944,6 +42952,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -42975,6 +42984,7 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
             },
             SidebarViewSpec {
@@ -42985,6 +42995,7 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
             },
         ];
@@ -43061,6 +43072,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::All,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43093,6 +43105,7 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
             },
             SidebarViewSpec {
@@ -43103,6 +43116,7 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
             },
         ];
@@ -43157,6 +43171,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43186,6 +43201,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43224,6 +43240,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43260,6 +43277,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43285,6 +43303,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43325,6 +43344,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43390,6 +43410,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43429,6 +43450,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43581,6 +43603,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43681,6 +43704,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
