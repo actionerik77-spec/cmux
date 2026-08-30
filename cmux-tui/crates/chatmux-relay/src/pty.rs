@@ -1408,6 +1408,7 @@ impl Inner {
                             server_roots.as_deref(),
                             context,
                             &cancellation,
+                            &open_permit,
                         )
                         .await
                 } else {
