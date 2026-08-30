@@ -27300,6 +27300,7 @@ struct CMUXCLI {
                 launchCommand: launchCommand,
                 transcriptPath: parsedInput.transcriptPath,
                 observedPermissionMode: observedHookPermissionMode,
+                telemetry: telemetry,
                 preserveExistingBindingWhenUnavailable:
                     isClaudeRestoreSessionStart(parsedInput) &&
                     resolvedSurface.isAuthoritative &&
@@ -27310,8 +27311,7 @@ struct CMUXCLI {
                         workspaceId: workspaceId,
                         surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                         telemetry: telemetry
-                    ),
-                telemetry: telemetry
+                    )
             )
             emitAgentJournalEvent(
                 client: client,
@@ -34808,11 +34808,11 @@ export default CMUXSessionRestore;
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         launchCommand: resumeLaunchCommand,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        telemetry: telemetry,
                         preserveExistingBindingWhenUnavailable: self.shouldPreserveAgentHookResumeBinding(
                             input: input,
                             mappedSession: mapped
-                        ),
-                        telemetry: telemetry
+                        )
                     )
                 }
             }

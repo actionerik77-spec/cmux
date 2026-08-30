@@ -377,8 +377,17 @@ extension DockSplitStore {
               !sessionID.isEmpty else {
             return nil
         }
+        let sourceWorkspaceId = transfer.sessionRestoreWorkspaceId
+        let sourceWorkspace = AppDelegate.shared?.workspaceFor(tabId: sourceWorkspaceId)
+        guard let configuration = transfer.remoteCleanupConfiguration ?? sourceWorkspace?.remoteConfiguration,
+              configuration.transport == .ssh,
+              configuration.preserveAfterTerminalExit,
+              !configuration.skipDaemonBootstrap,
+              configuration.persistentDaemonSlot != nil else {
+            return nil
+        }
         return SurfaceResumeRemoteContext(
-            workspaceID: transfer.sessionRestoreWorkspaceId,
+            workspaceID: sourceWorkspaceId,
             surfaceID: panelId,
             persistentPTYSessionID: sessionID
         )

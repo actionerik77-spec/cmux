@@ -556,6 +556,7 @@ extension DockSplitStore {
                 resumeBinding: agentCompatibilityBinding
             )?.retargetedForResumeBinding(agentCompatibilityBinding)
                 .preservingCodexResumeEvidence(from: retainedSnapshot)
+                .preservingCodexResumeEvidence(from: observation?.snapshot)
         }.first
         let compatible = restoredAgentLifecycle.reconcileSnapshotWithQueuedRestoreIntent(
             panelId: panelId,

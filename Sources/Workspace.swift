@@ -463,7 +463,9 @@ extension Workspace {
                     ?? restoredAgentSnapshotsByPanelId[panelId]
             ),
             resumeBinding: resumeBinding
-        )
+        )?.retargetedForResumeBinding(resumeBinding)
+            .preservingCodexResumeEvidence(from: retainedRestorableAgent)
+            .preservingCodexResumeEvidence(from: restorableAgentObservation?.snapshot)
         var effectiveResumeBinding = resumeBinding
         // The structured agent snapshot is durable identity, not merely a
         // liveness observation. A process scan can miss a healthy agent while
