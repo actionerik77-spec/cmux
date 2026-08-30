@@ -125,7 +125,7 @@ struct CodexApprovalNotificationIdentity: Equatable, Sendable {
     /// Whether the provider supplied a stable per-request discriminator. When
     /// false, repeated identical tuples are treated as ambiguous by the app
     /// coordinator and require a scope-level resolution.
-    let isAuthoritative: Bool = true
+    let isAuthoritative: Bool
 
     init(scope: String, approvalID: String, isAuthoritative: Bool = true) {
         self.scope = scope
