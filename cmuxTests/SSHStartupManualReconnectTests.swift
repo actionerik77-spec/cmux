@@ -852,8 +852,11 @@ struct SSHStartupManualReconnectTests {
         )
         let configureParams = try #require(configureRequest["params"] as? [String: Any])
         let startupCommand = try #require(configureParams["terminal_startup_command"] as? String)
+        let usesForegroundAuthHelper =
+            startupCommand.contains("cmux_ssh_attach_foreground_auth") ||
+            startupCommand.contains("cmux_ssh_foreground_auth")
         #expect(
-            startupCommand.contains("cmux_ssh_foreground_auth"),
+            usesForegroundAuthHelper,
             "Expected the persistent SSH foreground-auth startup path: \(startupCommand)"
         )
         return try SSHStartupCommandTestSupport(
