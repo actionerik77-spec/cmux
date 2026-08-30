@@ -634,6 +634,7 @@ final class WorkspaceAttentionOrbitPatternTests: XCTestCase {
             WorkspaceAttentionOrbitPattern.geometry(in: CGRect(x: 0, y: 0, width: 420, height: 240))
         )
         let bands = geometry.tailBands
+        let lastBand = try XCTUnwrap(bands.last)
 
         for index in bands.indices.dropFirst() {
             XCTAssertEqual(
@@ -645,8 +646,8 @@ final class WorkspaceAttentionOrbitPatternTests: XCTestCase {
             XCTAssertLessThanOrEqual(bands[index - 1].lineWidth, bands[index].lineWidth)
         }
         XCTAssertEqual(
-            bands.last?.startDistanceBehindHead,
-            geometry.headLength + (bands.last?.length ?? 0),
+            lastBand.startDistanceBehindHead,
+            geometry.headLength + lastBand.length,
             accuracy: 0.001
         )
         XCTAssertLessThanOrEqual(
