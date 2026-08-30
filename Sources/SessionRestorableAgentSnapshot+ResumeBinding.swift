@@ -89,8 +89,8 @@ extension SessionRestorableAgentSnapshot {
             environment: launchCommand?.environment,
             launchCommand: launchCommand,
             permissionMode: permissionMode,
-            resumeEvidenceProvenance: resumeEvidenceProvenance,
             autoResume: true,
+            resumeEvidenceProvenance: resumeEvidenceProvenance,
             launchFlavor: launchFlavor
         )
     }
