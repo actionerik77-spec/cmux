@@ -848,7 +848,7 @@ impl PtyManager {
             changed
         };
         if changed {
-            self.inner.detach_matching(|candidate| candidate == &owner, false).retire();
+            self.detach_matching(|candidate| candidate == &owner, false).retire();
         }
         let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
         if !self.inner.tunnel_authority_generation_current(context) {
@@ -1379,7 +1379,6 @@ impl Inner {
                     server_roots.as_deref(),
                     context,
                     &cancellation,
-                    &open_permit,
                 )
                 .await
             {
@@ -2283,9 +2282,10 @@ impl Inner {
                 }
             };
             if !owner {
+                let cancellation_token = cancellation.token();
                 tokio::select! {
                     biased;
-                    _ = cancellation.token().cancelled() => {
+                    _ = cancellation_token.cancelled() => {
                         return Err("terminal open cancelled".to_owned());
                     }
                     _ = waiter.expect("shell waiter") => {}
@@ -2846,7 +2846,6 @@ impl Inner {
         server_roots: Option<&[String]>,
         context: &FrameContext,
         cancellation: &OpenCancellation,
-        open_permit: &OpenPermit,
     ) -> Result<Option<Opened>, (RelayPtyErrorCode, String)> {
         let socket_dir = self.deps.socket_dir();
         let ensured = self
