@@ -38,7 +38,7 @@ struct SessionResumeBindingBackfillRegressionTests {
             let terminal = try #require(snapshot.panels.first?.terminal)
             #expect(terminal.agent?.kind == .ollama)
             #expect(terminal.resumeBinding == nil)
-            #expect(terminal.wasAgentRunning == true)
+            #expect(terminal.wasAgentRunning == false)
             #expect(workspace.unresolvedResumeBindingGapCount == 0)
         }
     }
@@ -177,5 +177,21 @@ struct SessionResumeBindingBackfillRegressionTests {
         #expect(
             TabManager.restorableAgentSnapshotFingerprint(registrationChanged) != original
         )
+    }
+
+    @Test
+    func rejectedLaunchCaptureCannotBackfillBinding() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "rejected-launch-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: [],
+                source: "rejected"
+            )
+        )
+
+        #expect(snapshot.resumeBindingSnapshot() == nil)
     }
 }

@@ -60,6 +60,9 @@ extension SessionRestorableAgentSnapshot {
         launchFlavor: SurfaceResumeLaunchFlavor = .local
     ) -> SurfaceResumeBindingSnapshot? {
         guard kind.restoreMode == .resumeSession else { return nil }
+        guard launchCommand?.source?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() != "rejected" else { return nil }
         if kind.rawValue.lowercased() == "codex" {
             guard resumeEvidenceProvenance?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 == AgentResumeEvidenceProvenance.tui.logValue else {

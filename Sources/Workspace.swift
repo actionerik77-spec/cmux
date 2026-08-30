@@ -665,7 +665,7 @@ extension Workspace {
                 )
                 return (matchingObservation?.processLiveness ?? .unknown)
                     .wasRunning(
-                        fallingBackTo: panelShellActivityStates[panelId],
+                        fallingBackTo: .unknown,
                         recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
                         confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                         currentProcessIdentity: currentAgentProcessIdentity,

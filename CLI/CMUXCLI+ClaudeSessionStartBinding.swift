@@ -50,7 +50,12 @@ extension CMUXCLI {
                     sessionId: currentSessionId,
                     updatedAt: updatedAt?.isFinite == true ? updatedAt : nil
                 )
-                return clearOutcome == .failed ? .inconclusive : .notMatching
+                switch clearOutcome {
+                case .cleared:
+                    return .notMatching
+                case .checkpointDidNotOwnBinding, .failed:
+                    return .inconclusive
+                }
             case .some(let value) where value is NSNull:
                 return .notMatching
             default:

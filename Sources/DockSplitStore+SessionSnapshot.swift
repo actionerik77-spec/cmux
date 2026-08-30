@@ -635,7 +635,7 @@ extension DockSplitStore {
             return false
         }
         return (relevantObservation?.processLiveness ?? .unknown).wasRunning(
-            fallingBackTo: terminal.shellActivity.state,
+            fallingBackTo: .unknown,
             recordedProcessIdentities: relevantObservation?.agentProcessIdentities ?? [:],
             confirmedRuntimeProcessIdentities: confirmedRuntimeIdentities,
             currentProcessIdentity: currentAgentProcessIdentity,
