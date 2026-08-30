@@ -8426,9 +8426,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.newTerminalTab") {
             if let dockSurfaceStore {
-                guard let paneId = dockSurfaceStore.resolvePane(
-                    requestedPaneID: nil
-                ), dockSurfaceStore.newSurface(
+                let paneId = dockSurfacePanelId.flatMap {
+                    dockSurfaceStore.paneId(forPanelId: $0)
+                } ?? dockSurfaceStore.resolvePane(requestedPaneID: nil)
+                guard let paneId, dockSurfaceStore.newSurface(
                     kind: .terminal,
                     inPane: paneId,
                     sourcePanelId: dockSurfacePanelId,
@@ -8447,9 +8448,10 @@ struct ContentView: View {
             if let dockSurfaceStore {
                 Task { @MainActor in
                     await Task.yield()
-                    guard let paneId = dockSurfaceStore.resolvePane(
-                        requestedPaneID: nil
-                    ),
+                    let paneId = dockSurfacePanelId.flatMap {
+                        dockSurfaceStore.paneId(forPanelId: $0)
+                    } ?? dockSurfaceStore.resolvePane(requestedPaneID: nil)
+                    guard let paneId,
                     let panelId = dockSurfaceStore.newSurface(
                         kind: .browser,
                         inPane: paneId,
