@@ -61,6 +61,7 @@ struct SidebarAppKitRowCellTests {
         isPinned: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
+        unreadCount: Int = 0,
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
@@ -84,7 +85,7 @@ struct SidebarAppKitRowCellTests {
             hasUserCustomTitle: false,
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
-            unreadCount: 0,
+            unreadCount: unreadCount,
             latestNotificationText: nil,
             showsAgentActivity: resolvedSettings.details.showAgentActivity,
             rowSpacing: 8,
@@ -406,6 +407,27 @@ struct SidebarAppKitRowCellTests {
             y: textView.textContainerOrigin.y + glyphBounds.midY
         )
         return textView.convert(localPoint, to: textView.superview)
+    }
+
+    @Test
+    func unreadWorkspaceCardShowsMatchingOrbitPerimeter() {
+        let defaults = Self.makeDefaults()
+        defaults.set("#22D3EE", forKey: "notificationPaneFlashColorHex")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let model = Self.makeModel(
+            isActive: true,
+            settings: settings,
+            unreadCount: 1
+        )
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model)
+        defer { window.close() }
+        cell.setPresentationActive(true)
+
+        let state = cell.attentionOrbitStateForTesting
+        #expect(!state.isHidden)
+        #expect(state.baseOpacity == Float(WorkspaceAttentionOrbitPattern.baseOpacity))
+        #expect(state.movingLayerCount == WorkspaceAttentionOrbitPattern.tailBandCount + 1)
     }
 
     @Test

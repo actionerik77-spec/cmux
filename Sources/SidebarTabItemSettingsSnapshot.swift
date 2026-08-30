@@ -27,6 +27,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
+    let paneFlashColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
     let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
@@ -42,6 +43,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         let sidebar = SidebarCatalogSection()
         let workspaceColors = WorkspaceColorsCatalogSection()
         let betaFeatures = BetaFeaturesCatalogSection()
+        let notifications = NotificationsCatalogSection()
         branchDirectory = SidebarWorkspaceBranchDirectorySettings(defaults: defaults)
         details = SidebarWorkspaceDetailSettings(defaults: defaults)
 
@@ -89,6 +91,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         notificationBadgePosition = settings.value(for: sidebar.notificationBadgePosition)
         selectionColorHex = settings.value(for: workspaceColors.selectionColorHex).nilIfEmpty
         notificationBadgeColorHex = settings.value(for: workspaceColors.notificationBadgeColorHex).nilIfEmpty
+        paneFlashColorHex = settings.value(for: notifications.paneFlashColorHex).nilIfEmpty
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
         workspaceTodoChecklistStyle = settings.value(for: betaFeatures.workspaceTodosChecklistStyle)
     }

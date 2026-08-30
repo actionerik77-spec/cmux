@@ -15,6 +15,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     // Chrome
     private let backgroundView = NSView()
+    private let attentionOrbitView = WorkspaceAttentionOrbitView(frame: .zero)
     private let railView = NSView()
     private let topDropIndicator = NSView()
     private let bottomDropIndicator = NSView()
@@ -188,6 +189,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         backgroundView.layer?.cornerCurve = .continuous
         backgroundView.layer?.borderWidth = 0
         addSubview(backgroundView)
+        attentionOrbitView.setAttentionVisible(false)
+        addSubview(attentionOrbitView)
         railView.wantsLayer = true
         addSubview(railView)
         addSubview(contentContainer)
@@ -252,6 +255,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             action()
         }
         model = nil
+        attentionOrbitView.setAttentionVisible(false)
         hintPill.resetForReuse()
     }
 
@@ -259,6 +263,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         isPresentationActive = isActive
         leadingSpinner?.isPresentationActive = isActive
         trailingSpinner?.isPresentationActive = isActive
+        attentionOrbitView.setRenderingActive(isActive)
     }
 
     func suspendPresentation(commitEdits: Bool = false) {
@@ -388,6 +393,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             sidebarSelectionColorHex: settings.selectionColorHex
         )
         applyBackgroundStyle(style)
+        attentionOrbitView.setAttentionColor(
+            WorkspaceAttentionColor(configuredHex: settings.paneFlashColorHex)
+        )
+        attentionOrbitView.setAttentionVisible(model.unreadCount > 0)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
             backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
@@ -621,6 +630,15 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 #if DEBUG
     var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
         (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
+    }
+
+    var attentionOrbitStateForTesting: (
+        isHidden: Bool,
+        baseOpacity: Float,
+        movingLayerCount: Int,
+        animatedLayerCount: Int
+    ) {
+        attentionOrbitView.debugPresentationState()
     }
 #endif
 
@@ -1388,6 +1406,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             // nesting ("can't tell when a workspace is in a group").
             let bgX = outerPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
             backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
+            attentionOrbitView.frame = backgroundView.frame
+            attentionOrbitView.updateGeometry()
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
             railView.layer?.cornerRadius = 1.5
             let indicatorLeading: CGFloat = 8 + (model.isGrouped ? 0 : 0)
