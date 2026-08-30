@@ -39,21 +39,9 @@ extension CMUXCLI {
             case .some(let value) where value is NSNull:
                 return false
             default:
-                _ = clearAgentSurfaceResumeBindingOutcome(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    sessionId: nil
-                )
                 return false
             }
         } catch {
-            _ = clearAgentSurfaceResumeBindingOutcome(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: nil
-            )
             return false
         }
     }
