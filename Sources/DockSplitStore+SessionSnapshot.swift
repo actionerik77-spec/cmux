@@ -280,11 +280,13 @@ extension DockSplitStore {
                 currentAgentProcessIdentity: currentAgentProcessIdentity,
                 agentProcessPresence: agentProcessPresence
             )
-            // The structured agent snapshot is durable identity, not merely a
-            // liveness observation. Backfill whenever a retained agent lacks a
-            // binding; process-index evidence is allowed to decide
-            // `wasAgentRunning`, but never whether identity is persisted.
-            if resumeBinding == nil, managedResumeBinding == nil, let restorableAgent {
+            // Backfill durable identity for session-resumable agents without
+            // gating on process liveness. Relaunch-only agents keep their launch
+            // snapshot and deliberately need no hook binding.
+            if resumeBinding == nil,
+               managedResumeBinding == nil,
+               let restorableAgent,
+               restorableAgent.kind.restoreMode == .resumeSession {
                 let bindingLaunchFlavor: SurfaceResumeLaunchFlavor?
                 if transfer?.isRemoteTerminal == true {
                     bindingLaunchFlavor = persistentSSHResumeContext(panelId: panelId).map {

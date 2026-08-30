@@ -51,7 +51,7 @@ extension SessionRestorableAgentSnapshot {
         return preserved
     }
 
-    /// Builds the durable hook binding that can relaunch this agent session.
+    /// Builds the durable hook binding that can resume this agent session.
     ///
     /// The snapshot is the app's authoritative, structured identity for an agent. Keeping the
     /// binding derivation here gives session-save backfill and restore-time repair one command and
@@ -59,6 +59,7 @@ extension SessionRestorableAgentSnapshot {
     func resumeBindingSnapshot(
         launchFlavor: SurfaceResumeLaunchFlavor = .local
     ) -> SurfaceResumeBindingSnapshot? {
+        guard kind.restoreMode == .resumeSession else { return nil }
         if kind.rawValue.lowercased() == "codex" {
             guard resumeEvidenceProvenance?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 == AgentResumeEvidenceProvenance.tui.logValue else {
@@ -68,29 +69,34 @@ extension SessionRestorableAgentSnapshot {
                 return nil
             }
         }
+        var bindingAgent = self
+        if bindingAgent.registration?.cwd == .ignore {
+            bindingAgent.workingDirectory = nil
+            bindingAgent.launchCommand?.workingDirectory = nil
+        }
         let resolvedWorkingDirectory = AgentResumeWorkingDirectory().resolve(
-            kind: kind.rawValue,
-            runtimeCwd: workingDirectory,
-            launchWorkingDirectory: launchCommand?.workingDirectory
+            kind: bindingAgent.kind.rawValue,
+            runtimeCwd: bindingAgent.workingDirectory,
+            launchWorkingDirectory: bindingAgent.launchCommand?.workingDirectory
         )
-        guard let command = resumeCommand(
+        guard let command = bindingAgent.resumeCommand(
             includeWorkingDirectoryPrefix: true,
             restoringWorkingDirectory: resolvedWorkingDirectory
         ) else {
             return nil
         }
         return SurfaceResumeBindingSnapshot(
-            name: agentDisplayName,
-            kind: kind.rawValue,
+            name: bindingAgent.agentDisplayName,
+            kind: bindingAgent.kind.rawValue,
             command: command,
             cwd: resolvedWorkingDirectory,
-            checkpointId: sessionId,
+            checkpointId: bindingAgent.sessionId,
             source: "agent-hook",
-            environment: launchCommand?.environment,
-            launchCommand: launchCommand,
-            permissionMode: permissionMode,
+            environment: bindingAgent.launchCommand?.environment,
+            launchCommand: bindingAgent.launchCommand,
+            permissionMode: bindingAgent.permissionMode,
             autoResume: true,
-            resumeEvidenceProvenance: resumeEvidenceProvenance,
+            resumeEvidenceProvenance: bindingAgent.resumeEvidenceProvenance,
             launchFlavor: launchFlavor
         )
     }

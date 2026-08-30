@@ -491,7 +491,10 @@ extension Workspace {
         // one missed hook becomes a permanently un-restorable panel on the next
         // save. The lifecycle coordinator has already removed explicitly
         // completed generations from `effectiveRestorableAgent` above.
-        if effectiveResumeBinding == nil, let effectiveRestorableAgent {
+        // Relaunch-only snapshots already own their full launch command and need no hook binding.
+        if effectiveResumeBinding == nil,
+           let effectiveRestorableAgent,
+           effectiveRestorableAgent.kind.restoreMode == .resumeSession {
             let bindingLaunchFlavor: SurfaceResumeLaunchFlavor?
             if isRemoteTerminalSurface(panelId) {
                 bindingLaunchFlavor = persistentSSHResumeContext(panelID: panelId).map {

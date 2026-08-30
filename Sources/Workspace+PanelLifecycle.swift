@@ -348,6 +348,7 @@ extension Workspace {
     /// Clears a panel's restored agent snapshot and resume metadata.
     func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
+        setResumeBindingGap(false, panelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
