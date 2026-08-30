@@ -603,6 +603,105 @@ final class FocusFlashPatternTests: XCTestCase {
     }
 }
 
+final class WorkspaceAttentionOrbitPatternTests: XCTestCase {
+    func testOrbitVisualContract() {
+        XCTAssertEqual(WorkspaceAttentionOrbitPattern.revolutionDuration, 3.6, accuracy: 0.0001)
+        XCTAssertEqual(WorkspaceAttentionOrbitPattern.baseLineWidth, 1.25, accuracy: 0.0001)
+        XCTAssertEqual(WorkspaceAttentionOrbitPattern.baseOpacity, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(WorkspaceAttentionOrbitPattern.reducedMotionLineWidth, 2.5, accuracy: 0.0001)
+        XCTAssertEqual(WorkspaceAttentionOrbitPattern.reducedMotionOpacity, 0.62, accuracy: 0.0001)
+        XCTAssertEqual(WorkspaceAttentionOrbitPattern.tailBandCount, 12)
+    }
+
+    func testOrbitGeometryUsesRoundedPerimeterAndAdaptiveCometLengths() throws {
+        let geometry = try XCTUnwrap(
+            WorkspaceAttentionOrbitPattern.geometry(in: CGRect(x: 0, y: 0, width: 800, height: 500))
+        )
+
+        XCTAssertEqual(geometry.perimeter, 2573.6991118, accuracy: 0.001)
+        XCTAssertEqual(geometry.headLength, 24, accuracy: 0.001)
+        XCTAssertEqual(geometry.tailLength, geometry.perimeter * 0.075, accuracy: 0.001)
+        XCTAssertEqual(geometry.tailBands.count, 12)
+        XCTAssertEqual(
+            geometry.head.startDistanceBehindHead,
+            geometry.headLength,
+            accuracy: 0.001
+        )
+    }
+
+    func testTailBandsAreContiguousAndBuildTowardTheHead() throws {
+        let geometry = try XCTUnwrap(
+            WorkspaceAttentionOrbitPattern.geometry(in: CGRect(x: 0, y: 0, width: 420, height: 240))
+        )
+        let bands = geometry.tailBands
+
+        for index in bands.indices.dropFirst() {
+            XCTAssertEqual(
+                bands[index - 1].startDistanceBehindHead - bands[index - 1].length,
+                bands[index].startDistanceBehindHead,
+                accuracy: 0.001
+            )
+            XCTAssertLessThanOrEqual(bands[index - 1].opacity, bands[index].opacity)
+            XCTAssertLessThanOrEqual(bands[index - 1].lineWidth, bands[index].lineWidth)
+        }
+        XCTAssertEqual(
+            bands.last?.startDistanceBehindHead,
+            geometry.headLength + (bands.last?.length ?? 0),
+            accuracy: 0.001
+        )
+        XCTAssertLessThanOrEqual(
+            geometry.headLength + geometry.tailLength,
+            geometry.perimeter * 0.21 + 0.001
+        )
+    }
+
+    func testSharedClockPhaseWrapsWithoutDrift() {
+        let duration = WorkspaceAttentionOrbitPattern.revolutionDuration
+
+        XCTAssertEqual(WorkspaceAttentionOrbitPattern.normalizedPhase(systemUptime: 0), 0, accuracy: 0.0001)
+        XCTAssertEqual(
+            WorkspaceAttentionOrbitPattern.normalizedPhase(systemUptime: duration * 0.5),
+            0.5,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            WorkspaceAttentionOrbitPattern.normalizedPhase(systemUptime: duration * 3.25),
+            0.25,
+            accuracy: 0.0001
+        )
+    }
+
+    func testDashPhaseKeepsEveryBandLockedToOneHead() throws {
+        let geometry = try XCTUnwrap(
+            WorkspaceAttentionOrbitPattern.geometry(in: CGRect(x: 0, y: 0, width: 800, height: 500))
+        )
+        let phase: CGFloat = 0.375
+
+        XCTAssertEqual(
+            WorkspaceAttentionOrbitPattern.dashPhase(
+                for: geometry.head,
+                perimeter: geometry.perimeter,
+                normalizedPhase: phase
+            ),
+            geometry.head.startDistanceBehindHead - phase * geometry.perimeter,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            WorkspaceAttentionOrbitPattern.dashPhase(
+                for: geometry.tailBands[5],
+                perimeter: geometry.perimeter,
+                normalizedPhase: phase
+            ) - WorkspaceAttentionOrbitPattern.dashPhase(
+                for: geometry.head,
+                perimeter: geometry.perimeter,
+                normalizedPhase: phase
+            ),
+            geometry.tailBands[5].startDistanceBehindHead - geometry.head.startDistanceBehindHead,
+            accuracy: 0.001
+        )
+    }
+}
+
 
 @available(macOS 26.0, *)
 private struct DragConfigurationOperationsSnapshot: Equatable {
