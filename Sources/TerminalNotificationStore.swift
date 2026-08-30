@@ -1156,7 +1156,7 @@ final class TerminalNotificationStore: ObservableObject {
             inFlightPolicyRequests.discardPending(
                 forDeliveryIdentityOf: policyContext.request
             )
-            applyNotification(
+            let didRecord = applyNotification(
                 request: policyContext.request,
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
@@ -1165,9 +1165,7 @@ final class TerminalNotificationStore: ObservableObject {
                 clickAction: clickAction,
                 notificationID: reservedNotificationID
             )
-            return notifications.contains { $0.id == reservedNotificationID }
-                ? reservedNotificationID
-                : nil
+            return didRecord ? reservedNotificationID : nil
         }
         guard let policyRequestId = prepareNotificationPolicyRequestId(
             preRegisteredPolicyRequestId: preRegisteredPolicyRequestId,
@@ -1187,9 +1185,10 @@ final class TerminalNotificationStore: ObservableObject {
                 clickAction: clickAction,
                 notificationID: reservedNotificationID
             )
-            return notifications.contains { $0.id == reservedNotificationID }
-                ? reservedNotificationID
-                : nil
+            // A pre-registered request may still be queued behind an earlier
+            // policy evaluation. Do not expose its id until that evaluation
+            // has synchronously recorded the notification.
+            return nil
         }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
