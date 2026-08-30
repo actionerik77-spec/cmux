@@ -69,7 +69,7 @@ struct cmuxApp: App {
         )
         if irxEnabled {
             let coordinator = auth.coordinator
-            Task { await irx.configure(auth: coordinator) }
+            Task { await irx.configure(auth: coordinator, legacy: iroh) }
         } else {
             iroh.configure(
                 auth: auth.coordinator,
@@ -80,13 +80,14 @@ struct cmuxApp: App {
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
         // attach to an in-runner mock host; release device builds keep only
-        // real transports. In irx mode NO fallback kinds register, so even a
-        // simulator exercises the real iroh path instead of loopback.
+        // real transports. Force-relay mode (soak rigs) registers NO fallback
+        // kinds so even a simulator exercises the real relay path.
+        let forceRelay = MobileIrxRuntimeComposition.forceRelayOnly
         #if targetEnvironment(simulator) || DEBUG
         let supportedKinds: [CmxAttachTransportKind] =
-            irxEnabled ? [] : [.debugLoopback, .tailscale]
+            forceRelay ? [] : [.debugLoopback, .tailscale]
         #else
-        let supportedKinds: [CmxAttachTransportKind] = irxEnabled ? [] : [.tailscale]
+        let supportedKinds: [CmxAttachTransportKind] = forceRelay ? [] : [.tailscale]
         #endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let fallbackRegistrations = supportedKinds.map { kind in
@@ -164,6 +165,13 @@ struct cmuxApp: App {
             auth: auth,
             iroh: iroh,
             irx: irxEnabled ? irx : nil,
+            irxDiscovery: irxEnabled
+                ? MobileIrxDiscoveryProvider(
+                    irx: irx,
+                    preferredTag: irx.tag,
+                    compatibilityPolicy: buildCompatibilityPolicy
+                )
+                : nil,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
@@ -229,9 +237,13 @@ struct cmuxApp: App {
             autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
-            personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
-            personalIrohDiscovery: Self.root.iroh,
-            personalIrohForget: Self.root.iroh,
+            // First-pair discovery must come from the ACTIVE transport: the
+            // dormant one answers "endpoint unavailable" and a fresh install
+            // (empty paired-Mac store) then lists zero Macs forever.
+            personalIrohRouteCatalog: Self.root.irxDiscovery?.routeCatalog
+                ?? Self.root.iroh.routeCatalog,
+            personalIrohDiscovery: Self.root.irxDiscovery ?? Self.root.iroh,
+            personalIrohForget: Self.root.irxDiscovery ?? Self.root.iroh,
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
