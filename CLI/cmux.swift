@@ -25512,9 +25512,14 @@ struct CMUXCLI {
                     : completion.map { (subtitle: $0.subtitle, body: $0.body) }
                 let stopSummary = abnormalStop.map { (subtitle: $0.subtitle, body: $0.body) }
                     ?? completionSummary
-                let stopLifecycle: AgentHibernationLifecycleState = abnormalStop != nil
-                    ? .needsInput
-                    : (hasPendingBackgroundWork ? .running : .idle)
+                // Live background work keeps the session running even when the
+                // foreground turn ended on a provider error. The error remains
+                // visible through the ungated notification/status lane, while
+                // hibernation and restore state must not treat a live task as
+                // waiting for input.
+                let stopLifecycle: AgentHibernationLifecycleState = hasPendingBackgroundWork
+                    ? .running
+                    : (abnormalStop != nil ? .needsInput : .idle)
                 if let sessionId = parsedInput.sessionId {
                     _ = try? sessionStore.upsert(
                         sessionId: sessionId,
@@ -28051,6 +28056,7 @@ struct CMUXCLI {
     }
 
     private func summarizeCodexHookFailureCandidate(_ candidate: CodexHookFailureCandidate) -> CodexHookFailureSummary {
+        let classifier = AgentHookAbnormalStopClassifier()
         let signal = [
             candidate.message,
             candidate.codexErrorInfo,
@@ -28067,11 +28073,13 @@ struct CMUXCLI {
         // existing clients/tests (for example, `Error` and `Rate limit`). A
         // terminal assistant banner is the new abnormal-stop surface, so only
         // that candidate opts into the shared precise class labels.
-        if candidate.isAbnormalStopBanner,
-           let abnormalClass = AgentHookAbnormalStopClassifier().abnormalStopClass(
-               signal: "Stop",
-               message: signal
-           ) {
+        let abnormalClass = candidate.isAbnormalStopBanner
+            ? classifier.abnormalStopClass(
+                signal: "Stop",
+                message: signal
+            )
+            : nil
+        if let abnormalClass {
             subtitle = abnormalClass.localizedSubtitle
             statusValue = codexAbnormalStopStatusValue(abnormalClass)
         } else if signal.contains("usage_limit") ||
@@ -28106,7 +28114,10 @@ struct CMUXCLI {
         return CodexHookFailureSummary(
             statusValue: statusValue,
             subtitle: subtitle,
-            body: truncate(normalizedSingleLine(detail), maxLength: 220)
+            body: classifier.safeNotificationBody(
+                message: detail,
+                failureClass: abnormalClass
+            )
         )
     }
 
@@ -32640,12 +32651,9 @@ export default CMUXSessionRestore;
             )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && abnormalStop == nil) ? .idle : .error
-            let lifecycleAfterStop: AgentHibernationLifecycleState = {
-                if antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle {
-                    return .running
-                }
-                return stopNotificationStatus == .idle ? .idle : .needsInput
-            }()
+            let lifecycleAfterStop: AgentHibernationLifecycleState = antigravityHasActiveBackgroundWork
+                ? .running
+                : (stopNotificationStatus == .idle ? .idle : .needsInput)
             let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             let terminalActivePromptTurnIdsForStop: Set<String>
@@ -32739,7 +32747,7 @@ export default CMUXSessionRestore;
                                   lastBody: body,
                                   lastNotificationStatus: stopNotificationStatus,
                                   updateLastNotificationStatus: true,
-                                  runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
+                                  runtimeStatus: antigravityHasActiveBackgroundWork ? .running : runtimeStatus(for: stopNotificationStatus),
                                   updateRuntimeStatus: true)
                 publishAgentSurfaceResumeBinding(
                     client: client,
