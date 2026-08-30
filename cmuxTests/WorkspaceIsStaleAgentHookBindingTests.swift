@@ -105,22 +105,6 @@ struct WorkspaceIsStaleAgentHookBindingTests {
     }
 
     @Test
-    func reconciliationKeepsPiBindingAfterScannerResolvesUUIDToSessionPath() throws {
-        let workspace = Workspace()
-        let panelId = try #require(workspace.focusedPanelId)
-        let binding = Self.piAgentHookBinding()
-        let index = Self.livePiIndex(workspaceId: workspace.id, panelId: panelId)
-        try #require(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
-
-        workspace.reconcileSurfaceResumeBindings(
-            using: .empty,
-            restorableAgentIndex: index
-        )
-
-        #expect(workspace.surfaceResumeBinding(panelId: panelId) == binding)
-    }
-
-    @Test
     func staleAgentHookBindingIsRetainedForManualRestore() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }

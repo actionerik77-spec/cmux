@@ -29,12 +29,36 @@ extension SessionRestorableAgentSnapshot {
         return retargeted
     }
 
+    /// Keeps verified Codex ownership when a process observation refreshes
+    /// liveness for the same session but carries no binding provenance itself.
+    func preservingCodexResumeEvidence(
+        from previous: SessionRestorableAgentSnapshot?
+    ) -> Self {
+        guard kind.rawValue.lowercased() == "codex",
+              resumeEvidenceProvenance == nil,
+              let previous,
+              previous.kind.rawValue.lowercased() == "codex",
+              ManagedAgentSessionIdentity.sessionIDsMatch(
+                  kind: kind.rawValue,
+                  lhs: sessionId,
+                  rhs: previous.sessionId
+              ),
+              let provenance = previous.resumeEvidenceProvenance else {
+            return self
+        }
+        var preserved = self
+        preserved.resumeEvidenceProvenance = provenance
+        return preserved
+    }
+
     /// Builds the durable hook binding that can relaunch this agent session.
     ///
     /// The snapshot is the app's authoritative, structured identity for an agent. Keeping the
     /// binding derivation here gives session-save backfill and restore-time repair one command and
     /// working-directory policy instead of allowing each persistence owner to reconstruct it.
-    func resumeBindingSnapshot() -> SurfaceResumeBindingSnapshot? {
+    func resumeBindingSnapshot(
+        launchFlavor: SurfaceResumeLaunchFlavor = .local
+    ) -> SurfaceResumeBindingSnapshot? {
         if kind.rawValue.lowercased() == "codex" {
             guard resumeEvidenceProvenance?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 == AgentResumeEvidenceProvenance.tui.logValue else {
@@ -66,7 +90,8 @@ extension SessionRestorableAgentSnapshot {
             launchCommand: launchCommand,
             permissionMode: permissionMode,
             resumeEvidenceProvenance: resumeEvidenceProvenance,
-            autoResume: true
+            autoResume: true,
+            launchFlavor: launchFlavor
         )
     }
 }

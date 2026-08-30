@@ -285,7 +285,18 @@ extension DockSplitStore {
             // binding; process-index evidence is allowed to decide
             // `wasAgentRunning`, but never whether identity is persisted.
             if resumeBinding == nil, managedResumeBinding == nil, let restorableAgent {
-                if let derivedBinding = restorableAgent.resumeBindingSnapshot(),
+                let bindingLaunchFlavor: SurfaceResumeLaunchFlavor?
+                if transfer?.isRemoteTerminal == true {
+                    bindingLaunchFlavor = persistentSSHResumeContext(panelId: panelId).map {
+                        .persistentSSH($0)
+                    }
+                } else {
+                    bindingLaunchFlavor = .local
+                }
+                if let bindingLaunchFlavor,
+                   let derivedBinding = restorableAgent.resumeBindingSnapshot(
+                       launchFlavor: bindingLaunchFlavor
+                   ),
                    setSurfaceResumeBinding(derivedBinding, panelId: panelId) {
                     resumeBinding = derivedBinding
                     setResumeBindingGap(false, panelId: panelId)
@@ -500,6 +511,7 @@ extension DockSplitStore {
         terminal: TerminalPanel,
         transfer: Workspace.DetachedSurfaceTransfer?
     ) -> SessionRestorableAgentSnapshot? {
+        let retainedSnapshot = restoredAgentLifecycle.snapshotsByPanelId[panelId]
         if let observation {
             _ = restoredAgentLifecycle.reconcileCompletedAgent(
                 panelId: panelId,
@@ -542,7 +554,8 @@ extension DockSplitStore {
             return Workspace.restorableAgentForSessionRestore(
                 candidate,
                 resumeBinding: agentCompatibilityBinding
-            )
+            )?.retargetedForResumeBinding(agentCompatibilityBinding)
+                .preservingCodexResumeEvidence(from: retainedSnapshot)
         }.first
         let compatible = restoredAgentLifecycle.reconcileSnapshotWithQueuedRestoreIntent(
             panelId: panelId,

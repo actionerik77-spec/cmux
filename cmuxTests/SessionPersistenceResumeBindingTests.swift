@@ -157,6 +157,142 @@ import Testing
         }
     }
 
+    @Test
+    func verifiedCodexResumeEvidenceProvenanceRoundTrips() throws {
+        let original = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "verified-codex-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex", "resume", "verified-codex-session"],
+                source: "process"
+            ),
+            resumeEvidenceProvenance: "tui"
+        )
+
+        let decoded = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(original)
+        )
+
+        #expect(decoded.resumeEvidenceProvenance == "tui")
+        #expect(decoded.resumeBindingSnapshot()?.resumeEvidenceProvenance == "tui")
+    }
+
+    @Test
+    func legacyCodexSnapshotWithoutProvenanceRemainsFailClosed() throws {
+        let data = Data(
+            #"{"kind":"codex","sessionId":"legacy-codex-session"}"#.utf8
+        )
+        let decoded = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: data
+        )
+
+        #expect(decoded.resumeEvidenceProvenance == nil)
+        #expect(decoded.resumeBindingSnapshot() == nil)
+    }
+
+    @Test @MainActor
+    func processObservationPreservesVerifiedCodexProvenanceForBackfill() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let sessionID = "verified-codex-observation"
+        let retained = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex", "resume", sessionID],
+                source: "process"
+            ),
+            resumeEvidenceProvenance: "tui"
+        )
+        workspace.restoredAgentSnapshotsByPanelId[panel.id] = retained
+        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
+
+        let processID = Int(ProcessInfo.processInfo.processIdentifier)
+        let processIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(processID)))
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspace.id,
+            panelId: panel.id
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: "/tmp/cmux-codex-provenance-empty-home",
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                key: (
+                    snapshot: SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: sessionID,
+                        launchCommand: retained.launchCommand
+                    ),
+                    updatedAt: 1,
+                    processIDs: [processID],
+                    agentProcessIDs: [processID],
+                    sessionIDSource: .explicit
+                ),
+            ],
+            processPresenceProvider: { _ in .present },
+            processIdentityProvider: { _ in processIdentity }
+        )
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: index,
+            surfaceResumeBindingIndex: .empty,
+            currentAgentProcessIdentity: { _ in processIdentity },
+            agentProcessPresence: { _ in .present }
+        )
+        let terminal = try #require(snapshot.panels.first?.terminal)
+        #expect(terminal.agent?.resumeEvidenceProvenance == "tui")
+        #expect(terminal.resumeBinding?.resumeEvidenceProvenance == "tui")
+    }
+
+    @Test
+    func backfilledBindingPreservesPersistentSSHLaunchFlavor() throws {
+        let context = SurfaceResumeRemoteContext(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            persistentPTYSessionID: "remote-pty-session"
+        )
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "remote-claude-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--resume", "remote-claude-session"],
+                source: "process"
+            )
+        )
+
+        let binding = try #require(agent.resumeBindingSnapshot(
+            launchFlavor: .persistentSSH(context)
+        ))
+        #expect(binding.launchFlavor == .persistentSSH(context))
+    }
+
+    @Test @MainActor
+    func globalDockRetainsUserVisibleResumeBindingGapState() {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let panelID = UUID()
+
+        #expect(dock.terminalFontSizeOwningWorkspace == nil)
+        dock.setResumeBindingGap(true, panelId: panelID)
+        #expect(dock.unresolvedResumeBindingGapCount == 1)
+        dock.setResumeBindingGap(false, panelId: panelID)
+        #expect(dock.unresolvedResumeBindingGapCount == 0)
+    }
+
     @Test @MainActor
     func unverifiedCodexSnapshotDoesNotBackfillAtSave() throws {
         let workspace = Workspace()

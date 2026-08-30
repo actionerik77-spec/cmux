@@ -403,13 +403,15 @@ extension Workspace {
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
+        let retainedRestorableAgent = restoredAgentSnapshotsByPanelId[panelId]
         let indexedRestorableAgent = restorableAgentObservation?.snapshot
         let compatibleIndexedRestorableAgent = indexedRestorableAgent.flatMap {
             Self.restorableAgentForSessionRestore(
                 $0,
                 resumeBinding: resumeBinding
             )
-        }
+        }?.retargetedForResumeBinding(resumeBinding)
+            .preservingCodexResumeEvidence(from: retainedRestorableAgent)
         let reconciledIndexedRestorableAgent = restoredAgentLifecycle
             .reconcileSnapshotWithQueuedRestoreIntent(
                 panelId: panelId,
@@ -471,7 +473,18 @@ extension Workspace {
         // save. The lifecycle coordinator has already removed explicitly
         // completed generations from `effectiveRestorableAgent` above.
         if effectiveResumeBinding == nil, let effectiveRestorableAgent {
-            if let derivedBinding = effectiveRestorableAgent.resumeBindingSnapshot(),
+            let bindingLaunchFlavor: SurfaceResumeLaunchFlavor?
+            if isRemoteTerminalSurface(panelId) {
+                bindingLaunchFlavor = persistentSSHResumeContext(panelID: panelId).map {
+                    .persistentSSH($0)
+                }
+            } else {
+                bindingLaunchFlavor = .local
+            }
+            if let bindingLaunchFlavor,
+               let derivedBinding = effectiveRestorableAgent.resumeBindingSnapshot(
+                   launchFlavor: bindingLaunchFlavor
+               ),
                setSurfaceResumeBinding(derivedBinding, panelId: panelId) {
                 effectiveResumeBinding = derivedBinding
                 setResumeBindingGap(false, panelId: panelId)

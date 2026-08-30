@@ -8,6 +8,7 @@ extension SessionRestorableAgentSnapshot {
         case launchCommand
         case registration
         case permissionMode
+        case resumeEvidenceProvenance
     }
 
     init(from decoder: Decoder) throws {
@@ -37,7 +38,11 @@ extension SessionRestorableAgentSnapshot {
             ),
             registration: registration,
             // Optional so snapshots persisted before the field decode unchanged.
-            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode)
+            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
+            resumeEvidenceProvenance: try container.decodeIfPresent(
+                String.self,
+                forKey: .resumeEvidenceProvenance
+            )
         )
     }
 

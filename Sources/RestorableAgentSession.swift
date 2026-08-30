@@ -1994,6 +1994,14 @@ struct RestorableAgentSessionIndex: Sendable {
                 if kind == .codex {
                     verifiedCodexPanelKeys.insert(panelKey)
                 }
+                let resumeEvidenceProvenance: String? = {
+                    guard kind == .codex,
+                          case .some(.exists(let evidence)) = codexVerification,
+                          evidence.provenance.mayOwnBinding else {
+                        return nil
+                    }
+                    return evidence.provenance.logValue
+                }()
                 let snapshot = SessionRestorableAgentSnapshot(
                     kind: kind,
                     sessionId: normalizedSessionId,
@@ -2007,7 +2015,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration,
-                    permissionMode: effectiveRecord.lastPermissionMode
+                    permissionMode: effectiveRecord.lastPermissionMode,
+                    resumeEvidenceProvenance: resumeEvidenceProvenance
                 )
                 let key = panelKey
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
@@ -2198,7 +2207,15 @@ struct RestorableAgentSessionIndex: Sendable {
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
             ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(
+                    key: key,
+                    snapshot: detected.snapshot.preservingCodexResumeEvidence(
+                        from: existing.snapshot
+                    ),
+                    lifecycle: existing.lifecycle,
+                    updatedAt: existing.updatedAt,
+                    detected: detected
+                )
             } else {
                 resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
             }

@@ -293,6 +293,10 @@ extension DockSplitStore {
         terminalFontSizeOwningWorkspace?.updateDockResumeBindingGaps([])
     }
 
+    var unresolvedResumeBindingGapCount: Int {
+        unresolvedResumeBindingPanelIds.count
+    }
+
     func managedAgentResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         let managedBinding = managedAgentResumeBindingsByPanelId[panelId]
         guard let effectiveBinding = surfaceResumeBindingsByPanelId[panelId],
@@ -363,9 +367,9 @@ extension DockSplitStore {
         clearRestoredAgentContinuationState(panelId: panelId)
     }
 
-    func persistentSSHResumeRegistration(
+    func persistentSSHResumeContext(
         panelId: UUID
-    ) -> (context: SurfaceResumeRemoteContext, relayToken: String)? {
+    ) -> SurfaceResumeRemoteContext? {
         guard let transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal,
               let sessionID = transfer.remotePTYSessionID?
@@ -373,7 +377,21 @@ extension DockSplitStore {
               !sessionID.isEmpty else {
             return nil
         }
-        let sourceWorkspaceId = transfer.sessionRestoreWorkspaceId
+        return SurfaceResumeRemoteContext(
+            workspaceID: transfer.sessionRestoreWorkspaceId,
+            surfaceID: panelId,
+            persistentPTYSessionID: sessionID
+        )
+    }
+
+    func persistentSSHResumeRegistration(
+        panelId: UUID
+    ) -> (context: SurfaceResumeRemoteContext, relayToken: String)? {
+        guard let transfer = detachedSurfaceTransfersByPanelId[panelId],
+              let context = persistentSSHResumeContext(panelId: panelId) else {
+            return nil
+        }
+        let sourceWorkspaceId = context.workspaceID
         let sourceWorkspace = AppDelegate.shared?.workspaceFor(tabId: sourceWorkspaceId)
         guard let configuration = transfer.remoteCleanupConfiguration ?? sourceWorkspace?.remoteConfiguration,
               configuration.transport == .ssh,
@@ -384,11 +402,7 @@ extension DockSplitStore {
             return nil
         }
         return (
-            SurfaceResumeRemoteContext(
-                workspaceID: sourceWorkspaceId,
-                surfaceID: panelId,
-                persistentPTYSessionID: sessionID
-            ),
+            context,
             relayToken
         )
     }

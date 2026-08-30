@@ -97,9 +97,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         UUID: (binding: SurfaceResumeBindingSnapshot, claimedAt: Date)
     ] = [:]
     /// Panels with a live restorable agent whose binding could not be derived
-    /// while serializing the Dock session. The owning Workspace folds this
-    /// into its ephemeral sidebar warning after the snapshot completes.
-    @ObservationIgnored var unresolvedResumeBindingPanelIds: Set<UUID> = []
+    /// while serializing the Dock session. Workspace Docks forward this to the
+    /// sidebar; global Docks expose it directly in their own panel view.
+    var unresolvedResumeBindingPanelIds: Set<UUID> = []
 
     @ObservationIgnored var deferredAgentResumeRestoresByPanelId: [UUID: DeferredAgentResumeRestore] = [:]
     @ObservationIgnored var deferredAgentResumeClaimsByPanelId: [UUID: (kind: String, sessionId: String)] = [:]
