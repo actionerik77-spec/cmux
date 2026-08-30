@@ -897,16 +897,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceID = "33333333-3333-3333-3333-333333333333"
         let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-fake-ssh-\(UUID().uuidString)", isDirectory: true)
-        let fakeExpectPath = tempDirectory.appendingPathComponent("expect").path
-        let capturedArgsPath = tempDirectory.appendingPathComponent("ssh-args").path
+        let fakeSSH = tempDirectory.appendingPathComponent("ssh")
+        let capturedArguments = tempDirectory.appendingPathComponent("ssh-args")
 
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         try """
         #!/bin/sh
         printf '%s\\n' "$@" > "${CMUX_TEST_SSH_ARGS:?}"
         exit 0
-        """.write(toFile: fakeExpectPath, atomically: true, encoding: .utf8)
-        chmod(fakeExpectPath, 0o755)
+        """.write(to: fakeSSH, atomically: true, encoding: .utf8)
+        chmod(fakeSSH.path, 0o755)
 
         defer {
             Darwin.close(listenerFD)
