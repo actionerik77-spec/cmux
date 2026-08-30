@@ -500,6 +500,27 @@ jobs:
           mkdir -p artifact
           ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
 
+      - name: Run orbit unit tests
+        if: ${{ inputs.platform == 'macos' }}
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          CMUX_TAG="$BUILD_TAG" CMUX_SKIP_ZIG_BUILD=1 \
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+                -project cmux.xcodeproj \
+                -scheme cmux-unit \
+                -configuration Debug \
+                -derivedDataPath "$GITHUB_WORKSPACE/.ci-reload-derived-data" \
+                -clonedSourcePackagesDirPath "$GITHUB_WORKSPACE/.ci-source-packages" \
+                -disableAutomaticPackageResolution \
+                -destination 'platform=macOS' \
+                -only-testing:cmuxTests/WorkspaceAttentionOrbitPatternTests \
+                -only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests \
+                -only-testing:cmuxTests/SidebarAppKitRowCellTests \
+                test
+
       # iOS links the CmuxIrohFFI xcframework (gitignored, built from the Rust
       # crate under Native/cmux-iroh). The macOS path builds it via
       # reload.sh -> ensure-cmux-iroh.sh; the iOS archive below runs xcodebuild
