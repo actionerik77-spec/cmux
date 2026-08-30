@@ -13187,6 +13187,7 @@ class TerminalController {
             category: meta?.category,
             pending: meta?.pending ?? false,
             approvalID: meta?.approvalID,
+            approvalIDIsDerived: meta?.approvalIDIsDerived ?? false,
             agentKind: meta?.agentKind,
             isSubagent: meta?.isSubagent,
             correlationKey: meta?.correlationKey

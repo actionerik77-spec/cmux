@@ -14,6 +14,7 @@ fileprivate struct QueuedAgentApprovalStage {
     let subtitle: String
     let body: String
     let approvalID: AgentApprovalCorrelationID
+    let approvalIDIsDerived: Bool
 }
 
 fileprivate struct AgentApprovalMutationToken {
@@ -236,7 +237,8 @@ final class TerminalMutationBus: @unchecked Sendable {
         title: String,
         subtitle: String,
         body: String,
-        approvalID: AgentApprovalCorrelationID
+        approvalID: AgentApprovalCorrelationID,
+        approvalIDIsDerived: Bool = false
     ) {
         lock.lock()
         ensureApprovalGenerationCapacityLocked(workspaceID: tabId, surfaceID: surfaceId)
@@ -257,7 +259,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             title: title,
             subtitle: subtitle,
             body: body,
-            approvalID: approvalID
+            approvalID: approvalID,
+            approvalIDIsDerived: approvalIDIsDerived
         ), token))
     }
 
@@ -979,7 +982,8 @@ final class TerminalMutationBus: @unchecked Sendable {
                     title: stage.title,
                     subtitle: stage.subtitle,
                     body: stage.body,
-                    approvalID: stage.approvalID
+                    approvalID: stage.approvalID,
+                    isDerived: stage.approvalIDIsDerived
                 )
             case .resolveAgentApproval(let surfaceID, let approvalID, let token):
                 guard approvalTokenIsCurrent(token, workspaceID: nil, surfaceID: surfaceID) else { continue }

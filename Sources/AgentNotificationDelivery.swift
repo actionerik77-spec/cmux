@@ -30,6 +30,7 @@ struct AgentNotificationDelivery: Sendable {
         category: AgentNotifyCategory?,
         pending: Bool,
         approvalID: AgentApprovalCorrelationID? = nil,
+        approvalIDIsDerived: Bool = false,
         agentKind: String? = nil,
         isSubagent: Bool? = nil,
         correlationKey: String? = nil,
@@ -52,7 +53,8 @@ struct AgentNotificationDelivery: Sendable {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                approvalID: approvalID
+                approvalID: approvalID,
+                approvalIDIsDerived: approvalIDIsDerived
             )
             return true
         }

@@ -85,6 +85,12 @@ import Testing
         #expect(meta?.pending == false)
         #expect(meta?.approvalID?.rawValue == approvalID)
         #expect(meta?.approvalID?.scope.rawValue == "111111111111111111111111")
+        #expect(meta?.approvalIDIsDerived == false)
+
+        let derived = AgentNotificationMeta(
+            meta: "c=needs-permission;p=0;a=\(approvalID);d=1"
+        )
+        #expect(derived?.approvalIDIsDerived == true)
     }
 
     @Test func metaUnknownCategoryIsRejected() {
@@ -126,6 +132,7 @@ import Testing
         #expect(parsed?.category == .turnComplete)
         #expect(parsed?.pending == false)
         #expect(parsed?.approvalID == nil)
+        #expect(parsed?.approvalIDIsDerived == false)
         #expect(parsed?.agentKind == nil)
         #expect(parsed?.isSubagent == nil)
     }
@@ -363,7 +370,8 @@ import Testing
                 title: "Codex",
                 subtitle: "Permission",
                 body: body,
-                approvalID: Self.firstApprovalID
+                approvalID: Self.firstApprovalID,
+                isDerived: true
             )
         }
         fixture.scheduler.runAll()
