@@ -452,6 +452,20 @@ final class MarkdownRendererSession {
     /// The panel-owned WebKit view, when the preview renderer is mounted.
     var webView: MarkdownWebView? { ownedCoordinator.webView }
 
+    /// The live preview web view, for find-in-page script evaluation.
+    /// `nil` until the renderer has been mounted once.
+    var findScriptWebView: WKWebView? {
+        ownedCoordinator.webView
+    }
+
+    /// Invoked after the shell re-renders the markdown content (initial load,
+    /// content change, or crash recovery). Find highlights are DOM `<mark>`
+    /// wrappers that a re-render wipes, so an active search must re-run.
+    var onMarkdownRendered: (() -> Void)? {
+        get { ownedCoordinator.onMarkdownRendered }
+        set { ownedCoordinator.onMarkdownRendered = newValue }
+    }
+
     func coordinator(
         panelId: UUID,
         workspaceId: UUID,
