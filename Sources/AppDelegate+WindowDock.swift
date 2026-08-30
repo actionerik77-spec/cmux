@@ -46,10 +46,12 @@ extension AppDelegate.MainWindowContext {
         workspaceTerminalFontSizeCoordinator.attachWindowDock(dock)
     }
 
+    /// Restores the Dock belonging to this window from the session snapshot.
     func restoreWindowDockSessionSnapshot(
         _ snapshot: SessionWindowSnapshot?,
         notificationStore: TerminalNotificationStore?,
-        excludingStableIdentities: Set<UUID> = []
+        excludingStableIdentities: Set<UUID> = [],
+        deferBrowserPanels: Bool = false
     ) {
         let promptBatch = SurfaceResumeRunPromptBatch.shared
         promptBatch.beginRestorePass()
@@ -59,6 +61,7 @@ extension AppDelegate.MainWindowContext {
         windowDockStore(notificationStore: notificationStore).restoreSessionSnapshot(
             dockSnapshot,
             excludingStableIdentities: excludingStableIdentities,
+            deferBrowserPanels: deferBrowserPanels,
             sourceWorkspaceResolver: { [tabManager] originalId in
                 tabManager.restoredSessionWorkspace(
                     originalId: originalId,
@@ -104,16 +107,19 @@ extension AppDelegate.MainWindowContext {
 /// (`workspace_id`) self-describing: they name the window whose Dock they hit.
 
 extension AppDelegate {
+    /// Routes a window Dock restore to the context that owns `windowId`.
     func restoreWindowDockSessionSnapshot(
         forWindowId windowId: UUID,
         from snapshot: SessionWindowSnapshot?,
-        excludingStableIdentities: Set<UUID>
+        excludingStableIdentities: Set<UUID>,
+        deferBrowserPanels: Bool = false
     ) {
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?
             .restoreWindowDockSessionSnapshot(
                 snapshot,
                 notificationStore: notificationStore,
-                excludingStableIdentities: excludingStableIdentities
+                excludingStableIdentities: excludingStableIdentities,
+                deferBrowserPanels: deferBrowserPanels
             )
     }
 
