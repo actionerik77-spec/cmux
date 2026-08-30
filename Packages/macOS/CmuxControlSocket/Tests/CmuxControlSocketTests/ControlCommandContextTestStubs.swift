@@ -211,7 +211,6 @@ extension ControlNotificationContext {
             clearPreferredSurfaceIDInvalid: "",
             clearSurfaceIDRequiresWorkspace: "",
             clearWorkspaceIDInvalid: "",
-            tabManagerUnavailable: "TabManager not available",
             workspaceNotFound: "Workspace not found",
             surfaceNotFound: "Surface not found",
             clearUnavailable: "Notifications are unavailable. Try again."
