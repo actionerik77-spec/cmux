@@ -1659,14 +1659,14 @@ final class WindowBrowserHostViewTests: XCTestCase {
         contentView.addSubview(wrapper)
 
         var eventNames: [String] = []
-        var changedTranslation: Double?
+        var changedTranslation: CGFloat = .nan
         let liveDivider = SidebarDividerTrackingView(
             frame: NSRect(x: 206, y: 0, width: 10, height: contentView.bounds.height)
         )
         liveDivider.onBegan = { eventNames.append("began") }
         liveDivider.onChanged = { translation in
             eventNames.append("changed")
-            changedTranslation = Double(translation)
+            changedTranslation = translation
             // Post the terminating event only after the tracker has received
             // the drag, so its synchronous loop exercises the real callback
             // path without relying on a timer or a test sleep.
@@ -1739,8 +1739,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
         XCTAssertEqual(
             changedTranslation,
-            32,
-            accuracy: 0.5,
+            CGFloat(32),
+            accuracy: CGFloat(0.5),
             "The forwarded drag must reach the native sidebar tracker"
         )
 
@@ -1748,7 +1748,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         // divider tracker between hosting wrappers. Preserve the original
         // handoff even if the concrete tracker is detached for that turn.
         eventNames.removeAll()
-        changedTranslation = nil
+        changedTranslation = .nan
         let reparentDown = self.makeMouseEvent(
             type: .leftMouseDown,
             location: dividerPointInWindow,
@@ -1796,8 +1796,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
         XCTAssertEqual(
             changedTranslation,
-            28,
-            accuracy: 0.5,
+            CGFloat(28),
+            accuracy: CGFloat(0.5),
             "A reparented Dock divider must continue receiving native drag translation"
         )
     }
