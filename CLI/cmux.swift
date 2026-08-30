@@ -38616,6 +38616,7 @@ export default CMUXSessionRestore;
             toolName: toolName,
             workspaceId: liveTarget?.workspaceId ?? ambientWorkspaceId,
             surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId,
+            source: source,
             approvalIdentity: approvalIdentity
         ) else { return }
         _ = try? activeClient.send(
