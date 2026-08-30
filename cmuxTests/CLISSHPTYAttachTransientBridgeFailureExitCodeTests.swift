@@ -218,6 +218,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "for arg in \"$@\"; do",
             "  if [ \"$arg\" = '-G' ]; then printf 'controlpath %s\\n' \"${CMUX_TEST_CONTROL_PATH}\"; exit 0; fi",
             "  if [ \"$previous_arg\" = '-O' ] && [ \"$arg\" = 'check' ]; then exit 255; fi",
+            "  if [ \"$previous_arg\" = '-O' ]; then exit 0; fi",
             "  previous_arg=\"$arg\"",
             "done",
             "count=$(cat \"${CMUX_TEST_AUTH_ATTEMPTS}\" 2>/dev/null || printf 0)",
@@ -292,6 +293,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         try writeSSHPTYReconnectTestShell(at: fakeAuth, lines: [
             "#!/bin/sh",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = \"-O\" ]; then",
+            "    exit 0",
+            "  fi",
+            "  if [ \"$arg\" = \"-G\" ]; then",
+            "    printf 'controlpath /tmp/cmux-ssh-%s-test-control\\n' \"$(id -u)\"",
+            "    exit 0",
+            "  fi",
+            "done",
             "case \" $* \" in",
             "  *\" -T example.test true \"*) ;;",
             "  *) exit 0 ;;",

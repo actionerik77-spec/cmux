@@ -288,6 +288,9 @@ jobs:
       - name: Validate nightly notarization behavior
         run: ./tests/test_notarize_nightly_dmg.sh
 
+      - name: Validate Computer Use helper notarization behavior
+        run: ./tests/test_notarize_computer_use_helper.sh
+
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
@@ -626,10 +629,10 @@ jobs:
       # Keep one-off focused gates on the lightest measured shard so shard 1 no
       # longer carries the full shard plus every extra regression guard.
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
-      # Four-way packing exceeds the app-host memory budget as the suite grows:
-      # a shard can crash around 1,000 UI tests and poison remaining selectors.
-      # Six-way packing keeps each broad shard bounded and leaves restart
-      # headroom for the focused gates.
+      # Four-way packing now exceeds the app-host's memory budget as the suite
+      # grows: a shard can crash around 1,000 UI tests and poison the remaining
+      # selectors. Six-way packing keeps each broad shard near 13 minutes of
+      # measured work; allow focused gates and one app-host restart headroom.
       CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Keep crash handling non-interactive
@@ -962,18 +965,27 @@ jobs:
           # and --new-window must consolidate mirrors moved across source windows.
           # Keep these destructive/topology regressions outside the tolerant full
           # suite so an ordinary assertion failure cannot be accepted as expected.
+          # The placement case creates three native windows and several
+          # Ghostty-backed panels. Run the close and placement suites in separate
+          # app-host processes so renderer teardown from one topology workload
+          # cannot crash the next before its assertions execute.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests \
-            test
+          for suite in \
+            RemoteTmuxMirrorCloseDetachTests \
+            RemoteTmuxMirrorDedicatedPlacementTests
+          do
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$suite" \
+              test
+          done
 
       - name: Run browser system proxy mirror regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -1439,6 +1451,10 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_codex_wrapper_resume_hooks.py
           python3 tests/test_claude_wrapper_hooks.py
+          python3 tests/test_codex_wrapper_computer_use_mcp.py
+          python3 tests/test_cmux_cua_mcp_smoke.py
+          python3 tests/test_cmux_cua_build_cache_safety.py
+          python3 tests/test_cmux_cua_helper_identity.py
           python3 tests/test_hermes_wrapper_hooks.py
           python3 tests/test_claude_wrapper_mutual_shim_loop.py
           python3 tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py
@@ -2397,6 +2413,7 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          CMUX_CUA_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-cua"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
@@ -2404,13 +2421,16 @@ jobs:
           test -x "$TUI_CLIENT"
           lipo "$TUI_CLIENT" -verify_arch arm64 x86_64
           test -x "$HELPER_BINARY"
+          test -x "$CMUX_CUA_BINARY"
           test -x "$DIFF_SIDECAR"
-          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$CMUX_CUA_BINARY" "$DIFF_SIDECAR"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
           lipo "$APP_BINARY" -verify_arch arm64 x86_64
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+          lipo "$CMUX_CUA_BINARY" -verify_arch arm64 x86_64
+          codesign --verify --strict --verbose=4 "$CMUX_CUA_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
