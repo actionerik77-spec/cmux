@@ -9099,10 +9099,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitRight") {
             if let dockSurfaceStore, let dockSurfacePanelId {
-                dockSurfaceStore.focusPanelFromDockInteraction(
-                    dockSurfacePanelId,
-                    window: observedWindow
-                )
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 guard AppDelegate.shared?.routeSplitToFocusedDock(
                     kind: .terminal,
                     direction: .right,
@@ -9139,10 +9139,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitDown") {
             if let dockSurfaceStore, let dockSurfacePanelId {
-                dockSurfaceStore.focusPanelFromDockInteraction(
-                    dockSurfacePanelId,
-                    window: observedWindow
-                )
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 guard AppDelegate.shared?.routeSplitToFocusedDock(
                     kind: .terminal,
                     direction: .down,
@@ -9161,10 +9161,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
             if let dockSurfaceStore, let dockSurfacePanelId {
-                dockSurfaceStore.focusPanelFromDockInteraction(
-                    dockSurfacePanelId,
-                    window: observedWindow
-                )
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 guard AppDelegate.shared?.routeSplitToFocusedDock(
                     kind: .browser,
                     direction: .right,
@@ -9181,10 +9181,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitBrowserDown") {
             if let dockSurfaceStore, let dockSurfacePanelId {
-                dockSurfaceStore.focusPanelFromDockInteraction(
-                    dockSurfacePanelId,
-                    window: observedWindow
-                )
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 guard AppDelegate.shared?.routeSplitToFocusedDock(
                     kind: .browser,
                     direction: .down,
