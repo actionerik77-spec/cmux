@@ -151,8 +151,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             subtitle: subtitle,
             body: body,
             replyShape: replyShape,
-            agent: agent,
-            correlationKey: correlationKey
+            correlationKey: correlationKey,
+            agent: agent
         ), coalesces: coalesces)
     }
 
