@@ -9159,7 +9159,7 @@ struct ContentView: View {
                     action: .splitBrowserRight,
                     preferredWindow: observedWindow,
                     preferredDock: dockSurfaceStore
-                ) else {
+                ) == true else {
                     NSSound.beep()
                     return
                 }
@@ -9179,7 +9179,7 @@ struct ContentView: View {
                     action: .splitBrowserDown,
                     preferredWindow: observedWindow,
                     preferredDock: dockSurfaceStore
-                ) else {
+                ) == true else {
                     NSSound.beep()
                     return
                 }
