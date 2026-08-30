@@ -8368,9 +8368,11 @@ struct ContentView: View {
                 ?? app.dockReferenceTabManager(for: dockSurfaceTarget.dock)
                     .flatMap { app.windowId(for: $0) }
                     .flatMap { app.mainWindow(for: $0) }
-            guard app.focusedDockStoreForShortcut(
+            guard app.isCurrentCommandPaletteDockTarget(
+                dockSurfaceTarget.dock,
+                panelId: dockSurfaceTarget.panelId,
                 preferredWindow: ownerWindow
-            ) === dockSurfaceTarget.dock else {
+            ) else {
                 return false
             }
             dockSurfaceTarget.dock.focusPanelFromDockInteraction(
@@ -8909,7 +8911,8 @@ struct ContentView: View {
         }
         registerSurfaceNavigationCommandHandlers(
             &registry,
-            dock: dockSurfaceStore
+            dock: dockSurfaceStore,
+            dockPanelId: dockSurfacePanelId
         ) { observedWindow }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
             DispatchQueue.main.async {
