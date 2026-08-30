@@ -27289,6 +27289,22 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            let rejectedRestoreLaunchEvidence =
+                isClaudeRestoreSessionStart(parsedInput) &&
+                !agentHookSessionHasDurableResumeEvidence(
+                    kind: "claude",
+                    launchCommand: launchCommand
+                )
+            let rejectedRestoreBindingMatchesSession =
+                rejectedRestoreLaunchEvidence &&
+                resolvedSurface.isAuthoritative &&
+                !suppressVisibleMutations &&
+                reconcileRejectedClaudeRestoreBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    acceptedSessionId: acceptedSessionId
+                )
             publishAgentSurfaceResumeBinding(
                 client: client,
                 workspaceId: workspaceId,
@@ -27302,9 +27318,7 @@ struct CMUXCLI {
                 observedPermissionMode: observedHookPermissionMode,
                 telemetry: telemetry,
                 preserveExistingBindingWhenUnavailable:
-                    isClaudeRestoreSessionStart(parsedInput) &&
-                    resolvedSurface.isAuthoritative &&
-                    !suppressVisibleMutations &&
+                    rejectedRestoreBindingMatchesSession &&
                     shouldApplyClaudeHookVisibleMutation(
                         sessionStore: sessionStore,
                         parsedInput: parsedInput,

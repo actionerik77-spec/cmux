@@ -15,14 +15,18 @@ struct AgentSurfaceResumePublicationRetry {
     ) -> Decision {
         switch currentPayload["resume_binding"] {
         case .some(let rawBinding as [String: Any]):
-            if matchesDesiredSession(rawBinding, desiredParams: desiredParams) {
-                return .alreadyApplied
-            }
             guard let number = rawBinding["updated_at"] as? NSNumber else {
                 return .superseded
             }
             let updatedAt = number.doubleValue
-            guard updatedAt.isFinite, updatedAt < firstAttemptStartedAt else {
+            guard updatedAt.isFinite else {
+                return .superseded
+            }
+            if matchesDesiredSession(rawBinding, desiredParams: desiredParams),
+               updatedAt >= firstAttemptStartedAt {
+                return .alreadyApplied
+            }
+            guard updatedAt < firstAttemptStartedAt else {
                 return .superseded
             }
             var retryParams = desiredParams

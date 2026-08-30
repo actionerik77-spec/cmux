@@ -90,4 +90,26 @@ struct AgentSurfaceResumePublicationRetryTests {
             return
         }
     }
+
+    @Test
+    func olderSameSessionRetriesMetadataConditionally() {
+        let decision = AgentSurfaceResumePublicationRetry().decision(
+            desiredParams: desired,
+            currentPayload: [
+                "resume_binding": [
+                    "kind": "claude",
+                    "checkpoint_id": "session-a",
+                    "source": "agent-hook",
+                    "updated_at": 5.0,
+                ],
+            ],
+            firstAttemptStartedAt: 10
+        )
+
+        guard case .retry(let params) = decision else {
+            Issue.record("Expected stale same-session metadata to retry")
+            return
+        }
+        #expect(params["_cmux_expected_binding_updated_at"] as? Double == 5)
+    }
 }
