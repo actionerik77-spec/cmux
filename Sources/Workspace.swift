@@ -1510,7 +1510,8 @@ extension Workspace {
                 } else if isStaleAgentHookBinding(
                     storedBinding,
                     panelId: panelId,
-                    restorableAgentIndex: restorableAgentIndex
+                    restorableAgentIndex: restorableAgentIndex,
+                    retireWhenCompleteIndexHasNoEntry: true
                 ) {
                     // Preserve explicit restore for the exited session, but
                     // prevent the stale binding from replaying automatically

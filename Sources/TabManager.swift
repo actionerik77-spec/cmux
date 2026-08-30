@@ -6320,7 +6320,7 @@ extension TabManager {
         hasher.combine(state.lastActivityAt.timeIntervalSince1970)
     }
 
-    nonisolated private static func hashSurfaceResumeBindingSnapshot(
+    nonisolated static func hashSurfaceResumeBindingSnapshot(
         _ snapshot: SurfaceResumeBindingSnapshot?,
         into hasher: inout Hasher
     ) {

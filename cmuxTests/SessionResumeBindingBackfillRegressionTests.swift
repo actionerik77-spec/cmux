@@ -194,4 +194,47 @@ struct SessionResumeBindingBackfillRegressionTests {
 
         #expect(snapshot.resumeBindingSnapshot() == nil)
     }
+
+    @Test @MainActor
+    func dockAutosaveFingerprintIncludesRetainedAgentAndBindingState() {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let panelID = UUID()
+        let baseline = dock.sessionAutosaveFingerprint(
+            notificationStore: nil,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+
+        dock.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .claude,
+                sessionId: "dock-fingerprint-session"
+            ),
+            panelId: panelID
+        )
+        let retained = dock.sessionAutosaveFingerprint(
+            notificationStore: nil,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        #expect(retained != baseline)
+
+        dock.surfaceResumeBindingsByPanelId[panelID] = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume dock-fingerprint-session",
+            checkpointId: "dock-fingerprint-session",
+            source: "agent-hook"
+        )
+        let withBinding = dock.sessionAutosaveFingerprint(
+            notificationStore: nil,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        #expect(withBinding != retained)
+    }
 }

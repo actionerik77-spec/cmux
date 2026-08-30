@@ -465,7 +465,8 @@ extension Workspace {
     func isStaleAgentHookBinding(
         _ binding: SurfaceResumeBindingSnapshot,
         panelId: UUID,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        retireWhenCompleteIndexHasNoEntry: Bool = false
     ) -> Bool {
         // `RestorableAgentSessionIndex` / `SharedLiveAgentIndex` are built by
         // scanning LOCAL processes (pid/sysctl-based). A `.persistentSSH`
@@ -505,9 +506,13 @@ extension Workspace {
             panelId: panelId,
             revalidateProcessEvidence: false
         )
-        // A stable-panel lookup with no candidate is still missing evidence;
-        // do not infer that this binding's process exited from an empty match.
-        guard let liveEntry else { return false }
+        guard let liveEntry else {
+            return retireWhenCompleteIndexHasNoEntry && liveIndex.isComplete(
+                forWorkspaceId: id,
+                panelId: panelId,
+                kind: kind
+            )
+        }
         return !AgentResumeLiveness.hasLiveProcess(
             for: liveEntry,
             kind: kind,
