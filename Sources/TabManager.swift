@@ -6222,16 +6222,6 @@ extension TabManager {
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
                 Self.hashSurfaceResumeBindingSnapshot(effectiveResumeBinding, into: &hasher)
-                // A retained snapshot with no effective binding is a pending
-                // repair. Hash only the deterministic repairability bit (the
-                // derived binding's default timestamp must not make autosave
-                // run on every tick).
-                if effectiveResumeBinding == nil, let retainedAgent {
-                    hasher.combine(true)
-                    hasher.combine(retainedAgent.resumeCommand != nil)
-                } else {
-                    hasher.combine(false)
-                }
                 if let terminalPanel = workspace.terminalPanel(for: panelId) {
                     Self.hashTextBoxDraftSnapshot(
                         terminalPanel.sessionTextBoxDraftSnapshot(),
@@ -6279,7 +6269,8 @@ extension TabManager {
         hasher.combine(true)
         hasher.combine(snapshot.kind.rawValue)
         hasher.combine(snapshot.sessionId)
-        hashOptionalString(snapshot.resumeCommand, into: &hasher)
+        hasher.combine(snapshot.registration)
+        hashOptionalString(snapshot.permissionMode, into: &hasher)
         hashOptionalString(snapshot.workingDirectory, into: &hasher)
         hashOptionalString(snapshot.resumeEvidenceProvenance, into: &hasher)
         hashAgentLaunchCommand(snapshot.launchCommand, into: &hasher)

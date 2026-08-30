@@ -8,6 +8,13 @@ enum ControlSurfaceResumeTarget {
     case workspace(tabManager: TabManager, workspace: Workspace, surfaceID: UUID)
     case dock(tabManager: TabManager, dock: DockSplitStore, surfaceID: UUID)
 
+    /// Result of atomically checking a retry generation and applying its binding.
+    enum BindingSetResult: Equatable {
+        case applied
+        case rejected
+        case generationMismatch
+    }
+
     var tabManager: TabManager {
         switch self {
         case .workspace(let tabManager, _, _), .dock(let tabManager, _, _): tabManager
@@ -64,13 +71,30 @@ enum ControlSurfaceResumeTarget {
     }
 
     @discardableResult
-    func setBinding(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
+    func setBinding(
+        _ binding: SurfaceResumeBindingSnapshot,
+        expectedBindingUpdatedAt: TimeInterval? = nil,
+        expectsMissingBinding: Bool = false
+    ) -> BindingSetResult {
+        let currentBinding = self.binding
+        if expectsMissingBinding {
+            guard currentBinding == nil else {
+                return .generationMismatch
+            }
+        } else if let expectedBindingUpdatedAt {
+            guard currentBinding?.updatedAt == expectedBindingUpdatedAt else {
+                return .generationMismatch
+            }
+        }
+
+        let didSet: Bool
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            workspace.setSurfaceResumeBinding(binding, panelId: surfaceID)
+            didSet = workspace.setSurfaceResumeBinding(binding, panelId: surfaceID)
         case .dock(_, let dock, let surfaceID):
-            dock.setSurfaceResumeBinding(binding, panelId: surfaceID)
+            didSet = dock.setSurfaceResumeBinding(binding, panelId: surfaceID)
         }
+        return didSet ? .applied : .rejected
     }
 
     /// Atomically claims the current binding generation for a CLI restore.
@@ -676,8 +700,17 @@ extension TerminalController {
         case let .resolved(binding):
             effectiveBinding = binding
         }
-        guard target.setBinding(effectiveBinding) else {
+        switch target.setBinding(
+            effectiveBinding,
+            expectedBindingUpdatedAt: inputs.expectedBindingUpdatedAt,
+            expectsMissingBinding: inputs.expectsMissingBinding
+        ) {
+        case .generationMismatch:
+            return .setFailed
+        case .rejected:
             return .emptyResumeCommand
+        case .applied:
+            break
         }
         return .result(surfaceResumeSnapshot(target: target, binding: effectiveBinding, cleared: false))
     }

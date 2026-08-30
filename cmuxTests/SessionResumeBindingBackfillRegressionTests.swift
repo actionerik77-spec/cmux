@@ -100,4 +100,82 @@ struct SessionResumeBindingBackfillRegressionTests {
             }
         )
     }
+
+    @Test @MainActor
+    func conditionalRetryCannotReplaceChangedBinding() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let panelID = try #require(workspace.focusedPanelId)
+        let current = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume session-b",
+            checkpointId: "session-b",
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 20
+        )
+        #expect(workspace.setSurfaceResumeBinding(current, panelId: panelID))
+        let target = ControlSurfaceResumeTarget.workspace(
+            tabManager: tabManager,
+            workspace: workspace,
+            surfaceID: panelID
+        )
+        let staleRetry = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume session-a",
+            checkpointId: "session-a",
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 30
+        )
+
+        #expect(target.setBinding(
+            staleRetry,
+            expectedBindingUpdatedAt: 10
+        ) == .generationMismatch)
+        #expect(workspace.surfaceResumeBinding(panelId: panelID) == current)
+
+        #expect(target.setBinding(
+            staleRetry,
+            expectedBindingUpdatedAt: current.updatedAt
+        ) == .applied)
+        #expect(workspace.surfaceResumeBinding(panelId: panelID) == staleRetry)
+    }
+
+    @Test
+    func fingerprintHashesPersistedResumeInputsWithoutRenderingCommand() {
+        let registration = CmuxVaultAgentRegistration(
+            id: "fingerprint-agent",
+            name: "Fingerprint Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "fingerprint-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}"
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom(registration.id),
+            sessionId: "fingerprint-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: registration.id,
+                executablePath: "/usr/local/bin/fingerprint-agent",
+                arguments: ["/usr/local/bin/fingerprint-agent"],
+                source: "test"
+            ),
+            registration: registration
+        )
+        let original = TabManager.restorableAgentSnapshotFingerprint(snapshot)
+
+        var permissionChanged = snapshot
+        permissionChanged.permissionMode = "never"
+        #expect(
+            TabManager.restorableAgentSnapshotFingerprint(permissionChanged) != original
+        )
+
+        var registrationChanged = snapshot
+        registrationChanged.registration?.resumeCommand =
+            "{{executable}} continue {{sessionId}}"
+        #expect(
+            TabManager.restorableAgentSnapshotFingerprint(registrationChanged) != original
+        )
+    }
 }

@@ -31287,7 +31287,7 @@ struct CMUXCLI {
             case .missing:
                 if preserveExistingBindingWhenUnavailable {
                     resumeBindingDeliveryLogger.notice(
-                        "Preserving existing Hermes resume binding because checkpoint is missing session=\(sessionId, privacy: .public)"
+                        "Preserving existing Hermes resume binding because checkpoint is missing session=\(sessionId, privacy: .private(mask: .hash))"
                     )
                 } else {
                     _ = clearAgentSurfaceResumeBinding(
@@ -31304,7 +31304,7 @@ struct CMUXCLI {
                 // A temporary snapshot failure must not replace or clear a
                 // previously verified durable Hermes checkpoint.
                 resumeBindingDeliveryLogger.notice(
-                    "Preserving existing Hermes resume binding because checkpoint evidence is unavailable session=\(sessionId, privacy: .public)"
+                    "Preserving existing Hermes resume binding because checkpoint evidence is unavailable session=\(sessionId, privacy: .private(mask: .hash))"
                 )
                 return
             }
@@ -31317,7 +31317,7 @@ struct CMUXCLI {
             ) else {
                 if preserveExistingBindingWhenUnavailable {
                     resumeBindingDeliveryLogger.notice(
-                        "Preserving existing Codex resume binding because launch evidence is unavailable session=\(sessionId, privacy: .public)"
+                        "Preserving existing Codex resume binding because launch evidence is unavailable session=\(sessionId, privacy: .private(mask: .hash))"
                     )
                 } else {
                     logCodexResumeBindingRejection(
@@ -31357,7 +31357,7 @@ struct CMUXCLI {
                 )
                 if preserveExistingBindingWhenUnavailable {
                     resumeBindingDeliveryLogger.notice(
-                        "Preserving existing Codex resume binding because rollout evidence is missing session=\(sessionId, privacy: .public)"
+                        "Preserving existing Codex resume binding because rollout evidence is missing session=\(sessionId, privacy: .private(mask: .hash))"
                     )
                 } else {
                     _ = clearAgentSurfaceResumeBinding(
@@ -31468,9 +31468,10 @@ struct CMUXCLI {
             // store mutation; no client-side get/set preflight can close that race.
             params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
-        // Keep a retry within the same operation budget as the first send.
+        // Keep reconciliation and one retry within the first send's operation budget.
         let retryDeadline = deadline
             ?? Date.now.addingTimeInterval(responseTimeout ?? SocketClient.responseTimeoutSeconds)
+        let firstAttemptStartedAt = Date.now.timeIntervalSince1970
         do {
             _ = try client.sendV2(
                 method: "surface.resume.set",
@@ -31479,18 +31480,41 @@ struct CMUXCLI {
                 deadline: retryDeadline
             )
         } catch {
-            // A hook is a short-lived process and the app serializes binding mutations on its
-            // main actor. Retry once on a fresh socket so a transient transport drop cannot turn
-            // a live session into a permanently unbound one; the set operation is idempotent.
+            // Reconcile after reconnecting: the first set may have committed even
+            // when its reply was lost. A conditional retry may replace only the
+            // exact older generation observed here, closing the get/set race.
             do {
                 client.close()
                 try client.connect(deadline: retryDeadline)
-                _ = try client.sendV2(
-                    method: "surface.resume.set",
-                    params: params,
+                let current = try client.sendV2(
+                    method: "surface.resume.get",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                    ],
                     responseTimeout: responseTimeout,
                     deadline: retryDeadline
                 )
+                switch AgentSurfaceResumePublicationRetry().decision(
+                    desiredParams: params,
+                    currentPayload: current,
+                    firstAttemptStartedAt: firstAttemptStartedAt
+                ) {
+                case .alreadyApplied:
+                    return
+                case .superseded:
+                    resumeBindingDeliveryLogger.notice(
+                        "Skipping stale agent resume binding retry after binding changed kind=\(kind, privacy: .public)"
+                    )
+                    return
+                case .retry(let retryParams):
+                    _ = try client.sendV2(
+                        method: "surface.resume.set",
+                        params: retryParams,
+                        responseTimeout: responseTimeout,
+                        deadline: retryDeadline
+                    )
+                }
             } catch {
                 resumeBindingDeliveryLogger.error(
                     "Agent resume binding publish failed after retry kind=\(kind, privacy: .public)"

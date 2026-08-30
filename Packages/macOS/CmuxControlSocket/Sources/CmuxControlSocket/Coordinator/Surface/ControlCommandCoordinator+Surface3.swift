@@ -71,6 +71,28 @@ extension ControlCommandCoordinator {
             }
             launchCommand = parsed
         }
+        let expectedBindingUpdatedAt: Double?
+        if params["_cmux_expected_binding_updated_at"] == nil {
+            expectedBindingUpdatedAt = nil
+        } else {
+            guard let value = double(params, "_cmux_expected_binding_updated_at"),
+                  value.isFinite else {
+                return surfaceResumeResult(.setFailed)
+            }
+            expectedBindingUpdatedAt = value
+        }
+        let expectsMissingBinding: Bool
+        switch params["_cmux_expect_missing_binding"] {
+        case nil:
+            expectsMissingBinding = false
+        case .some(.bool(let value)):
+            expectsMissingBinding = value
+        default:
+            return surfaceResumeResult(.setFailed)
+        }
+        guard expectedBindingUpdatedAt == nil || !expectsMissingBinding else {
+            return surfaceResumeResult(.setFailed)
+        }
         let inputs = ControlSurfaceResumeSetInputs(
             name: optionalTrimmedRawString(params, "name"),
             kind: optionalTrimmedRawString(params, "kind"),
@@ -85,7 +107,9 @@ extension ControlCommandCoordinator {
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
             remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
-            resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance")
+            resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance"),
+            expectedBindingUpdatedAt: expectedBindingUpdatedAt,
+            expectsMissingBinding: expectsMissingBinding
         )
         return surfaceResumeResult(
             context?.controlSurfaceResumeSet(
