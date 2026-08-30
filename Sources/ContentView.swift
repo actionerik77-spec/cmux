@@ -8361,6 +8361,24 @@ struct ContentView: View {
         let dockSurfaceTarget = commandPaletteDockSurfaceTarget()
         let dockSurfaceStore = dockSurfaceTarget?.dock
         let dockSurfacePanelId = dockSurfaceTarget?.panelId
+        let focusCapturedDockSurface: () -> Bool = {
+            guard let dockSurfaceTarget,
+                  let app = AppDelegate.shared else { return false }
+            let ownerWindow = observedWindow
+                ?? app.dockReferenceTabManager(for: dockSurfaceTarget.dock)
+                    .flatMap { app.windowId(for: $0) }
+                    .flatMap { app.mainWindow(for: $0) }
+            guard app.focusedDockStoreForShortcut(
+                preferredWindow: ownerWindow
+            ) === dockSurfaceTarget.dock else {
+                return false
+            }
+            dockSurfaceTarget.dock.focusPanelFromDockInteraction(
+                dockSurfaceTarget.panelId,
+                window: ownerWindow
+            )
+            return true
+        }
         let performBrowserAction: (BrowserAction) -> Bool = {
             action in
             guard let browserTarget, let browserDispatcher else {
@@ -8426,6 +8444,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.newTerminalTab") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 let paneId = dockSurfacePanelId.flatMap {
                     dockSurfaceStore.paneId(forPanelId: $0)
                 } ?? dockSurfaceStore.resolvePane(requestedPaneID: nil)
@@ -8446,6 +8468,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.newBrowserTab") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 Task { @MainActor in
                     await Task.yield()
                     let paneId = dockSurfacePanelId.flatMap {
@@ -8482,6 +8508,10 @@ struct ContentView: View {
         registry.registerNewSimulatorPane(tabManager: tabManager, windowId: windowId)
         registry.register(commandId: "palette.closeTab") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 guard let dockSurfacePanelId else {
                     NSSound.beep()
                     return
@@ -8523,6 +8553,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.reopenClosedBrowserTab") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(
                     .reopenClosedPanel
                 ) {
@@ -8770,6 +8804,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.clearTabName") {
             if let dockSurfaceStore, let dockSurfacePanelId {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.setDockPanelCustomTitle(
                     panelId: dockSurfacePanelId,
                     title: nil
@@ -8786,6 +8824,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.moveTabToNewWorkspace") {
             if let dockSurfaceStore, let dockSurfacePanelId {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 guard AppDelegate.shared?.moveDockSurfaceToNewWorkspace(
                     sourceDock: dockSurfaceStore,
                     panelId: dockSurfacePanelId,
@@ -8801,6 +8843,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleTabPin") {
             if let dockSurfaceStore, let dockSurfacePanelId {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 guard let tabId = dockSurfaceStore.surfaceId(
                     forPanelId: dockSurfacePanelId
                 ), let tab = dockSurfaceStore.bonsplitController.tab(
@@ -8828,6 +8874,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleTabUnread") {
             if let dockSurfaceStore, let dockSurfacePanelId {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.togglePanelUnread(
                     dockSurfacePanelId
                 ) {
@@ -8987,6 +9037,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalFind") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.startFind) {
                     NSSound.beep()
                 }
@@ -8996,6 +9050,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalFindNext") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.findNext) {
                     NSSound.beep()
                 }
@@ -9005,6 +9063,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalFindPrevious") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.findPrevious) {
                     NSSound.beep()
                 }
@@ -9014,6 +9076,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalHideFind") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.hideFind) {
                     NSSound.beep()
                 }
@@ -9023,6 +9089,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalUseSelectionForFind") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.useSelectionForFind) {
                     NSSound.beep()
                 }
@@ -9032,6 +9102,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalToggleTextBoxInput") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.toggleTerminalTextBox) {
                     NSSound.beep()
                 }
@@ -9043,6 +9117,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalFocusTextBoxInput") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.focusTextBoxInput) {
                     NSSound.beep()
                 }
@@ -9054,6 +9132,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalAttachTextBoxFile") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.attachTextBoxFile) {
                     NSSound.beep()
                 }
@@ -9065,6 +9147,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.sendCtrlFToTerminal) {
                     NSSound.beep()
                 }
@@ -9076,6 +9162,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.clearScreenKeepScrollback) {
                     NSSound.beep()
                 }
@@ -9189,6 +9279,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSplitZoom") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(.togglePaneZoom) {
                     NSSound.beep()
                 }
@@ -9200,6 +9294,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleFullWidthTab") {
             if let dockSurfaceStore, let dockSurfacePanelId {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.toggleDockFullWidthTab(
                     panelId: dockSurfacePanelId
                 ) {
@@ -9213,6 +9311,10 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.equalizeSplits") {
             if let dockSurfaceStore {
+                guard focusCapturedDockSurface() else {
+                    NSSound.beep()
+                    return
+                }
                 if !dockSurfaceStore.performShortcutCommand(
                     .equalizeSplits
                 ) {
