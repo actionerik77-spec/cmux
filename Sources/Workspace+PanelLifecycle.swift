@@ -526,6 +526,7 @@ extension Workspace {
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
         setResumeBindingGap(false, panelId: panelId)
         pendingPlainSSHRestorePanelIds.remove(panelId)
         observedPlainSSHPanelIds.remove(panelId)

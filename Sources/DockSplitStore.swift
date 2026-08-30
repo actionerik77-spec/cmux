@@ -91,6 +91,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalStartupRestoreCoordinator.lifecycle
     }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// In-memory compare-and-claim state held while a CLI restore hands the
+    /// validated binding to its child process.
+    @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
+        UUID: (binding: SurfaceResumeBindingSnapshot, claimedAt: Date)
+    ] = [:]
     /// Panels with a live restorable agent whose binding could not be derived
     /// while serializing the Dock session. The owning Workspace folds this
     /// into its ephemeral sidebar warning after the snapshot completes.
