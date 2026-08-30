@@ -27295,16 +27295,19 @@ struct CMUXCLI {
                     kind: "claude",
                     launchCommand: launchCommand
                 )
-            let rejectedRestoreBindingMatchesSession =
-                rejectedRestoreLaunchEvidence &&
-                resolvedSurface.isAuthoritative &&
-                !suppressVisibleMutations &&
-                reconcileRejectedClaudeRestoreBinding(
+            let rejectedRestoreBindingReconciliation: RejectedClaudeRestoreBindingReconciliation?
+            if rejectedRestoreLaunchEvidence,
+               resolvedSurface.isAuthoritative,
+               !suppressVisibleMutations {
+                rejectedRestoreBindingReconciliation = reconcileRejectedClaudeRestoreBinding(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     acceptedSessionId: acceptedSessionId
                 )
+            } else {
+                rejectedRestoreBindingReconciliation = nil
+            }
             publishAgentSurfaceResumeBinding(
                 client: client,
                 workspaceId: workspaceId,
@@ -27318,7 +27321,7 @@ struct CMUXCLI {
                 observedPermissionMode: observedHookPermissionMode,
                 telemetry: telemetry,
                 preserveExistingBindingWhenUnavailable:
-                    rejectedRestoreBindingMatchesSession &&
+                    rejectedRestoreBindingReconciliation?.preservesExistingBinding == true &&
                     shouldApplyClaudeHookVisibleMutation(
                         sessionStore: sessionStore,
                         parsedInput: parsedInput,
@@ -31482,37 +31485,61 @@ struct CMUXCLI {
             // store mutation; no client-side get/set preflight can close that race.
             params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
-        // Keep reconciliation and one retry within the first send's operation budget.
+        // Keep preflight reconciliation and one retry inside a single operation budget.
         let retryDeadline = deadline
             ?? Date.now.addingTimeInterval(responseTimeout ?? SocketClient.responseTimeoutSeconds)
-        let firstAttemptStartedAt = Date.now.timeIntervalSince1970
+        let retryPolicy = AgentSurfaceResumePublicationRetry()
+        let targetParams: [String: Any] = [
+            "workspace_id": workspaceId,
+            "surface_id": surfaceId,
+        ]
+        let preflight: AgentSurfaceResumePublicationRetry.Preflight?
+        do {
+            let current = try client.sendV2(
+                method: "surface.resume.get",
+                params: targetParams,
+                responseTimeout: responseTimeout,
+                deadline: retryDeadline
+            )
+            preflight = retryPolicy.preflight(
+                desiredParams: params,
+                currentPayload: current
+            )
+        } catch {
+            // Without an app-owned baseline generation, one ordinary set is safe
+            // but no replay can distinguish an old binding from a newer writer.
+            preflight = nil
+            client.close()
+            try? client.connect(deadline: retryDeadline)
+        }
+
         do {
             _ = try client.sendV2(
                 method: "surface.resume.set",
-                params: params,
+                params: preflight?.params ?? params,
                 responseTimeout: responseTimeout,
                 deadline: retryDeadline
             )
         } catch {
-            // Reconcile after reconnecting: the first set may have committed even
-            // when its reply was lost. A conditional retry may replace only the
-            // exact older generation observed here, closing the get/set race.
+            guard let preflight else {
+                resumeBindingDeliveryLogger.error(
+                    "Agent resume binding publish failed without retry generation kind=\(kind, privacy: .public)"
+                )
+                return
+            }
             do {
                 client.close()
                 try client.connect(deadline: retryDeadline)
                 let current = try client.sendV2(
                     method: "surface.resume.get",
-                    params: [
-                        "workspace_id": workspaceId,
-                        "surface_id": surfaceId,
-                    ],
+                    params: targetParams,
                     responseTimeout: responseTimeout,
                     deadline: retryDeadline
                 )
-                switch AgentSurfaceResumePublicationRetry().decision(
+                switch retryPolicy.decision(
                     desiredParams: params,
                     currentPayload: current,
-                    firstAttemptStartedAt: firstAttemptStartedAt
+                    baselineGeneration: preflight.generation
                 ) {
                 case .alreadyApplied:
                     return

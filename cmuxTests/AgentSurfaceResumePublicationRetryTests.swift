@@ -11,7 +11,26 @@ struct AgentSurfaceResumePublicationRetryTests {
     ]
 
     @Test
-    func recognizesAlreadyAppliedSession() {
+    func preflightGuardsObservedGeneration() throws {
+        let preflight = try #require(AgentSurfaceResumePublicationRetry().preflight(
+            desiredParams: desired,
+            currentPayload: [
+                "resume_binding": [
+                    "kind": "claude",
+                    "checkpoint_id": "session-old",
+                    "source": "agent-hook",
+                    "updated_at": 5.0,
+                ],
+            ]
+        ))
+
+        #expect(preflight.generation == .updatedAt(5))
+        #expect(preflight.params["_cmux_expected_binding_updated_at"] as? Double == 5)
+        #expect(preflight.params["_cmux_expect_missing_binding"] == nil)
+    }
+
+    @Test
+    func recognizesCommittedPublicationAsAlreadyApplied() {
         let decision = AgentSurfaceResumePublicationRetry().decision(
             desiredParams: desired,
             currentPayload: [
@@ -22,7 +41,7 @@ struct AgentSurfaceResumePublicationRetryTests {
                     "updated_at": 12.0,
                 ],
             ],
-            firstAttemptStartedAt: 10
+            baselineGeneration: .updatedAt(5)
         )
 
         guard case .alreadyApplied = decision else {
@@ -32,7 +51,7 @@ struct AgentSurfaceResumePublicationRetryTests {
     }
 
     @Test
-    func retriesOnlyAgainstObservedOlderGeneration() {
+    func unchangedOlderGenerationRetriesConditionally() {
         let decision = AgentSurfaceResumePublicationRetry().decision(
             desiredParams: desired,
             currentPayload: [
@@ -43,7 +62,7 @@ struct AgentSurfaceResumePublicationRetryTests {
                     "updated_at": 5.0,
                 ],
             ],
-            firstAttemptStartedAt: 10
+            baselineGeneration: .updatedAt(5)
         )
 
         guard case .retry(let params) = decision else {
@@ -51,27 +70,32 @@ struct AgentSurfaceResumePublicationRetryTests {
             return
         }
         #expect(params["_cmux_expected_binding_updated_at"] as? Double == 5)
-        #expect(params["_cmux_expect_missing_binding"] == nil)
     }
 
     @Test
-    func missingBindingUsesMissingGenerationGuard() {
-        let decision = AgentSurfaceResumePublicationRetry().decision(
+    func missingBindingUsesMissingGenerationGuard() throws {
+        let retry = AgentSurfaceResumePublicationRetry()
+        let preflight = try #require(retry.preflight(
+            desiredParams: desired,
+            currentPayload: ["resume_binding": NSNull()]
+        ))
+        #expect(preflight.generation == .missing)
+        #expect(preflight.params["_cmux_expect_missing_binding"] as? Bool == true)
+
+        let decision = retry.decision(
             desiredParams: desired,
             currentPayload: ["resume_binding": NSNull()],
-            firstAttemptStartedAt: 10
+            baselineGeneration: preflight.generation
         )
-
         guard case .retry(let params) = decision else {
             Issue.record("Expected a missing-binding retry")
             return
         }
         #expect(params["_cmux_expect_missing_binding"] as? Bool == true)
-        #expect(params["_cmux_expected_binding_updated_at"] == nil)
     }
 
     @Test
-    func newerDifferentSessionSupersedesRetry() {
+    func changedGenerationSupersedesRetry() {
         let decision = AgentSurfaceResumePublicationRetry().decision(
             desiredParams: desired,
             currentPayload: [
@@ -82,11 +106,11 @@ struct AgentSurfaceResumePublicationRetryTests {
                     "updated_at": 15.0,
                 ],
             ],
-            firstAttemptStartedAt: 10
+            baselineGeneration: .updatedAt(5)
         )
 
         guard case .superseded = decision else {
-            Issue.record("Expected the newer binding to suppress retry")
+            Issue.record("Expected the changed generation to suppress retry")
             return
         }
     }
@@ -103,7 +127,7 @@ struct AgentSurfaceResumePublicationRetryTests {
                     "updated_at": 5.0,
                 ],
             ],
-            firstAttemptStartedAt: 10
+            baselineGeneration: .updatedAt(5)
         )
 
         guard case .retry(let params) = decision else {
