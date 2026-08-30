@@ -42,6 +42,9 @@ extension CMUXCLI {
                    currentSessionId == normalizedHookValue(acceptedSessionId) {
                     return .matching
                 }
+                guard currentKind == "claude" else {
+                    return .inconclusive
+                }
                 let updatedAt = (binding["updated_at"] as? NSNumber)?.doubleValue
                 let clearOutcome = clearAgentSurfaceResumeBindingOutcome(
                     client: client,

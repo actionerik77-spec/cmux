@@ -42,6 +42,9 @@ struct AgentSurfaceResumePublicationRetry {
            current.generation != baselineGeneration {
             return .alreadyApplied
         }
+        guard baselineGeneration != .missing else {
+            return .superseded
+        }
         guard current.generation == baselineGeneration else {
             return .superseded
         }

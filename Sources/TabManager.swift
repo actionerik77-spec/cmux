@@ -6269,6 +6269,7 @@ extension TabManager {
         hasher.combine(true)
         hasher.combine(snapshot.kind.rawValue)
         hasher.combine(snapshot.sessionId)
+        hasher.combine(snapshot.processDetectedSessionIDSource)
         hasher.combine(snapshot.registration)
         hashOptionalString(snapshot.permissionMode, into: &hasher)
         hashOptionalString(snapshot.workingDirectory, into: &hasher)

@@ -237,4 +237,21 @@ struct SessionResumeBindingBackfillRegressionTests {
         )
         #expect(withBinding != retained)
     }
+
+    @Test
+    func heuristicProcessIdentityCannotBackfillAuthoritativeBinding() {
+        var snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "heuristic-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude"],
+                source: "process"
+            )
+        )
+        snapshot.processDetectedSessionIDSource = .inferredLatestSessionFile
+
+        #expect(snapshot.resumeBindingSnapshot() == nil)
+    }
 }

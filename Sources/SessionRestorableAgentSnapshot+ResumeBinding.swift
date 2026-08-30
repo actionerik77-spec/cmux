@@ -63,6 +63,10 @@ extension SessionRestorableAgentSnapshot {
         guard launchCommand?.source?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() != "rejected" else { return nil }
+        if let processDetectedSessionIDSource,
+           processDetectedSessionIDSource != .explicit {
+            return nil
+        }
         if kind.rawValue.lowercased() == "codex" {
             guard resumeEvidenceProvenance?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 == AgentResumeEvidenceProvenance.tui.logValue else {

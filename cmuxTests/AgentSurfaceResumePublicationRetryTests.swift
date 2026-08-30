@@ -87,11 +87,10 @@ struct AgentSurfaceResumePublicationRetryTests {
             currentPayload: ["resume_binding": NSNull()],
             baselineGeneration: preflight.generation
         )
-        guard case .retry(let params) = decision else {
-            Issue.record("Expected a missing-binding retry")
+        guard case .superseded = decision else {
+            Issue.record("Expected a missing baseline to fail closed")
             return
         }
-        #expect(params["_cmux_expect_missing_binding"] as? Bool == true)
     }
 
     @Test

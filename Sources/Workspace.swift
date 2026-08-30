@@ -6554,26 +6554,29 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         sidebarPullRequestsInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
+    func sidebarResumeBindingGapStatusEntry() -> SidebarStatusEntry? {
+        guard unresolvedResumeBindingGapCount > 0 else { return nil }
+        let countText = String.localizedStringWithFormat(
+            String(
+                localized: "sidebar.resumeBinding.gap",
+                defaultValue: "%lld agent sessions will not be restored"
+            ),
+            Int64(unresolvedResumeBindingGapCount)
+        )
+        return SidebarStatusEntry(
+            key: Self.resumeBindingGapStatusKey,
+            value: countText,
+            icon: "exclamationmark.triangle.fill",
+            color: "#D14A4A",
+            priority: 10_000,
+            timestamp: unresolvedResumeBindingStatusUpdatedAt
+        )
+    }
+
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
         var entries = sidebarStatusEntriesVisibleForDisplay()
-        if unresolvedResumeBindingGapCount > 0 {
-            let countText = String.localizedStringWithFormat(
-                String(
-                    localized: "sidebar.resumeBinding.gap",
-                    defaultValue: "%lld agent sessions will not be restored"
-                ),
-                Int64(unresolvedResumeBindingGapCount)
-            )
-            entries.append(
-                SidebarStatusEntry(
-                    key: Self.resumeBindingGapStatusKey,
-                    value: countText,
-                    icon: "exclamationmark.triangle.fill",
-                    color: "#D14A4A",
-                    priority: 10_000,
-                    timestamp: unresolvedResumeBindingStatusUpdatedAt
-                )
-            )
+        if let gapEntry = sidebarResumeBindingGapStatusEntry() {
+            entries.append(gapEntry)
         }
         return entries.sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }

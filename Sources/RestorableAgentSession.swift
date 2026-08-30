@@ -834,6 +834,13 @@ enum AgentResumeCommandBuilder {
     }
 }
 
+enum RestorableAgentProcessDetectedSessionIDSource: String, Codable, Hashable, Sendable {
+    case explicit
+    case inferredLatestSessionFile
+    case forkParentFallback
+    case relaunchOnly
+}
+
 struct SessionRestorableAgentSnapshot: Codable, Sendable {
     private static let maxInlineForkInputBytes = 900
 
@@ -848,6 +855,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// Verified Codex producer provenance carried by an authoritative binding.
     /// Missing provenance must never be upgraded into an automatic Codex restore.
     var resumeEvidenceProvenance: String? = nil
+    /// Process-detection provenance; hook-backed snapshots leave this unset.
+    var processDetectedSessionIDSource:
+        RestorableAgentProcessDetectedSessionIDSource? = nil
 
     func preparedResumeArguments(
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -981,12 +991,7 @@ struct RestorableAgentSessionIndex: Sendable {
         let containsUnrelatedProcess: Bool
     }
 
-    enum ProcessDetectedSessionIDSource: Equatable, Sendable {
-        case explicit
-        case inferredLatestSessionFile
-        case forkParentFallback
-        case relaunchOnly
-    }
+    typealias ProcessDetectedSessionIDSource = RestorableAgentProcessDetectedSessionIDSource
 
     typealias ProcessDetectedSnapshotEntry = (
         snapshot: SessionRestorableAgentSnapshot,
@@ -2192,7 +2197,9 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
 
-        for (key, detected) in detectedSnapshots {
+        for (key, detectedValue) in detectedSnapshots {
+            var detected = detectedValue
+            detected.snapshot.processDetectedSessionIDSource = detected.sessionIDSource
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]

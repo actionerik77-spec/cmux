@@ -75,10 +75,14 @@ struct SidebarWorkspaceSnapshotFactory {
         }
         let checklistProgress = workspace.checklistProgressSummary
 
-        let sidebarStatusEntries = workspace.sidebarStatusEntriesInDisplayOrder()
-        let metadataEntries = detailVisibility.showsMetadata
-            ? sidebarStatusEntries
-            : sidebarStatusEntries.filter { $0.key == Workspace.resumeBindingGapStatusKey }
+        let metadataEntries: [SidebarStatusEntry]
+        if detailVisibility.showsMetadata {
+            metadataEntries = workspace.sidebarStatusEntriesInDisplayOrder()
+        } else if let gapEntry = workspace.sidebarResumeBindingGapStatusEntry() {
+            metadataEntries = [gapEntry]
+        } else {
+            metadataEntries = []
+        }
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
