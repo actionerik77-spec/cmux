@@ -17,23 +17,37 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind-or-approval-id>][;n=<0|1>]`.
-/// The historical Codex approval form uses `a=<approval-id>`, while newer
-/// ordinary agent events use the same field for a validated agent slug. The
-/// value shape disambiguates the two without changing either wire format.
+/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;k=<uuid>]` meta segment.
+/// Returns `nil` unless BOTH a KNOWN category literal and a valid `p=0|1`
+/// pending flag are present, so the reserved suffix grammar stays exactly the
+/// three known categories — any other `c=...` tail stays part of the legacy
+/// notification body. (`.other` never rides the wire: senders omit the meta
+/// entirely for ungated alerts.)
+///
+/// The optional trailing fields carry agent-event context for the user's
+/// notification-policy hooks: `a=` is either the historical Codex approval
+/// correlation id (for needs-permission events) or a stable lowercase agent
+/// slug (`claude`, `codex`, `grok`, …); `n=` marks a nested subagent session,
+/// and `k=` is an opaque UUID used to clear one notification. Pre-extension
+/// senders emit only `c=;p=` and parse exactly as before.
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
     let approvalID: AgentApprovalCorrelationID?
     let agentKind: String?
     let isSubagent: Bool?
+    /// Opaque identity used by a producer that needs to clear exactly one
+    /// notification without touching newer entries on the same surface.
+    let correlationKey: String?
 
     init?(meta: String) {
         // Accept ONLY the canonical serialization the CLI emits (`c=` then
-        // `p=`, optionally followed by `a=` then `n=`, this order, no
-        // duplicates or extras). Anything else stays part of the legacy body.
+        // `p=`, optionally followed by `a=`, `n=`, then `k=`, this order, no
+        // duplicates or extras). Anything else — reordered, duplicated, or
+        // unknown trailing fields — is not metadata and stays part of the
+        // legacy notification body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        guard (2...4).contains(fields.count),
+        guard (2...5).contains(fields.count),
               fields[0].hasPrefix("c="),
               fields[1].hasPrefix("p=") else { return nil }
         guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))),
@@ -46,6 +60,7 @@ struct AgentNotificationMeta {
         var approvalID: AgentApprovalCorrelationID? = nil
         var agentKind: String? = nil
         var isSubagent: Bool? = nil
+        var correlationKey: String? = nil
         var index = 2
         if index < fields.count, fields[index].hasPrefix("a=") {
             let value = String(fields[index].dropFirst(2))
@@ -66,11 +81,18 @@ struct AgentNotificationMeta {
             }
             index += 1
         }
+        if index < fields.count, fields[index].hasPrefix("k=") {
+            let key = String(fields[index].dropFirst(2))
+            guard let uuid = UUID(uuidString: key) else { return nil }
+            correlationKey = uuid.uuidString.lowercased()
+            index += 1
+        }
         guard index == fields.count else { return nil }
         self.category = known
         self.approvalID = approvalID
         self.agentKind = agentKind
         self.isSubagent = isSubagent
+        self.correlationKey = correlationKey
     }
 
     /// Mirror of the CLI's `AgentHookNotifyCategory.isValidAgentKindTag` slug
@@ -83,6 +105,10 @@ struct AgentNotificationMeta {
                 && (character.isLowercase || character.isNumber
                     || character == "." || character == "_" || character == "-")
         }
+    }
+
+    static func isValidCorrelationKey(_ value: String) -> Bool {
+        UUID(uuidString: value) != nil
     }
 }
 

@@ -43,6 +43,7 @@ fileprivate enum TerminalSocketMutation {
     case stageAgentApproval(QueuedAgentApprovalStage, AgentApprovalMutationToken)
     case resolveAgentApproval(UUID, AgentApprovalCorrelationID, AgentApprovalMutationToken)
     case resolveAgentApprovalScope(UUID, AgentApprovalCorrelationID.Scope, AgentApprovalMutationToken)
+    case clearNotificationsForCorrelation(UUID, UUID, String, through: UInt64)
     case perform(@MainActor () -> Void)
 }
 
@@ -149,8 +150,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             subtitle: subtitle,
             body: body,
             replyShape: replyShape,
-            correlationKey: correlationKey,
-            agent: agent
+            agent: agent,
+            correlationKey: correlationKey
         ), coalesces: coalesces)
     }
 
@@ -314,6 +315,23 @@ final class TerminalMutationBus: @unchecked Sendable {
         ))
     }
 
+    /// Clears one surface notification by its opaque producer correlation
+    /// key. The key is part of the pending entry, so this removes only the
+    /// request being reconciled even when a newer notification is queued on
+    /// the same surface.
+    nonisolated func enqueueClearNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID,
+        correlationKey: String
+    ) {
+        enqueueClear({
+            .clearNotificationsForCorrelation(tabId, surfaceId, correlationKey, through: $0)
+        }) { notification in
+            notification.key.surfaceId == surfaceId
+                && notification.correlationKey == correlationKey
+        }
+    }
+
     nonisolated func enqueueMainActorMutation(_ mutation: @escaping @MainActor () -> Void) {
         enqueueBarrierMutation(.perform(mutation))
     }
@@ -338,6 +356,18 @@ final class TerminalMutationBus: @unchecked Sendable {
         discardPendingNotifications { notification, generation in
             notification.key.tabId == tabId
                 && notification.key.surfaceId == surfaceId
+                && generation <= boundary
+        }
+    }
+
+    nonisolated func discardPendingNotifications(
+        forSurfaceId surfaceId: UUID,
+        correlationKey: String,
+        through boundary: UInt64
+    ) {
+        discardPendingNotifications { notification, generation in
+            notification.key.surfaceId == surfaceId
+                && notification.correlationKey == correlationKey
                 && generation <= boundary
         }
     }
@@ -957,6 +987,13 @@ final class TerminalMutationBus: @unchecked Sendable {
             case .resolveAgentApprovalScope(let surfaceID, let approvalScope, let token):
                 guard approvalTokenIsCurrent(token, workspaceID: nil, surfaceID: surfaceID) else { continue }
                 agentApprovalNotifications.resolve(surfaceID: surfaceID, approvalScope: approvalScope)
+            case .clearNotificationsForCorrelation(let tabId, let surfaceId, let correlationKey, let boundary):
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: tabId,
+                    surfaceId: surfaceId,
+                    correlationKey: correlationKey,
+                    throughNotificationGeneration: boundary
+                )
             case .perform(let mutation):
                 mutation()
             }

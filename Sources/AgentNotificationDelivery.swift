@@ -32,6 +32,7 @@ struct AgentNotificationDelivery: Sendable {
         approvalID: AgentApprovalCorrelationID? = nil,
         agentKind: String? = nil,
         isSubagent: Bool? = nil,
+        correlationKey: String? = nil,
         coalesces: Bool = false
     ) -> Bool {
         if let category,
@@ -68,6 +69,7 @@ struct AgentNotificationDelivery: Sendable {
                 agentKind: agentKind,
                 isSubagent: isSubagent
             ),
+            correlationKey: correlationKey,
             coalesces: coalesces
         )
         return true
