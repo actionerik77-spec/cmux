@@ -26,6 +26,34 @@ private final class PortalBindLayoutCountingView: NSView {
 @MainActor
 @Suite(.serialized)
 struct GhosttyTerminalViewVisibilityPolicyTests {
+    @Test func runningAndCompletionAttentionShareTerminalOrbit() {
+        #expect(WorkspaceContentView.showsTerminalAttentionOrbit(
+            hasPersistentAttention: false,
+            hasRunningAgent: true,
+            usesWorkspacePaneOverlay: false
+        ))
+        #expect(WorkspaceContentView.showsTerminalAttentionOrbit(
+            hasPersistentAttention: true,
+            hasRunningAgent: false,
+            usesWorkspacePaneOverlay: false
+        ))
+        #expect(!WorkspaceContentView.showsTerminalAttentionOrbit(
+            hasPersistentAttention: false,
+            hasRunningAgent: false,
+            usesWorkspacePaneOverlay: false
+        ))
+        #expect(WorkspaceContentView.showsTerminalAttentionOrbit(
+            hasPersistentAttention: false,
+            hasRunningAgent: true,
+            usesWorkspacePaneOverlay: true
+        ))
+        #expect(!WorkspaceContentView.showsTerminalAttentionOrbit(
+            hasPersistentAttention: true,
+            hasRunningAgent: false,
+            usesWorkspacePaneOverlay: true
+        ))
+    }
+
     @Test func persistentOrbitStartsAndStopsWithUnreadState() {
         let size = NSSize(width: 480, height: 320)
         let window = NSWindow(

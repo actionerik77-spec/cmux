@@ -189,6 +189,7 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
+    @State private var agentRuntimeGeneration: UInt64 = 0
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
@@ -213,10 +214,19 @@ struct WorkspaceContentView: View {
         )
     }
 
+    static func showsTerminalAttentionOrbit(
+        hasPersistentAttention: Bool,
+        hasRunningAgent: Bool,
+        usesWorkspacePaneOverlay: Bool
+    ) -> Bool {
+        hasRunningAgent || (hasPersistentAttention && !usesWorkspacePaneOverlay)
+    }
+
     var body: some View {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
 #endif
+        let _ = agentRuntimeGeneration
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
@@ -272,6 +282,8 @@ struct WorkspaceContentView: View {
                     isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
+                let hasRunningAgent =
+                    workspace.agentLifecycleStatesByPanelId[panel.id]?.values.contains(.running) == true
                 if let windowMirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
                     // Every tmux window renders through one stable container,
                     // including its initial one-pane layout.
@@ -309,7 +321,11 @@ struct WorkspaceContentView: View {
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
                         appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
-                        hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        hasUnreadNotification: Self.showsTerminalAttentionOrbit(
+                            hasPersistentAttention: showsNotificationRing,
+                            hasRunningAgent: hasRunningAgent,
+                            usesWorkspacePaneOverlay: usesWorkspacePaneOverlay
+                        ),
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab
@@ -435,6 +451,12 @@ struct WorkspaceContentView: View {
             } else {
                 bonsplitView
             }
+        }
+        .sidebarAgentRuntimeObservation(
+            id: workspace.id,
+            model: workspace.sidebarAgentRuntimeObservation
+        ) {
+            agentRuntimeGeneration &+= 1
         }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
         // A workspace is a page: accept the parent proposal instead of

@@ -396,7 +396,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         attentionOrbitView.setAttentionColor(
             WorkspaceAttentionColor(configuredHex: settings.paneFlashColorHex)
         )
-        attentionOrbitView.setAttentionVisible(model.hasVisibleAttentionIndicator)
+        attentionOrbitView.setAttentionVisible(
+            model.hasVisibleAttentionIndicator || snapshot.activeCodingAgentCount > 0
+        )
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
             backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor

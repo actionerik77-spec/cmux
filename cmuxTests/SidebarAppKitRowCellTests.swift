@@ -14,7 +14,8 @@ struct SidebarAppKitRowCellTests {
         customDescription: String? = nil,
         isPinned: Bool = false,
         metadataEntries: [SidebarStatusEntry] = [],
-        metadataBlocks: [SidebarMetadataBlock] = []
+        metadataBlocks: [SidebarMetadataBlock] = [],
+        activeCodingAgentCount: Int = 0
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
@@ -35,7 +36,7 @@ struct SidebarAppKitRowCellTests {
             metadataBlocks: metadataBlocks,
             latestLog: nil,
             progress: nil,
-            activeCodingAgentCount: 0,
+            activeCodingAgentCount: activeCodingAgentCount,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
@@ -66,6 +67,7 @@ struct SidebarAppKitRowCellTests {
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
+        activeCodingAgentCount: Int = 0,
         shortcutHintText: String? = nil,
         isMarkdownExpanded: Bool = false
     ) -> SidebarWorkspaceRowModel {
@@ -78,7 +80,8 @@ struct SidebarAppKitRowCellTests {
                 customDescription: customDescription,
                 isPinned: isPinned,
                 metadataEntries: metadataEntries,
-                metadataBlocks: metadataBlocks
+                metadataBlocks: metadataBlocks,
+                activeCodingAgentCount: activeCodingAgentCount
             ),
             settings: resolvedSettings,
             isActive: isActive,
@@ -421,6 +424,29 @@ struct SidebarAppKitRowCellTests {
             settings: settings,
             unreadCount: 0,
             hasVisibleAttentionIndicator: true
+        )
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model)
+        defer { window.close() }
+        cell.setPresentationActive(true)
+
+        let state = cell.attentionOrbitStateForTesting
+        #expect(!state.isHidden)
+        #expect(state.baseOpacity == Float(WorkspaceAttentionOrbitPattern.baseOpacity))
+        #expect(state.movingLayerCount == WorkspaceAttentionOrbitPattern.tailBandCount + 1)
+    }
+
+    @Test
+    func runningAgentShowsWorkspaceCardOrbitWithoutUnreadAttention() {
+        let defaults = Self.makeDefaults()
+        defaults.set("#22D3EE", forKey: "notificationPaneFlashColorHex")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let model = Self.makeModel(
+            isActive: true,
+            settings: settings,
+            unreadCount: 0,
+            hasVisibleAttentionIndicator: false,
+            activeCodingAgentCount: 1
         )
         let cell = Self.configuredCell(model: model)
         let window = Self.layoutCell(cell, model: model)

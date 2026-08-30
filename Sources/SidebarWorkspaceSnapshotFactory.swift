@@ -97,8 +97,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 : [],
             latestLog: detailVisibility.showsLog ? workspace.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? workspace.progress : nil,
-            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
-                showsAgentActivity: showsAgentActivity,
+            activeCodingAgentCount: SidebarAgentActivitySummary.activeCodingAgentCount(
                 statesByPanelId: workspace.agentLifecycleStatesByPanelId
             ),
             compactGitBranchSummaryText: compactGitBranchSummaryText,
