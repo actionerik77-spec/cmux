@@ -9624,8 +9624,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
-    private let notificationRingOverlayView: GhosttyFlashOverlayView
-    private let notificationRingLayer: CAShapeLayer
+    private let notificationOrbitView: WorkspaceAttentionOrbitView
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
@@ -9889,8 +9888,7 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
-        notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
-        notificationRingLayer = CAShapeLayer()
+        notificationOrbitView = WorkspaceAttentionOrbitView(frame: .zero)
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         keyboardCopyModeBadgeContainerView = GhosttyFlashOverlayView(frame: .zero)
@@ -9943,25 +9941,11 @@ final class GhosttySurfaceScrollView: NSView {
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
-        notificationRingOverlayView.wantsLayer = true
-        notificationRingOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
-        notificationRingOverlayView.layer?.masksToBounds = false
-        notificationRingOverlayView.autoresizingMask = [.width, .height]
-        let notificationRingStyle = WorkspaceAttentionCoordinator.notificationRingStyle
-        let notificationRingColor = NSColor.systemBlue
-        notificationRingLayer.fillColor = NSColor.clear.cgColor
-        notificationRingLayer.strokeColor = notificationRingColor.cgColor
-        notificationRingLayer.lineWidth = NotificationRingMetrics.lineWidth
-        notificationRingLayer.lineJoin = .round
-        notificationRingLayer.lineCap = .round
-        notificationRingLayer.shadowColor = notificationRingColor.cgColor
-        notificationRingLayer.shadowOpacity = Float(notificationRingStyle.glowOpacity)
-        notificationRingLayer.shadowRadius = notificationRingStyle.glowRadius
-        notificationRingLayer.shadowOffset = .zero
-        notificationRingLayer.opacity = 0
-        notificationRingOverlayView.layer?.addSublayer(notificationRingLayer)
-        notificationRingOverlayView.isHidden = true
-        addSubview(notificationRingOverlayView)
+        notificationOrbitView.frame = bounds
+        notificationOrbitView.autoresizingMask = [.width, .height]
+        notificationOrbitView.setAttentionColor(workspaceAttentionColor)
+        notificationOrbitView.setAttentionVisible(false)
+        addSubview(notificationOrbitView)
         flashOverlayView.wantsLayer = true
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         flashOverlayView.layer?.masksToBounds = false
@@ -10426,7 +10410,7 @@ final class GhosttySurfaceScrollView: NSView {
             // same initial animation as direct drop-zone activation.
             setDropZoneOverlay(zone: pending)
         }
-        _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
+        _ = setFrameIfNeeded(notificationOrbitView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
         if let cloudTerminalReconnectOverlayView {
@@ -10815,17 +10799,7 @@ final class GhosttySurfaceScrollView: NSView {
             }
             return
         }
-
-        let targetHidden = !visible
-        let targetOpacity: Float = visible ? 1 : 0
-        guard notificationRingOverlayView.isHidden != targetHidden ||
-                notificationRingLayer.opacity != targetOpacity else { return }
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        notificationRingOverlayView.isHidden = targetHidden
-        notificationRingLayer.opacity = targetOpacity
-        CATransaction.commit()
+        notificationOrbitView.setAttentionVisible(visible)
     }
 
     func setWorkspaceAttentionColor(_ color: WorkspaceAttentionColor) {
@@ -10833,10 +10807,9 @@ final class GhosttySurfaceScrollView: NSView {
         workspaceAttentionColor = color
         workspaceAttentionNSColor = color.nsColor
 
+        notificationOrbitView.setAttentionColor(color)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        notificationRingLayer.strokeColor = workspaceAttentionNSColor.cgColor
-        notificationRingLayer.shadowColor = workspaceAttentionNSColor.cgColor
         updateFlashAppearance(style: lastFlashStyle)
         CATransaction.commit()
     }
@@ -11436,6 +11409,7 @@ final class GhosttySurfaceScrollView: NSView {
         // cannot draw into a released swap chain during this short transition.
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+        notificationOrbitView.setRenderingActive(visible)
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
@@ -11672,10 +11646,8 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func debugNotificationRingState() -> (isHidden: Bool, opacity: Float) {
-        (
-            notificationRingOverlayView.isHidden,
-            notificationRingLayer.opacity
-        )
+        let state = notificationOrbitView.debugPresentationState()
+        return (state.isHidden, state.baseOpacity)
     }
 
     struct DebugDropZoneOverlayState {
@@ -12950,12 +12922,7 @@ final class GhosttySurfaceScrollView: NSView {
         return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
     }
     private func updateNotificationRingPath() {
-        updateOverlayRingPath(
-            layer: notificationRingLayer,
-            bounds: notificationRingOverlayView.bounds,
-            inset: NotificationRingMetrics.inset,
-            radius: NotificationRingMetrics.cornerRadius
-        )
+        notificationOrbitView.updateGeometry()
     }
 
     private func updateFlashPath(style: FlashStyle) {

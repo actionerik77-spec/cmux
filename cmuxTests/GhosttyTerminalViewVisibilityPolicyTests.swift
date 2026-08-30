@@ -26,6 +26,61 @@ private final class PortalBindLayoutCountingView: NSView {
 @MainActor
 @Suite(.serialized)
 struct GhosttyTerminalViewVisibilityPolicyTests {
+    @Test func persistentOrbitStartsAndStopsWithUnreadState() {
+        let size = NSSize(width: 480, height: 320)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let orbitView = WorkspaceAttentionOrbitView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = orbitView
+        window.orderFront(nil)
+        orbitView.setWindowVisibilityOverride(true)
+        orbitView.setReduceMotionOverride(false)
+        orbitView.layoutSubtreeIfNeeded()
+
+        orbitView.setAttentionVisible(true)
+        var state = orbitView.debugPresentationState()
+        #expect(!state.isHidden)
+        #expect(state.baseOpacity == Float(WorkspaceAttentionOrbitPattern.baseOpacity))
+        #expect(state.movingLayerCount == WorkspaceAttentionOrbitPattern.tailBandCount + 1)
+        #expect(state.animatedLayerCount == state.movingLayerCount)
+
+        orbitView.setAttentionVisible(false)
+        state = orbitView.debugPresentationState()
+        #expect(state.isHidden)
+        #expect(state.baseOpacity == 0)
+        #expect(state.animatedLayerCount == 0)
+        window.close()
+    }
+
+    @Test func persistentOrbitFallsBackToStaticRingForReduceMotion() {
+        let size = NSSize(width: 480, height: 320)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let orbitView = WorkspaceAttentionOrbitView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = orbitView
+        window.orderFront(nil)
+        orbitView.setWindowVisibilityOverride(true)
+        orbitView.setReduceMotionOverride(true)
+        orbitView.layoutSubtreeIfNeeded()
+        orbitView.setAttentionVisible(true)
+
+        let state = orbitView.debugPresentationState()
+        #expect(!state.isHidden)
+        #expect(state.baseOpacity == Float(WorkspaceAttentionOrbitPattern.reducedMotionOpacity))
+        #expect(state.animatedLayerCount == 0)
+        window.close()
+    }
+
     @Test func staleRepresentableCannotOverwriteCurrentHostAttentionColor() {
         let panel = TerminalPanel(workspaceId: UUID())
         let paneId = PaneID()

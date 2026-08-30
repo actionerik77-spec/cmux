@@ -217,6 +217,146 @@ enum PanelOverlayRingMetrics {
     }
 }
 
+struct WorkspaceAttentionOrbitBand: Equatable {
+    let length: CGFloat
+    let startDistanceBehindHead: CGFloat
+    let opacity: CGFloat
+    let lineWidth: CGFloat
+    let highlightMix: CGFloat
+    let glowRadius: CGFloat
+    let glowOpacity: CGFloat
+    let usesRoundCaps: Bool
+}
+
+struct WorkspaceAttentionOrbitGeometry: Equatable {
+    let pathRect: CGRect
+    let cornerRadius: CGFloat
+    let perimeter: CGFloat
+    let headLength: CGFloat
+    let tailLength: CGFloat
+    let tailBands: [WorkspaceAttentionOrbitBand]
+    let head: WorkspaceAttentionOrbitBand
+}
+
+enum WorkspaceAttentionOrbitPattern {
+    static let revolutionDuration: TimeInterval = 3.6
+    static let baseLineWidth: CGFloat = 1.25
+    static let baseOpacity: CGFloat = 0.42
+    static let baseGlowRadius: CGFloat = 1.5
+    static let baseGlowOpacity: CGFloat = 0.14
+    static let reducedMotionLineWidth: CGFloat = PanelOverlayRingMetrics.lineWidth
+    static let reducedMotionOpacity: CGFloat = 0.62
+    static let reducedMotionGlowRadius: CGFloat = 2
+    static let reducedMotionGlowOpacity: CGFloat = 0.18
+    static let tailBandCount = 12
+
+    private struct TailStop {
+        let position: CGFloat
+        let opacity: CGFloat
+        let lineWidth: CGFloat
+        let highlightMix: CGFloat
+    }
+
+    private static let tailStops: [TailStop] = [
+        TailStop(position: 0, opacity: 0, lineWidth: 1, highlightMix: 0),
+        TailStop(position: 0.18, opacity: 0.08, lineWidth: 1.1, highlightMix: 0),
+        TailStop(position: 0.42, opacity: 0.22, lineWidth: 1.4, highlightMix: 0),
+        TailStop(position: 0.66, opacity: 0.44, lineWidth: 1.8, highlightMix: 0),
+        TailStop(position: 0.84, opacity: 0.66, lineWidth: 2.2, highlightMix: 0.10),
+        TailStop(position: 1, opacity: 0.86, lineWidth: 2.5, highlightMix: 0.22),
+    ]
+
+    static func geometry(in bounds: CGRect) -> WorkspaceAttentionOrbitGeometry? {
+        let pathRect = PanelOverlayRingMetrics.pathRect(in: bounds)
+        guard pathRect.width > 0, pathRect.height > 0 else { return nil }
+        let radius = min(
+            PanelOverlayRingMetrics.cornerRadius,
+            pathRect.width / 2,
+            pathRect.height / 2
+        )
+        let perimeter =
+            2 * (pathRect.width + pathRect.height - 4 * radius) +
+            2 * .pi * radius
+        guard perimeter > 0 else { return nil }
+
+        let headLength = min(
+            min(24, max(14, perimeter * 0.010)),
+            perimeter * 0.03
+        )
+        let tailLength = min(
+            min(240, max(120, perimeter * 0.075)),
+            perimeter * 0.18
+        )
+        let bandLength = tailLength / CGFloat(tailBandCount)
+        let tailBands = (0..<tailBandCount).map { index in
+            let style = interpolatedTailStyle(
+                at: (CGFloat(index) + 0.5) / CGFloat(tailBandCount)
+            )
+            return WorkspaceAttentionOrbitBand(
+                length: bandLength,
+                startDistanceBehindHead: headLength + tailLength - CGFloat(index) * bandLength,
+                opacity: style.opacity,
+                lineWidth: style.lineWidth,
+                highlightMix: style.highlightMix,
+                glowRadius: 2,
+                glowOpacity: 0.24 * style.opacity,
+                usesRoundCaps: false
+            )
+        }
+        let head = WorkspaceAttentionOrbitBand(
+            length: headLength,
+            startDistanceBehindHead: headLength,
+            opacity: 1,
+            lineWidth: PanelOverlayRingMetrics.lineWidth,
+            highlightMix: 0.68,
+            glowRadius: 4,
+            glowOpacity: 0.52,
+            usesRoundCaps: true
+        )
+        return WorkspaceAttentionOrbitGeometry(
+            pathRect: pathRect,
+            cornerRadius: radius,
+            perimeter: perimeter,
+            headLength: headLength,
+            tailLength: tailLength,
+            tailBands: tailBands,
+            head: head
+        )
+    }
+
+    static func normalizedPhase(systemUptime: TimeInterval) -> CGFloat {
+        guard systemUptime.isFinite, systemUptime > 0 else { return 0 }
+        let remainder = systemUptime.truncatingRemainder(dividingBy: revolutionDuration)
+        return CGFloat(remainder / revolutionDuration)
+    }
+
+    static func dashPhase(
+        for band: WorkspaceAttentionOrbitBand,
+        perimeter: CGFloat,
+        normalizedPhase: CGFloat
+    ) -> CGFloat {
+        band.startDistanceBehindHead - normalizedPhase * perimeter
+    }
+
+    private static func interpolatedTailStyle(at position: CGFloat) -> TailStop {
+        let position = max(0, min(1, position))
+        guard let upperIndex = tailStops.firstIndex(where: { $0.position >= position }) else {
+            return tailStops[tailStops.count - 1]
+        }
+        guard upperIndex > 0 else { return tailStops[0] }
+        let lower = tailStops[upperIndex - 1]
+        let upper = tailStops[upperIndex]
+        let span = max(upper.position - lower.position, 0.0001)
+        let progress = (position - lower.position) / span
+        return TailStop(
+            position: position,
+            opacity: lower.opacity + (upper.opacity - lower.opacity) * progress,
+            lineWidth: lower.lineWidth + (upper.lineWidth - lower.lineWidth) * progress,
+            highlightMix: lower.highlightMix + (upper.highlightMix - lower.highlightMix) * progress
+        )
+    }
+}
+
 #if DEBUG
 func cmuxFlashDebugID(_ id: UUID?) -> String {
     guard let id else { return "nil" }
