@@ -13249,7 +13249,7 @@ class TerminalController {
         let parsed = parseOptions(trimmed)
         let usage = String(
             localized: "cli.error.clearNotificationsUsage",
-            defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+            defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--approval-id=ID|--approval-scope=SCOPE|--correlation-key=UUID]"
         )
         guard let tabOption = parsed.options["tab"],
               !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
