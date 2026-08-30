@@ -91,6 +91,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             canCloseWorkspace: true,
             accessibilityWorkspaceCount: 1,
             unreadCount: 0,
+            hasVisibleAttentionIndicator: false,
             latestNotificationText: nil,
             showsAgentActivity: settings.details.showAgentActivity,
             rowSpacing: 8,

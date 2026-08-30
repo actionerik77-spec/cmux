@@ -12167,6 +12167,7 @@ struct VerticalTabsSidebar: View, Equatable {
             canCloseWorkspace: input.canCloseWorkspace,
             accessibilityWorkspaceCount: input.workspaceCount,
             unreadCount: input.unreadCount,
+            hasVisibleAttentionIndicator: false,
             latestNotificationText: input.latestNotificationText,
             showsAgentActivity: input.showsAgentActivity,
             rowSpacing: input.rowSpacing,
@@ -12333,6 +12334,10 @@ struct VerticalTabsSidebar: View, Equatable {
                 let summary = snapshot.summary(forWorkspaceId: workspaceId)
                 var fresh = model
                 fresh.unreadCount = summary.unreadCount
+                fresh.hasVisibleAttentionIndicator =
+                    snapshot.unreadSurfaceKeys.contains { $0.workspaceId == workspaceId } ||
+                    snapshot.focusedReadIndicatorByWorkspaceId[workspaceId] != nil ||
+                    snapshot.hasManualUnread(forWorkspaceId: workspaceId)
                 fresh.latestNotificationText = showsNotificationMessage
                     ? summary.latestNotificationText
                     : nil

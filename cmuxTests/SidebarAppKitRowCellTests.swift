@@ -62,6 +62,7 @@ struct SidebarAppKitRowCellTests {
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
         unreadCount: Int = 0,
+        hasVisibleAttentionIndicator: Bool? = nil,
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
@@ -86,6 +87,7 @@ struct SidebarAppKitRowCellTests {
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
             unreadCount: unreadCount,
+            hasVisibleAttentionIndicator: hasVisibleAttentionIndicator ?? (unreadCount > 0),
             latestNotificationText: nil,
             showsAgentActivity: resolvedSettings.details.showAgentActivity,
             rowSpacing: 8,
@@ -417,7 +419,8 @@ struct SidebarAppKitRowCellTests {
         let model = Self.makeModel(
             isActive: true,
             settings: settings,
-            unreadCount: 1
+            unreadCount: 0,
+            hasVisibleAttentionIndicator: true
         )
         let cell = Self.configuredCell(model: model)
         let window = Self.layoutCell(cell, model: model)
